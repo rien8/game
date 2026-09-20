@@ -1,0 +1,9 @@
+build/
+.cache/
+.vscode/
+.vs/
+*.obj
+*.exe
+*.pdb
+*.ilk
+.superpowers/sdd/
