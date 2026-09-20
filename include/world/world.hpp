@@ -29,6 +29,15 @@ public:
     [[nodiscard]] auto width() const noexcept -> std::size_t { return width_; }
     [[nodiscard]] auto height() const noexcept -> std::size_t { return height_; }
 
+    // 每 tick 调用一次：每块 tile 的 biomass 向 biomass_target 逼近。
+    auto regrow_biomass() -> void;
+
+    // 陆地块判定（DeepOcean / Ocean 视为非陆地）。
+    [[nodiscard]] auto is_land(std::size_t x, std::size_t y) const -> bool;
+
+    // 当前世界总生物量（用于世界能量累积）。
+    [[nodiscard]] auto total_biomass() const -> float;
+
 private:
     std::size_t width_;
     std::size_t height_;
