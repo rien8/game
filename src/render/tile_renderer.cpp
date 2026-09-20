@@ -52,15 +52,16 @@ auto gene_color(const Traits& gene) -> std::uint32_t {
 }
 
 auto draw_creature_dot(SDL_Renderer* r, std::int32_t cx, std::int32_t cy,
-                       std::int32_t half, std::uint32_t fill,
+                       std::int32_t size, std::uint32_t fill,
                        std::uint32_t border) -> void {
     SDL_SetRenderDrawColor(r,
         (fill >> 0) & 0xFFu, (fill >> 8) & 0xFFu, (fill >> 16) & 0xFFu, 0xFFu);
+    const std::int32_t half = size / 2;
     SDL_FRect fill_rect{
         static_cast<float>(cx - half),
         static_cast<float>(cy - half),
-        static_cast<float>(half * 2 + 1),
-        static_cast<float>(half * 2 + 1)
+        static_cast<float>(size),
+        static_cast<float>(size)
     };
     SDL_RenderFillRect(r, &fill_rect);
     if (border != 0) {
@@ -69,8 +70,8 @@ auto draw_creature_dot(SDL_Renderer* r, std::int32_t cx, std::int32_t cy,
         SDL_FRect b{
             static_cast<float>(cx - half - 1),
             static_cast<float>(cy - half - 1),
-            static_cast<float>(half * 2 + 3),
-            static_cast<float>(half * 2 + 3)
+            static_cast<float>(size + 2),
+            static_cast<float>(size + 2)
         };
         SDL_RenderRect(r, &b);
     }
