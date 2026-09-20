@@ -1,6 +1,8 @@
 #include "world/world_generator.hpp"
 
 #include "FastNoiseLite.h"
+#include "core/creature.hpp"
+#include "core/gene.hpp"
 #include "pcg/mapping.hpp"
 #include "pcg/noise_field.hpp"
 #include "pcg/seed.hpp"
@@ -138,6 +140,45 @@ auto WorldGenerator::generate(std::uint64_t seed) const -> World {
     }
 
     return world;
+}
+
+namespace {
+constexpr std::uint32_t kInitialCreatureSalt = 0x1C7Eu;
+}  // namespace
+
+auto populate_initial_creatures(const World& world,
+                                std::size_t count,
+                                std::uint64_t seed) -> std::vector<Creature> {
+    std::vector<Creature> out;
+    out.reserve(count);
+
+    // 收集所有陆地坐标。
+    std::vector<Position> land_tiles;
+    for (std::size_t y = 0; y < world.height(); ++y) {
+        for (std::size_t x = 0; x < world.width(); ++x) {
+            if (world.is_land(x, y)) land_tiles.push_back({x, y});
+        }
+    }
+    if (land_tiles.empty()) return out;
+
+    auto rng = std::mt19937_64{pcg::derive_seed(seed, kInitialCreatureSalt)};
+    std::uniform_int_distribution<std::size_t> tile_pick(0, land_tiles.size() - 1);
+    std::uniform_real_distribution<float> gene_pick(0.0f, 1.0f);
+
+    for (std::size_t i = 0; i < count; ++i) {
+        const Position& p = land_tiles[tile_pick(rng)];
+        Traits gene;
+        for (auto& v : gene.values) v = gene_pick(rng);
+        Creature c;
+        c.id = i + 1;
+        c.pos = p;
+        c.gene = gene;
+        c.name = make_name(gene);
+        c.hunger = 1.0f;
+        c.energy = 1.0f;
+        out.push_back(std::move(c));
+    }
+    return out;
 }
 
 }  // namespace game
