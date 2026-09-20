@@ -570,6 +570,7 @@ Replace the entire file with:
 ```cpp
 #include "core/evolution.hpp"
 
+#include "core/gene.hpp"        // 提供 free function mutate / crossover / distance / fitness
 #include "pcg/seed.hpp"
 
 #include <algorithm>
@@ -587,13 +588,6 @@ constexpr std::uint32_t kEvolutionSalt = 0xE701u;
 
 EvolutionEngine::EvolutionEngine(Params params, std::uint64_t seed)
     : params_(params), rng_(pcg::derive_seed(seed, kEvolutionSalt)) {}
-
-void mutate(Traits& traits, float strength, std::mt19937_64& rng) {
-    std::normal_distribution<float> dist{0.0f, strength};
-    for (auto& value : traits.values) {
-        value = std::clamp(value + dist(rng), 0.0f, 1.0f);
-    }
-}
 
 auto EvolutionEngine::mean_fitness(std::span<const Creature> creatures) const -> float {
     if (creatures.empty()) return 0.0f;
