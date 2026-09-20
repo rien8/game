@@ -26,7 +26,6 @@ struct Event {
 class EvolutionEngine {
 public:
     struct Params {
-        float mutation_rate = 0.1f;
         float mutation_strength = 0.1f;
         float elite_threshold_sigma = 2.5f;
         std::uint32_t boss_streak_ticks = 30;
