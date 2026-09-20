@@ -13,6 +13,9 @@ struct Tile {
     float temperature = 0.0f;  // 温度 [0, 1]
     float moisture = 0.0f;     // 湿度 [0, 1]
     Biome biome = Biome::DeepOcean;
+    float biomass = 0.0f;            // 当前食物量 [0, 1]
+    float biomass_target = 0.0f;     // 该 biome 的"满载"基线（生成时由 WorldGenerator 写入）
+    float biomass_regrowth = 0.0f;   // 每 tick 重生率（生成时写入）
 };
 
 // 二维 tile 网格，内部一维扁平存储。
