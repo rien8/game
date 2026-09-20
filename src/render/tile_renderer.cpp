@@ -94,6 +94,12 @@ auto TileRenderer::create(std::size_t tile_width,
         return std::unexpected(std::format("SDL_CreateRenderer failed: {}", SDL_GetError()));
     }
 
+    // 用 tile 坐标系作为逻辑呈现尺寸；SDL 自动拉伸到窗口。
+    // 这样 render_creatures 用 tile 坐标直接画点，不用自己换算缩放。
+    SDL_SetRenderLogicalPresentation(renderer,
+        static_cast<int>(tile_width), static_cast<int>(tile_height),
+        SDL_LOGICAL_PRESENTATION_LETTERBOX);
+
     SDL_Texture* texture = SDL_CreateTexture(
         renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING,
         static_cast<int>(tile_width), static_cast<int>(tile_height));
@@ -127,6 +133,7 @@ TileRenderer::TileRenderer(std::unique_ptr<SDL_Window, WindowDeleter> window,
       pixels_(width * height) {}
 
 void TileRenderer::render(const World& world) {
+    SDL_RenderClear(renderer_.get());  // 清 back buffer，让 logical 背景变黑
     for (std::size_t y = 0; y < height_; ++y) {
         for (std::size_t x = 0; x < width_; ++x) {
             pixels_[y * width_ + x] = biome_color(world.at(x, y).biome);
@@ -136,7 +143,7 @@ void TileRenderer::render(const World& world) {
     SDL_UpdateTexture(texture_.get(), nullptr, pixels_.data(),
                       static_cast<int>(width_ * sizeof(std::uint32_t)));
     SDL_RenderTexture(renderer_.get(), texture_.get(), nullptr, nullptr);
-    SDL_RenderPresent(renderer_.get());
+    // 不在这里 SDL_RenderPresent — main.cpp 在画完生物 + HUD 后统一 present。
 }
 
 void TileRenderer::render_creatures(std::span<const Creature> creatures) {
@@ -153,10 +160,11 @@ void TileRenderer::render_creatures(std::span<const Creature> creatures) {
         if (c.is_boss)  { half = 2; border = kBossBorder; }
         draw_creature_dot(r, cx, cy, half, gene_color(c.gene), border);
         if (c.is_boss && !c.name.empty()) {
+            // SDL_RenderDebugText 只支持 ASCII；用单个 'B' 标识 boss 而非多字节中文。
             SDL_RenderDebugTextFormat(r,
                 static_cast<float>(cx + 3),
                 static_cast<float>(cy - 6),
-                "%.1s", c.name.c_str());
+                "B");
         }
     }
 }
