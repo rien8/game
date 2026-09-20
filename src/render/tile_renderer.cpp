@@ -95,11 +95,8 @@ auto TileRenderer::create(std::size_t tile_width,
         return std::unexpected(std::format("SDL_CreateRenderer failed: {}", SDL_GetError()));
     }
 
-    // 用 tile 坐标系作为逻辑呈现尺寸；SDL 自动拉伸到窗口。
-    // 这样 render_creatures 用 tile 坐标直接画点，不用自己换算缩放。
-    SDL_SetRenderLogicalPresentation(renderer,
-        static_cast<int>(tile_width), static_cast<int>(tile_height),
-        SDL_LOGICAL_PRESENTATION_LETTERBOX);
+    // 不开 logical presentation：直接按窗口像素渲染，下一个 tick=窗口像素 / tile 像素。
+    // 这样 render_creatures 用 c.pos.x * kPxPerTile 算屏幕坐标。
 
     SDL_Texture* texture = SDL_CreateTexture(
         renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING,
@@ -151,20 +148,29 @@ void TileRenderer::render_creatures(std::span<const Creature> creatures) {
     constexpr std::uint32_t kEliteBorder = (0xFFu << 0) | (0xE0u << 8) | (0x00u << 16);  // 黄
     constexpr std::uint32_t kBossBorder  = (0x40u << 0) | (0x40u << 8) | (0xFFu << 16);  // 红
     auto* r = renderer_.get();
+
+    // tile → 窗口像素缩放因子。kWindowWidth/height_ 都是已知整数常量，
+    // 编译期算出 px-per-tile（这里 tile 80×60 配 1280×960 = 16x）。
+    const std::int32_t sx = static_cast<std::int32_t>(kWindowWidth / static_cast<int>(width_));
+    const std::int32_t sy = static_cast<std::int32_t>(kWindowHeight / static_cast<int>(height_));
+    const std::int32_t px_per_tile = (sx < sy) ? sx : sy;  // 短边为准（防纵横比差时变形）
+
     for (const auto& c : creatures) {
         if (c.dead) continue;
-        const std::int32_t cx = static_cast<std::int32_t>(c.pos.x);
-        const std::int32_t cy = static_cast<std::int32_t>(c.pos.y);
-        std::int32_t half = 1;
+        // 屏幕中心 = (tile 中心) * px_per_tile
+        const std::int32_t cx = static_cast<std::int32_t>(c.pos.x) * px_per_tile + px_per_tile / 2;
+        const std::int32_t cy = static_cast<std::int32_t>(c.pos.y) * px_per_tile + px_per_tile / 2;
+        // dot 尺寸（窗口像素）：normal 4×4 / elite 8×8（黄边）/ boss 12×12（红边）
+        std::int32_t size = 4;
         std::uint32_t border = 0;
-        if (c.is_elite) { half = 1; border = kEliteBorder; }
-        if (c.is_boss)  { half = 2; border = kBossBorder; }
-        draw_creature_dot(r, cx, cy, half, gene_color(c.gene), border);
+        if (c.is_elite) { size = 8; border = kEliteBorder; }
+        if (c.is_boss)  { size = 12; border = kBossBorder; }
+        draw_creature_dot(r, cx, cy, size, gene_color(c.gene), border);
         if (c.is_boss && !c.name.empty()) {
             // SDL_RenderDebugText 只支持 ASCII；用单个 'B' 标识 boss 而非多字节中文。
-            SDL_RenderDebugTextFormat(r,
-                static_cast<float>(cx + 3),
-                static_cast<float>(cy - 6),
+            SDL_RenderDebugText(r,
+                static_cast<float>(cx + 6),
+                static_cast<float>(cy - px_per_tile / 2 - 2),
                 "B");
         }
     }
@@ -173,11 +179,12 @@ void TileRenderer::render_creatures(std::span<const Creature> creatures) {
 void TileRenderer::render_hud(std::uint64_t tick, std::size_t pop, float energy,
                               bool paused, float speed) {
     auto* r = renderer_.get();
+    // HUD 用窗口像素坐标（与 tile 系统无关）
     SDL_SetRenderDrawColor(r, 0, 0, 0, 0xC0u);  // 半透明黑底
-    SDL_FRect bg{2.0f, 2.0f, 220.0f, 60.0f};
+    SDL_FRect bg{8.0f, 8.0f, 280.0f, 56.0f};
     SDL_RenderFillRect(r, &bg);
     SDL_SetRenderDrawColor(r, 220, 220, 220, 0xFFu);
-    SDL_RenderDebugTextFormat(r, 6.0f, 4.0f,
+    SDL_RenderDebugTextFormat(r, 14.0f, 12.0f,
         "tick=%llu pop=%zu E=%.0f %s x%.1f",
         static_cast<unsigned long long>(tick), pop, energy,
         paused ? "PAUSE" : "RUN", speed);
