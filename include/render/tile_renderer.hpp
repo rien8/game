@@ -8,9 +8,12 @@
 #include <cstdint>
 #include <expected>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include "core/creature.hpp"
 
 namespace game {
 
@@ -30,6 +33,11 @@ public:
     ~TileRenderer() = default;
 
     void render(const World& world);
+    void render_creatures(std::span<const Creature> creatures);
+    void render_hud(std::uint64_t tick, std::size_t pop, float energy,
+                    bool paused, float speed);
+
+    [[nodiscard]] auto raw_renderer() noexcept -> SDL_Renderer* { return renderer_.get(); }
 
     [[nodiscard]] auto window() noexcept -> SDL_Window* { return window_.get(); }
 
