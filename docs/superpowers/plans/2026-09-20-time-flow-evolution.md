@@ -253,9 +253,7 @@ Expected: build OK.
 Then verify biomass is wired correctly via a temporary 1-line probe (insert, build, run, remove). Insert in `src/world/world_generator.cpp` at the end of `generate()` just before `return world;`:
 
 ```cpp
-    float t = 0.0f;
-    for (const auto& tile : world.tiles_) t += tile.biomass;
-    std::fprintf(stderr, "[probe] total_biomass=%f\n", t);
+    std::fprintf(stderr, "[probe] total_biomass=%f\n", world.total_biomass());
 ```
 
 Build, run (existing main still prints generations), confirm stderr shows a non-zero value, **then remove the probe line and rebuild**.

@@ -7,7 +7,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cstdio>
 #include <span>
 #include <utility>
 
