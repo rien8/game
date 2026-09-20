@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdio>
 #include <span>
 #include <utility>
 
@@ -33,6 +34,28 @@ constexpr std::array<std::pair<float, Biome>, 3> kWaterThresholds = {{
 }};
 
 // Whittaker 生物群系图的简化映射。
+struct BiomassProfile {
+    float target;
+    float regrowth;
+};
+
+constexpr auto biomass_for(Biome b) -> BiomassProfile {
+    switch (b) {
+        case Biome::DeepOcean:  return {0.0f, 0.0f};
+        case Biome::Ocean:      return {0.0f, 0.0f};
+        case Biome::Beach:      return {0.3f, 0.10f};
+        case Biome::Grassland:  return {0.7f, 0.15f};
+        case Biome::Forest:     return {0.9f, 0.10f};
+        case Biome::Rainforest: return {1.0f, 0.10f};
+        case Biome::Desert:     return {0.1f, 0.03f};
+        case Biome::Mountain:   return {0.1f, 0.03f};
+        case Biome::Snowcap:    return {0.1f, 0.03f};
+        case Biome::Swamp:      return {0.6f, 0.08f};
+        case Biome::Tundra:     return {0.2f, 0.05f};
+    }
+    return {0.0f, 0.0f};
+}
+
 auto classify_biome(float elevation, float temperature, float moisture) -> Biome {
     // 水域：单变量海拔阈值分类。
     if (elevation < kBeachMax) {
@@ -108,6 +131,10 @@ auto WorldGenerator::generate(std::uint64_t seed) const -> World {
             tile.moisture = moisture;
             tile.temperature = temperature;
             tile.biome = classify_biome(elevation, temperature, moisture);
+            const auto profile = biomass_for(tile.biome);
+            tile.biomass_target = profile.target;
+            tile.biomass_regrowth = profile.regrowth;
+            tile.biomass = profile.target;  // 初始即满载
         }
     }
 
