@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/creature.hpp"
 #include "world/world.hpp"
 
 #include <cstddef>
@@ -19,5 +20,10 @@ private:
     std::size_t width_;
     std::size_t height_;
 };
+
+// 在陆地上生成初始生物。
+auto populate_initial_creatures(const World& world,
+                               std::size_t count,
+                               std::uint64_t seed) -> std::vector<Creature>;
 
 }  // namespace game

@@ -20,6 +20,7 @@ add_executable(gamev2
     src/core/gene.cpp
     src/core/creature.cpp
     src/core/evolution.cpp
+    src/core/simulation.cpp
     src/world/world.cpp
     src/world/world_generator.cpp
     src/render/tile_renderer.cpp

@@ -142,9 +142,7 @@ auto WorldGenerator::generate(std::uint64_t seed) const -> World {
     return world;
 }
 
-namespace {
 constexpr std::uint32_t kInitialCreatureSalt = 0x1C7Eu;
-}  // namespace
 
 auto populate_initial_creatures(const World& world,
                                 std::size_t count,

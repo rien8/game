@@ -38,7 +38,7 @@ public:
         EvolutionEngine::Params evolution{};
     };
 
-    Simulation(World world, std::uint64_t seed, Params params = {});
+    Simulation(World world, std::uint64_t seed, Params params);
 
     // 主入口。
     auto advance(float real_dt, float speed) -> void;
