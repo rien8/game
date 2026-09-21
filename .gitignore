@@ -6,4 +6,6 @@ build/
 *.exe
 *.pdb
 *.ilk
+*.log
 .superpowers/sdd/
+temp/

@@ -1,0 +1,839 @@
+{
+  "canvasSize": 256,
+  "whiteThresh": 235,
+  "categories": {
+    "torso": {
+      "zOrder": 0,
+      "parts": [
+        {
+          "id": "torso_001",
+          "file": "torso/torso_001.png",
+          "bbox": [
+            18,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "torso_002",
+          "file": "torso/torso_002.png",
+          "bbox": [
+            18,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "torso_003",
+          "file": "torso/torso_003.png",
+          "bbox": [
+            18,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "torso_004",
+          "file": "torso/torso_004.png",
+          "bbox": [
+            18,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "torso_005",
+          "file": "torso/torso_005.png",
+          "bbox": [
+            18,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "torso_006",
+          "file": "torso/torso_006.png",
+          "bbox": [
+            18,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "torso_007",
+          "file": "torso/torso_007.png",
+          "bbox": [
+            18,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "torso_008",
+          "file": "torso/torso_008.png",
+          "bbox": [
+            18,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "torso_009",
+          "file": "torso/torso_009.png",
+          "bbox": [
+            18,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "torso_010",
+          "file": "torso/torso_010.png",
+          "bbox": [
+            18,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "torso_011",
+          "file": "torso/torso_011.png",
+          "bbox": [
+            18,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "torso_012",
+          "file": "torso/torso_012.png",
+          "bbox": [
+            18,
+            18,
+            220,
+            220
+          ]
+        }
+      ],
+      "attachFront": [
+        160,
+        70
+      ],
+      "attachBack": [
+        50,
+        130
+      ]
+    },
+    "wing": {
+      "zOrder": 1,
+      "parts": [
+        {
+          "id": "wing_001",
+          "file": "wing/wing_001.png",
+          "bbox": [
+            8,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "wing_002",
+          "file": "wing/wing_002.png",
+          "bbox": [
+            8,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "wing_003",
+          "file": "wing/wing_003.png",
+          "bbox": [
+            8,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "wing_004",
+          "file": "wing/wing_004.png",
+          "bbox": [
+            8,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "wing_005",
+          "file": "wing/wing_005.png",
+          "bbox": [
+            8,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "wing_006",
+          "file": "wing/wing_006.png",
+          "bbox": [
+            8,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "wing_007",
+          "file": "wing/wing_007.png",
+          "bbox": [
+            8,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "wing_008",
+          "file": "wing/wing_008.png",
+          "bbox": [
+            8,
+            18,
+            220,
+            220
+          ]
+        }
+      ],
+      "attachSide": "left",
+      "attachPoint": [
+        228,
+        128
+      ]
+    },
+    "tail": {
+      "zOrder": 2,
+      "parts": [
+        {
+          "id": "tail_001",
+          "file": "tail/tail_001.png",
+          "bbox": [
+            8,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "tail_002",
+          "file": "tail/tail_002.png",
+          "bbox": [
+            8,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "tail_003",
+          "file": "tail/tail_003.png",
+          "bbox": [
+            8,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "tail_004",
+          "file": "tail/tail_004.png",
+          "bbox": [
+            8,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "tail_005",
+          "file": "tail/tail_005.png",
+          "bbox": [
+            8,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "tail_006",
+          "file": "tail/tail_006.png",
+          "bbox": [
+            8,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "tail_007",
+          "file": "tail/tail_007.png",
+          "bbox": [
+            8,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "tail_008",
+          "file": "tail/tail_008.png",
+          "bbox": [
+            8,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "tail_009",
+          "file": "tail/tail_009.png",
+          "bbox": [
+            8,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "tail_010",
+          "file": "tail/tail_010.png",
+          "bbox": [
+            8,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "tail_011",
+          "file": "tail/tail_011.png",
+          "bbox": [
+            8,
+            18,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "tail_012",
+          "file": "tail/tail_012.png",
+          "bbox": [
+            8,
+            18,
+            220,
+            220
+          ]
+        }
+      ],
+      "attachSide": "left",
+      "attachPoint": [
+        228,
+        128
+      ]
+    },
+    "hindlimb": {
+      "zOrder": 3,
+      "parts": [
+        {
+          "id": "hindlimb_001",
+          "file": "hindlimb/hindlimb_001.png",
+          "bbox": [
+            18,
+            8,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "hindlimb_002",
+          "file": "hindlimb/hindlimb_002.png",
+          "bbox": [
+            18,
+            8,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "hindlimb_003",
+          "file": "hindlimb/hindlimb_003.png",
+          "bbox": [
+            18,
+            8,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "hindlimb_004",
+          "file": "hindlimb/hindlimb_004.png",
+          "bbox": [
+            18,
+            8,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "hindlimb_005",
+          "file": "hindlimb/hindlimb_005.png",
+          "bbox": [
+            18,
+            8,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "hindlimb_006",
+          "file": "hindlimb/hindlimb_006.png",
+          "bbox": [
+            18,
+            8,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "hindlimb_007",
+          "file": "hindlimb/hindlimb_007.png",
+          "bbox": [
+            18,
+            8,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "hindlimb_008",
+          "file": "hindlimb/hindlimb_008.png",
+          "bbox": [
+            18,
+            8,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "hindlimb_009",
+          "file": "hindlimb/hindlimb_009.png",
+          "bbox": [
+            18,
+            8,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "hindlimb_010",
+          "file": "hindlimb/hindlimb_010.png",
+          "bbox": [
+            18,
+            8,
+            220,
+            217
+          ]
+        },
+        {
+          "id": "hindlimb_011",
+          "file": "hindlimb/hindlimb_011.png",
+          "bbox": [
+            18,
+            8,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "hindlimb_012",
+          "file": "hindlimb/hindlimb_012.png",
+          "bbox": [
+            18,
+            8,
+            220,
+            220
+          ]
+        }
+      ],
+      "attachSide": "top",
+      "attachPoint": [
+        128,
+        8
+      ]
+    },
+    "forelimb": {
+      "zOrder": 4,
+      "parts": [
+        {
+          "id": "forelimb_001",
+          "file": "forelimb/forelimb_001.png",
+          "bbox": [
+            18,
+            8,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "forelimb_002",
+          "file": "forelimb/forelimb_002.png",
+          "bbox": [
+            18,
+            8,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "forelimb_003",
+          "file": "forelimb/forelimb_003.png",
+          "bbox": [
+            18,
+            8,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "forelimb_004",
+          "file": "forelimb/forelimb_004.png",
+          "bbox": [
+            18,
+            8,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "forelimb_005",
+          "file": "forelimb/forelimb_005.png",
+          "bbox": [
+            18,
+            8,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "forelimb_006",
+          "file": "forelimb/forelimb_006.png",
+          "bbox": [
+            18,
+            8,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "forelimb_007",
+          "file": "forelimb/forelimb_007.png",
+          "bbox": [
+            18,
+            8,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "forelimb_008",
+          "file": "forelimb/forelimb_008.png",
+          "bbox": [
+            18,
+            8,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "forelimb_009",
+          "file": "forelimb/forelimb_009.png",
+          "bbox": [
+            18,
+            8,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "forelimb_010",
+          "file": "forelimb/forelimb_010.png",
+          "bbox": [
+            18,
+            8,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "forelimb_011",
+          "file": "forelimb/forelimb_011.png",
+          "bbox": [
+            18,
+            8,
+            220,
+            217
+          ]
+        },
+        {
+          "id": "forelimb_012",
+          "file": "forelimb/forelimb_012.png",
+          "bbox": [
+            18,
+            8,
+            220,
+            220
+          ]
+        }
+      ],
+      "attachSide": "top",
+      "attachPoint": [
+        128,
+        8
+      ]
+    },
+    "head": {
+      "zOrder": 5,
+      "parts": [
+        {
+          "id": "head_001",
+          "file": "head/head_001.png",
+          "bbox": [
+            18,
+            28,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "head_002",
+          "file": "head/head_002.png",
+          "bbox": [
+            18,
+            28,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "head_003",
+          "file": "head/head_003.png",
+          "bbox": [
+            18,
+            28,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "head_004",
+          "file": "head/head_004.png",
+          "bbox": [
+            18,
+            28,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "head_005",
+          "file": "head/head_005.png",
+          "bbox": [
+            18,
+            28,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "head_006",
+          "file": "head/head_006.png",
+          "bbox": [
+            18,
+            28,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "head_007",
+          "file": "head/head_007.png",
+          "bbox": [
+            18,
+            28,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "head_008",
+          "file": "head/head_008.png",
+          "bbox": [
+            18,
+            28,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "head_009",
+          "file": "head/head_009.png",
+          "bbox": [
+            18,
+            28,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "head_010",
+          "file": "head/head_010.png",
+          "bbox": [
+            18,
+            28,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "head_011",
+          "file": "head/head_011.png",
+          "bbox": [
+            18,
+            28,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "head_012",
+          "file": "head/head_012.png",
+          "bbox": [
+            18,
+            28,
+            220,
+            220
+          ]
+        }
+      ],
+      "attachSide": "bottom",
+      "attachPoint": [
+        128,
+        248
+      ]
+    },
+    "horn": {
+      "zOrder": 6,
+      "parts": [
+        {
+          "id": "horn_001",
+          "file": "horn/horn_001.png",
+          "bbox": [
+            18,
+            20,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "horn_002",
+          "file": "horn/horn_002.png",
+          "bbox": [
+            18,
+            20,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "horn_003",
+          "file": "horn/horn_003.png",
+          "bbox": [
+            18,
+            20,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "horn_004",
+          "file": "horn/horn_004.png",
+          "bbox": [
+            18,
+            20,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "horn_005",
+          "file": "horn/horn_005.png",
+          "bbox": [
+            18,
+            20,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "horn_006",
+          "file": "horn/horn_006.png",
+          "bbox": [
+            18,
+            20,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "horn_007",
+          "file": "horn/horn_007.png",
+          "bbox": [
+            18,
+            20,
+            220,
+            220
+          ]
+        },
+        {
+          "id": "horn_008",
+          "file": "horn/horn_008.png",
+          "bbox": [
+            18,
+            20,
+            220,
+            220
+          ]
+        }
+      ],
+      "attachSide": "bottom",
+      "attachPoint": [
+        128,
+        240
+      ]
+    }
+  }
+}

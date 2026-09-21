@@ -32,3 +32,8 @@
 - 字符串：`std::string_view`（只读）/ `std::string`（拥有），禁止 C 字符串函数。
 - 错误处理：优先 `std::expected`（C++23）；模板用 concepts，禁止裸 `typename`。
 - 不在头文件中使用 `using namespace`。
+
+## 临时文件
+- 截图、调试 crop、运行日志、一次性脚本都放 `temp/`（已在 `.gitignore`，不入版本控制）。
+- 项目根目录只放正式脚本（`build.ps1`）和源码；实验性 / 验证性产物必须进 `temp/`。
+- `temp/` 里东西可随时删，不影响构建；正式工具链脚本要进版本控制前，先移到 `scripts/` 或根目录。

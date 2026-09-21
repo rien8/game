@@ -2,9 +2,11 @@
 
 #include <bit>
 #include <format>
+#include <optional>
 #include <span>
 
 #include "core/creature.hpp"
+#include "render/creature_assembler.hpp"
 
 namespace game {
 
@@ -115,6 +117,8 @@ auto TileRenderer::create(std::size_t tile_width,
         std::unique_ptr<SDL_Texture, TextureDeleter>{texture},
         tile_width,
         tile_height,
+        kWindowWidth,
+        kWindowHeight,
     };
 }
 
@@ -122,25 +126,43 @@ TileRenderer::TileRenderer(std::unique_ptr<SDL_Window, WindowDeleter> window,
                            std::unique_ptr<SDL_Renderer, RendererDeleter> renderer,
                            std::unique_ptr<SDL_Texture, TextureDeleter> texture,
                            std::size_t width,
-                           std::size_t height)
+                           std::size_t height,
+                           int window_w,
+                           int window_h)
     : window_(std::move(window)),
       renderer_(std::move(renderer)),
       texture_(std::move(texture)),
       width_(width),
       height_(height),
+      window_w_(window_w),
+      window_h_(window_h),
       pixels_(width * height) {}
 
 void TileRenderer::render(const World& world) {
-    SDL_RenderClear(renderer_.get());  // 清 back buffer，让 logical 背景变黑
+    SDL_RenderClear(renderer_.get());
     for (std::size_t y = 0; y < height_; ++y) {
         for (std::size_t x = 0; x < width_; ++x) {
             pixels_[y * width_ + x] = biome_color(world.at(x, y).biome);
         }
     }
-
     SDL_UpdateTexture(texture_.get(), nullptr, pixels_.data(),
                       static_cast<int>(width_ * sizeof(std::uint32_t)));
-    SDL_RenderTexture(renderer_.get(), texture_.get(), nullptr, nullptr);
+
+    // 视口 = 屏幕中心 ± 半个可见 tile 数。源 / 目标 rect 按相机缩放。
+    // 注意 px_per_tile = 0 是未初始化状态，兜底为 1 防除零。
+    const int p = std::max(1, camera_.px_per_tile);
+    const float vis_w = static_cast<float>(window_w_) / static_cast<float>(p);
+    const float vis_h = static_cast<float>(window_h_) / static_cast<float>(p);
+    const SDL_FRect src{
+        camera_.tile_cx - vis_w * 0.5f,
+        camera_.tile_cy - vis_h * 0.5f,
+        vis_w,
+        vis_h,
+    };
+    const SDL_FRect dst{0.0f, 0.0f,
+                        static_cast<float>(window_w_),
+                        static_cast<float>(window_h_)};
+    SDL_RenderTexture(renderer_.get(), texture_.get(), &src, &dst);
     // 不在这里 SDL_RenderPresent — main.cpp 在画完生物 + HUD 后统一 present。
 }
 
@@ -149,31 +171,126 @@ void TileRenderer::render_creatures(std::span<const Creature> creatures) {
     constexpr std::uint32_t kBossBorder  = (0x40u << 0) | (0x40u << 8) | (0xFFu << 16);  // 红
     auto* r = renderer_.get();
 
-    // tile → 窗口像素缩放因子。kWindowWidth/height_ 都是已知整数常量，
-    // 编译期算出 px-per-tile（这里 tile 80×60 配 1280×960 = 16x）。
-    const std::int32_t sx = static_cast<std::int32_t>(kWindowWidth / static_cast<int>(width_));
-    const std::int32_t sy = static_cast<std::int32_t>(kWindowHeight / static_cast<int>(height_));
-    const std::int32_t px_per_tile = (sx < sy) ? sx : sy;  // 短边为准（防纵横比差时变形）
+    // 相机：屏幕中心对应的世界 tile + 像素每 tile（缩放）
+    const int p = std::max(1, camera_.px_per_tile);
+    const float cam_cx = camera_.tile_cx;
+    const float cam_cy = camera_.tile_cy;
+    const int win_cx = window_w_ / 2;
+    const int win_cy = window_h_ / 2;
+
+    // sprite 设计画布 → 窗口像素：tile px_per_tile 越大 sprite 也越大
+    constexpr int kSpriteCanvasPxBase = 64;
+    const int kSpriteCanvasPx = std::max(8, kSpriteCanvasPxBase * p / 16);
 
     for (const auto& c : creatures) {
         if (c.dead) continue;
-        // 屏幕中心 = (tile 中心) * px_per_tile
-        const std::int32_t cx = static_cast<std::int32_t>(c.pos.x) * px_per_tile + px_per_tile / 2;
-        const std::int32_t cy = static_cast<std::int32_t>(c.pos.y) * px_per_tile + px_per_tile / 2;
-        // dot 尺寸（窗口像素）：normal 4×4 / elite 8×8（黄边）/ boss 12×12（红边）
-        std::int32_t size = 4;
+
+        // tile 中心 → 屏幕像素
+        const std::int32_t cx = static_cast<std::int32_t>(
+            (static_cast<float>(c.pos.x) + 0.5f - cam_cx) * static_cast<float>(p))
+            + win_cx;
+        const std::int32_t cy = static_cast<std::int32_t>(
+            (static_cast<float>(c.pos.y) + 0.5f - cam_cy) * static_cast<float>(p))
+            + win_cy;
+
+        if (assembler_ != nullptr) {
+            std::optional<SDL_Color> tint;
+            if (c.is_boss) {
+                tint = SDL_Color{0xFFu, 0x60u, 0x60u, 0xFFu};
+            } else if (c.is_elite) {
+                tint = SDL_Color{0xFFu, 0xE0u, 0x60u, 0xFFu};
+            }
+            const AppearanceGene gene = derive_appearance(c.gene);
+            assembler_->render(r, gene, cx, cy, kSpriteCanvasPx, tint);
+
+            if (c.is_boss && !c.name.empty()) {
+                SDL_RenderDebugText(r,
+                    static_cast<float>(cx + kSpriteCanvasPx / 2 + 2),
+                    static_cast<float>(cy - kSpriteCanvasPx / 2 - 2),
+                    "B");
+            }
+            continue;
+        }
+
+        // dot 兜底模式
+        std::int32_t size = std::max(2, p / 4);
         std::uint32_t border = 0;
-        if (c.is_elite) { size = 8; border = kEliteBorder; }
-        if (c.is_boss)  { size = 12; border = kBossBorder; }
+        if (c.is_elite) { size = std::max(2, p / 2); border = kEliteBorder; }
+        if (c.is_boss)  { size = std::max(2, p * 3 / 4); border = kBossBorder; }
         draw_creature_dot(r, cx, cy, size, gene_color(c.gene), border);
         if (c.is_boss && !c.name.empty()) {
-            // SDL_RenderDebugText 只支持 ASCII；用单个 'B' 标识 boss 而非多字节中文。
             SDL_RenderDebugText(r,
                 static_cast<float>(cx + 6),
-                static_cast<float>(cy - px_per_tile / 2 - 2),
+                static_cast<float>(cy - p / 2 - 2),
                 "B");
         }
     }
+}
+
+void TileRenderer::render_minimap(const Camera& cam) {
+    // 懒构建：第一次调用时按 world tile = 1 pixel 烧一张小地图纹理。
+    // 世界静态 → 只构建一次。
+    if (minimap_texture_ == nullptr) {
+        SDL_Texture* mm = SDL_CreateTexture(
+            renderer_.get(), SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC,
+            static_cast<int>(width_), static_cast<int>(height_));
+        if (mm == nullptr) return;
+        SDL_SetTextureScaleMode(mm, SDL_SCALEMODE_NEAREST);
+
+        std::vector<std::uint32_t> mm_pixels(width_ * height_);
+        mm_pixels = pixels_;
+        SDL_UpdateTexture(mm, nullptr, mm_pixels.data(),
+                          static_cast<int>(width_ * sizeof(std::uint32_t)));
+        minimap_texture_.reset(mm);
+    }
+
+    // minimap 放在右下角 8px 边距，宽 200px，按世界长宽比缩高
+    constexpr int kMmW = 200;
+    const int kMmH = static_cast<int>(kMmW * static_cast<int>(height_) / static_cast<int>(width_));
+    const int mm_x = window_w_ - kMmW - 8;
+    const int mm_y = window_h_ - kMmH - 8;
+
+    // 缩放绘制 minimap 纹理
+    const SDL_FRect mm_dst{
+        static_cast<float>(mm_x), static_cast<float>(mm_y),
+        static_cast<float>(kMmW), static_cast<float>(kMmH)
+    };
+    SDL_RenderTexture(renderer_.get(), minimap_texture_.get(), nullptr, &mm_dst);
+
+    // 白色边框 — 用 4 条 line 而不是 RenderRect，避开 SDL3 浮点 rect 右边/下边偶发漏画的 bug
+    SDL_SetRenderDrawColor(renderer_.get(), 0xFFu, 0xFFu, 0xFFu, 0xFFu);
+    const float fx = static_cast<float>(mm_x);
+    const float fy = static_cast<float>(mm_y);
+    const float fw = static_cast<float>(kMmW);
+    const float fh = static_cast<float>(kMmH);
+    SDL_RenderLine(renderer_.get(), fx,             fy,             fx + fw,     fy          );
+    SDL_RenderLine(renderer_.get(), fx,             fy + fh - 1.0f, fx + fw,     fy + fh - 1.0f);
+    SDL_RenderLine(renderer_.get(), fx,             fy,             fx,          fy + fh - 1.0f);
+    SDL_RenderLine(renderer_.get(), fx + fw - 1.0f, fy,             fx + fw - 1.0f, fy + fh - 1.0f);
+
+    // 当前视口在 minimap 上的矩形
+    const int p = std::max(1, cam.px_per_tile);
+    const float vis_w = static_cast<float>(window_w_) / static_cast<float>(p);
+    const float vis_h = static_cast<float>(window_h_) / static_cast<float>(p);
+    // 如果视口覆盖 >= 95% 的地图，画一个内框也看不出区别 — 跳过
+    if (vis_w >= static_cast<float>(width_) * 0.95f &&
+        vis_h >= static_cast<float>(height_) * 0.95f) {
+        return;
+    }
+    const float sx = static_cast<float>(kMmW) / static_cast<float>(width_);
+    const float sy = static_cast<float>(kMmH) / static_cast<float>(height_);
+    const float vx = (cam.tile_cx - vis_w * 0.5f) * sx;
+    const float vy = (cam.tile_cy - vis_h * 0.5f) * sy;
+    const float vw = vis_w * sx;
+    const float vh = vis_h * sy;
+    const SDL_FRect vp{
+        static_cast<float>(mm_x) + vx,
+        static_cast<float>(mm_y) + vy,
+        vw, vh
+    };
+    // 用亮黄边框更显眼
+    SDL_SetRenderDrawColor(renderer_.get(), 0xFFu, 0xE0u, 0x40u, 0xFFu);
+    SDL_RenderRect(renderer_.get(), &vp);
 }
 
 void TileRenderer::render_hud(std::uint64_t tick, std::size_t pop, float energy,

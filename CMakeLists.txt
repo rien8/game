@@ -13,6 +13,8 @@ else()
 endif()
 
 find_package(SDL3 CONFIG REQUIRED)
+find_package(SDL3_image CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 find_package(SFML 3 COMPONENTS Graphics Window Audio Network REQUIRED)
 
 add_executable(gamev2
@@ -24,6 +26,7 @@ add_executable(gamev2
     src/world/world.cpp
     src/world/world_generator.cpp
     src/render/tile_renderer.cpp
+    src/render/creature_assembler.cpp
 )
 target_include_directories(gamev2 PRIVATE
     include
@@ -31,6 +34,8 @@ target_include_directories(gamev2 PRIVATE
 )
 target_link_libraries(gamev2 PRIVATE
     SDL3::SDL3
+    SDL3_image::SDL3_image
+    nlohmann_json::nlohmann_json
     SFML::Graphics
     SFML::Window
     SFML::Audio
