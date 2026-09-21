@@ -24,7 +24,7 @@ namespace game {
 struct Camera {
     float tile_cx = 0.0f;
     float tile_cy = 0.0f;
-    int   px_per_tile = 16;
+    float px_per_tile = 16.0f;
 };
 
 // SDL3 tile 地图渲染器。只封装 window/renderer/texture；
