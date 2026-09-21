@@ -183,7 +183,7 @@ auto main(int argc, char** argv) -> int {
         const float step = fast ? 1.5f : 1.2f;
         const float factor = (wheel_y > 0) ? step : (1.0f / step);
         const float new_p = std::clamp(
-            camera.px_per_tile * factor, 2.0f, 64.0f);
+            camera.px_per_tile * factor, 4.0f, 64.0f);
         // epsilon 兜底：连续 zoom 累积误差 < 1e-3 视为无变化
         if (std::abs(new_p - camera.px_per_tile) < 1e-3f) return;
 
