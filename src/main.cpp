@@ -123,17 +123,17 @@ auto main(int argc, char** argv) -> int {
     game::Camera camera{
         .tile_cx      = static_cast<float>(kMapW) / 2.0f,
         .tile_cy      = static_cast<float>(kMapH) / 2.0f,
-        .px_per_tile  = 8,
+        .px_per_tile  = 8.0f,
     };
     auto reset_camera = [&]{
         camera.tile_cx     = static_cast<float>(kMapW) / 2.0f;
         camera.tile_cy     = static_cast<float>(kMapH) / 2.0f;
-        camera.px_per_tile = 8;
+        camera.px_per_tile = 8.0f;
     };
 
     // 把相机限制在地图范围内（地图比视口小时居中；缩放过大时也夹住）
     auto clamp_camera = [&]{
-        const int p = std::max(1, camera.px_per_tile);
+        const float p = std::max(1.0f, camera.px_per_tile);
         const float vis_w = static_cast<float>(renderer->window_w()) / p;
         const float vis_h = static_cast<float>(renderer->window_h()) / p;
         const float min_cx = vis_w * 0.5f;
@@ -156,7 +156,7 @@ auto main(int argc, char** argv) -> int {
     auto screen_to_tile = [&](int sx, int sy) -> std::pair<float, float> {
         const float win_cx = renderer->window_w() * 0.5f;
         const float win_cy = renderer->window_h() * 0.5f;
-        const int p = std::max(1, camera.px_per_tile);
+        const float p = std::max(1.0f, camera.px_per_tile);
         return {
             camera.tile_cx + (static_cast<float>(sx) - win_cx) / p,
             camera.tile_cy + (static_cast<float>(sy) - win_cy) / p,
@@ -167,10 +167,10 @@ auto main(int argc, char** argv) -> int {
     auto zoom_at_mouse = [&](int mx, int my, int wheel_y, bool fast) {
         const float step = fast ? 1.5f : 1.2f;
         const float factor = (wheel_y > 0) ? step : (1.0f / step);
-        const int new_p = std::clamp(
-            static_cast<int>(static_cast<float>(camera.px_per_tile) * factor),
-            2, 64);
-        if (new_p == camera.px_per_tile) return;
+        const float new_p = std::clamp(
+            camera.px_per_tile * factor, 2.0f, 64.0f);
+        // epsilon 兜底：连续 zoom 累积误差 < 1e-3 视为无变化
+        if (std::abs(new_p - camera.px_per_tile) < 1e-3f) return;
 
         const auto [old_tx, old_ty] = screen_to_tile(mx, my);
         camera.px_per_tile = new_p;
@@ -233,7 +233,7 @@ auto main(int argc, char** argv) -> int {
                         const int dy = event.motion.y - last_mouse_y;
                         last_mouse_x = event.motion.x;
                         last_mouse_y = event.motion.y;
-                        const int p = std::max(1, camera.px_per_tile);
+                        const float p = std::max(1.0f, camera.px_per_tile);
                         camera.tile_cx -= static_cast<float>(dx) / p;
                         camera.tile_cy -= static_cast<float>(dy) / p;
                     }
@@ -253,9 +253,9 @@ auto main(int argc, char** argv) -> int {
         // WASD 平移（连续，每帧按持有时间位移）
         {
             const bool* keys = SDL_GetKeyboardState(nullptr);
-            const int p = std::max(1, camera.px_per_tile);
+            const float p = std::max(1.0f, camera.px_per_tile);
             // 速度：每帧 0.5 个 tile，按 zoom 缩放（zoom 越大，1 tile 越大，要走得更快才跟得上视觉）
-            float pan = 0.5f * static_cast<float>(p) / 8.0f;
+            float pan = 0.5f * p / 8.0f;
             // shift 加持 = 2x
             if ((SDL_GetModState() & SDL_KMOD_SHIFT) != 0) pan *= 2.0f;
             Uint64 now2 = SDL_GetTicks();
