@@ -12,6 +12,7 @@
 #include <SDL3_image/SDL_image.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <format>
 #include <iostream>

@@ -188,10 +188,10 @@ void TileRenderer::render_creatures(std::span<const Creature> creatures) {
 
         // tile 中心 → 屏幕像素
         const std::int32_t cx = static_cast<std::int32_t>(
-            (static_cast<float>(c.pos.x) + 0.5f - cam_cx) * static_cast<float>(p))
+            (static_cast<float>(c.pos.x) + 0.5f - cam_cx) * p)
             + win_cx;
         const std::int32_t cy = static_cast<std::int32_t>(
-            (static_cast<float>(c.pos.y) + 0.5f - cam_cy) * static_cast<float>(p))
+            (static_cast<float>(c.pos.y) + 0.5f - cam_cy) * p)
             + win_cy;
 
         if (assembler_ != nullptr) {
@@ -222,7 +222,7 @@ void TileRenderer::render_creatures(std::span<const Creature> creatures) {
         if (c.is_boss && !c.name.empty()) {
             SDL_RenderDebugText(r,
                 static_cast<float>(cx + 6),
-                static_cast<float>(cy - p / 2 - 2),
+                cy - p / 2 - 2,
                 "B");
         }
     }
