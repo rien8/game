@@ -62,8 +62,29 @@ public:
     [[nodiscard]] auto window_w() const noexcept -> int { return window_w_; }
     [[nodiscard]] auto window_h() const noexcept -> int { return window_h_; }
 
+    // 窗口像素尺寸变化时同步（renderer 直接按像素画，所以取 pixel size 而非
+    // logical size）。重复传相同值无副作用；w/h ≤ 0 时夹到 1，防止下游除零。
+    // main 在 SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED 回调里调。
+    void notify_resized(int w, int h) noexcept {
+        window_w_ = std::max(1, w);
+        window_h_ = std::max(1, h);
+    }
+
     void render_hud(std::uint64_t tick, std::size_t pop, float energy,
                     bool paused, float speed);
+
+    // 实际用于渲染的 px/tile。当 camera_.px_per_tile 小于"让世界贴图刚好铺满窗口"
+    // 的临界值时，SDL_RenderTexture 会把 src 截到贴图边界，世界在屏幕上的视觉
+    // 大小不再随 p 变化——但 creature sprite 大小还会继续按公式 64*p/16 缩小，
+    // 造成"生物缩小而地图不变"的错位。这里把 p 抬到这个临界值，保证生物
+    // 与地图始终同比例。
+    [[nodiscard]] auto effective_px_per_tile() const noexcept -> float {
+        const float p_raw = std::max(1.0f, camera_.px_per_tile);
+        const float world_fill_p = std::max(
+            static_cast<float>(window_w_) / static_cast<float>(width_),
+            static_cast<float>(window_h_) / static_cast<float>(height_));
+        return std::max(p_raw, world_fill_p);
+    }
 
     [[nodiscard]] auto raw_renderer() noexcept -> SDL_Renderer* { return renderer_.get(); }
 

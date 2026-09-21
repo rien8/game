@@ -146,9 +146,19 @@ auto main(int argc, char** argv) -> int {
         camera.px_per_tile = 8.0f;
     };
 
+    // 让世界贴图刚好铺满窗口的 px/tile 临界值。小于它时 SDL_RenderTexture
+    // 会把 src 截到贴图边界——地图在屏幕上的视觉大小不再随 p 变化，
+    // 但生物 sprite 大小还会继续按 64*p/16 缩小，比例错位。
+    // 所以这里把它当作最小可用 zoom。TileRenderer 也用它做兜底
+    // （--zoom 直传相机时不会绕过这个 p_eff 计算）。
+    const float world_fill_p = std::max(
+        static_cast<float>(renderer->window_w()) / static_cast<float>(kMapW),
+        static_cast<float>(renderer->window_h()) / static_cast<float>(kMapH));
+
     // 把相机限制在地图范围内（地图比视口小时居中；缩放过大时也夹住）
     auto clamp_camera = [&]{
-        const float p = std::max(1.0f, camera.px_per_tile);
+        camera.px_per_tile = std::max(camera.px_per_tile, world_fill_p);
+        const float p = camera.px_per_tile;
         const float vis_w = static_cast<float>(renderer->window_w()) / p;
         const float vis_h = static_cast<float>(renderer->window_h()) / p;
         const float min_cx = vis_w * 0.5f;
@@ -183,7 +193,7 @@ auto main(int argc, char** argv) -> int {
         const float step = fast ? 1.5f : 1.2f;
         const float factor = (wheel_y > 0) ? step : (1.0f / step);
         const float new_p = std::clamp(
-            camera.px_per_tile * factor, 4.0f, 64.0f);
+            camera.px_per_tile * factor, world_fill_p, 64.0f);
         // epsilon 兜底：连续 zoom 累积误差 < 1e-3 视为无变化
         if (std::abs(new_p - camera.px_per_tile) < 1e-3f) return;
 
@@ -212,6 +222,13 @@ auto main(int argc, char** argv) -> int {
             switch (event.type) {
                 case SDL_EVENT_QUIT:
                     running = false;
+                    break;
+                case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+                    // 窗口像素尺寸变了：renderer 直接按 backbuffer 像素画，
+                    // 所以取 pixel size（HiDPI 跟 logical 尺寸不等，但这里
+                    // 我们只看像素）。data1/data2 = 新宽高（像素）。
+                    renderer->notify_resized(event.window.data1,
+                                             event.window.data2);
                     break;
                 case SDL_EVENT_KEY_DOWN:
                     switch (event.key.key) {
