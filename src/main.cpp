@@ -53,6 +53,16 @@ auto parse_screenshot(int argc, char** argv) -> std::optional<std::string> {
     return std::nullopt;
 }
 
+auto parse_zoom(int argc, char** argv) -> std::optional<float> {
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view arg{argv[i]};
+        if (arg == "--zoom" && i + 1 < argc) {
+            return std::stof(argv[++i]);
+        }
+    }
+    return std::nullopt;
+}
+
 // 加载 manifest + atlas。
 // 任何一步失败都返回 nullopt，让 caller 退回 dot 渲染（不黑屏）。
 // 注意：assembler 必须持有 atlas 的引用/指针，所以 assembler 单独放 main 里
@@ -99,6 +109,7 @@ auto main(int argc, char** argv) -> int {
 
     const std::uint64_t seed = parse_seed(argc, argv);
     const auto screenshot_path = parse_screenshot(argc, argv);
+    const auto zoom_override = parse_zoom(argc, argv);
     game::World world = game::WorldGenerator(kMapW, kMapH).generate(seed);
     game::Simulation sim(std::move(world), seed, game::Simulation::Params{});
 
@@ -125,6 +136,9 @@ auto main(int argc, char** argv) -> int {
         .tile_cy      = static_cast<float>(kMapH) / 2.0f,
         .px_per_tile  = 8.0f,
     };
+    if (zoom_override) {
+        camera.px_per_tile = *zoom_override;
+    }
     auto reset_camera = [&]{
         camera.tile_cx     = static_cast<float>(kMapW) / 2.0f;
         camera.tile_cy     = static_cast<float>(kMapH) / 2.0f;
