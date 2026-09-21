@@ -149,10 +149,10 @@ void TileRenderer::render(const World& world) {
                       static_cast<int>(width_ * sizeof(std::uint32_t)));
 
     // 视口 = 屏幕中心 ± 半个可见 tile 数。源 / 目标 rect 按相机缩放。
-    // 注意 px_per_tile = 0 是未初始化状态，兜底为 1 防除零。
-    const int p = std::max(1, camera_.px_per_tile);
-    const float vis_w = static_cast<float>(window_w_) / static_cast<float>(p);
-    const float vis_h = static_cast<float>(window_h_) / static_cast<float>(p);
+    // 注意 px_per_tile = 0 是未初始化状态，兜底为 1.0f 防除零。
+    const float p = std::max(1.0f, camera_.px_per_tile);
+    const float vis_w = static_cast<float>(window_w_) / p;
+    const float vis_h = static_cast<float>(window_h_) / p;
     const SDL_FRect src{
         camera_.tile_cx - vis_w * 0.5f,
         camera_.tile_cy - vis_h * 0.5f,
@@ -172,15 +172,16 @@ void TileRenderer::render_creatures(std::span<const Creature> creatures) {
     auto* r = renderer_.get();
 
     // 相机：屏幕中心对应的世界 tile + 像素每 tile（缩放）
-    const int p = std::max(1, camera_.px_per_tile);
+    const float p = std::max(1.0f, camera_.px_per_tile);
     const float cam_cx = camera_.tile_cx;
     const float cam_cy = camera_.tile_cy;
     const int win_cx = window_w_ / 2;
     const int win_cy = window_h_ / 2;
 
     // sprite 设计画布 → 窗口像素：tile px_per_tile 越大 sprite 也越大
-    constexpr int kSpriteCanvasPxBase = 64;
-    const int kSpriteCanvasPx = std::max(8, kSpriteCanvasPxBase * p / 16);
+    constexpr float kSpriteCanvasPxBase = 64.0f;
+    const int kSpriteCanvasPx = std::max(8,
+        static_cast<int>(kSpriteCanvasPxBase * p / 16.0f));
 
     for (const auto& c : creatures) {
         if (c.dead) continue;
@@ -213,10 +214,10 @@ void TileRenderer::render_creatures(std::span<const Creature> creatures) {
         }
 
         // dot 兜底模式
-        std::int32_t size = std::max(2, p / 4);
+        std::int32_t size = std::max(2, static_cast<int>(p / 4.0f));
         std::uint32_t border = 0;
-        if (c.is_elite) { size = std::max(2, p / 2); border = kEliteBorder; }
-        if (c.is_boss)  { size = std::max(2, p * 3 / 4); border = kBossBorder; }
+        if (c.is_elite) { size = std::max(2, static_cast<int>(p / 2.0f)); border = kEliteBorder; }
+        if (c.is_boss)  { size = std::max(2, static_cast<int>(p * 3.0f / 4.0f)); border = kBossBorder; }
         draw_creature_dot(r, cx, cy, size, gene_color(c.gene), border);
         if (c.is_boss && !c.name.empty()) {
             SDL_RenderDebugText(r,
@@ -269,9 +270,9 @@ void TileRenderer::render_minimap(const Camera& cam) {
     SDL_RenderLine(renderer_.get(), fx + fw - 1.0f, fy,             fx + fw - 1.0f, fy + fh - 1.0f);
 
     // 当前视口在 minimap 上的矩形
-    const int p = std::max(1, cam.px_per_tile);
-    const float vis_w = static_cast<float>(window_w_) / static_cast<float>(p);
-    const float vis_h = static_cast<float>(window_h_) / static_cast<float>(p);
+    const float p = std::max(1.0f, cam.px_per_tile);
+    const float vis_w = static_cast<float>(window_w_) / p;
+    const float vis_h = static_cast<float>(window_h_) / p;
     // 如果视口覆盖 >= 95% 的地图，画一个内框也看不出区别 — 跳过
     if (vis_w >= static_cast<float>(width_) * 0.95f &&
         vis_h >= static_cast<float>(height_) * 0.95f) {
@@ -283,9 +284,12 @@ void TileRenderer::render_minimap(const Camera& cam) {
     const float vy = (cam.tile_cy - vis_h * 0.5f) * sy;
     const float vw = vis_w * sx;
     const float vh = vis_h * sy;
+    // clamp 视口到 minimap 边界（小 zoom 时视口比 minimap 还大）
+    const float c_vx = std::clamp(vx, 0.0f, std::max(0.0f, static_cast<float>(kMmW) - vw));
+    const float c_vy = std::clamp(vy, 0.0f, std::max(0.0f, static_cast<float>(kMmH) - vh));
     const SDL_FRect vp{
-        static_cast<float>(mm_x) + vx,
-        static_cast<float>(mm_y) + vy,
+        static_cast<float>(mm_x) + c_vx,
+        static_cast<float>(mm_y) + c_vy,
         vw, vh
     };
     // 用亮黄边框更显眼
