@@ -40,8 +40,11 @@ public:
                            std::vector<Event>& events,
                            std::uint64_t current_tick) -> void;
 
-    // ③ 无性繁殖：单亲克隆 + 变异 + 新名字；Position/Vitals/Identity 由 caller 添加
-    [[nodiscard]] auto reproduce(ecs::Registry& r, ecs::Entity parent) -> ecs::Entity;
+    // ③ 无性繁殖：单亲克隆 + 变异 + 新名字 + Identity（next_id 自增）
+    //   返回的 child 已带 Traits/Reproduction/Name/Identity；caller 仍需
+    //   emplace Position/Vitals。
+    [[nodiscard]] auto reproduce(ecs::Registry& r, ecs::Entity parent,
+                                 std::uint64_t& next_id) -> ecs::Entity;
 
     // ④ optimum 每 tick 小幅漂移；每 epoch_length tick 一次剧变
     auto drift_environment(Traits& optimum,

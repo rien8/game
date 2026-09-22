@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <format>
 #include <ranges>
+#include <vector>
 
 namespace game {
 
@@ -74,17 +75,45 @@ auto Simulation::tick() -> void {
 
     // 4. 行为循环：用 BehaviorSystem
     behavior_system_.update(registry_, tick_);
+
+    // 5. 收割死亡：BehaviorSystem 只置 vitals.dead=true；这里实际销毁 entity。
+    //    注：Registry::destroy 只翻 alive_ + bump generation，并不擦除各组件
+    //    storage 的行；SparseSet 迭代时会通过 contains() 跳过已死 entity。
+    //    长会话下 storage 会无界增长 —— 本 spec 范围内可接受，按需后续再清理。
+    std::vector<ecs::Entity> to_die;
+    for (auto e : registry_.view<ecs::Vitals>()) {
+        if (registry_.get<ecs::Vitals>(e).dead) to_die.push_back(e);
+    }
+    for (auto e : to_die) registry_.destroy(e);
 }
 
 auto Simulation::creatures() -> std::span<const ecs::CreatureSnapshot> {
-    // 实时组装：按 Identity::id 排序
+    // 实时组装：从 registry 的各组件取值填进快照，按 Identity::id 排序。
+    // 注意 CreatureSnapshot::name 是 std::string（非 string_view），
+    // 每 tick 重新拷贝约 200 个 string；当前规模下可接受。
     snapshot_cache_.clear();
-    for (auto e : registry_.view<ecs::Identity>()) {
-        const auto& id = registry_.get<ecs::Identity>(e);
-        ecs::CreatureSnapshot s;
-        s.id = id.id;
-        // 其余字段暂时 default；Task 11 补齐
-        snapshot_cache_.push_back(s);
+    for (auto e : registry_.view<ecs::Identity, ecs::Position, ecs::Vitals,
+                                 ecs::Reproduction, ecs::Name, ecs::Traits>()) {
+        const auto& id  = registry_.get<ecs::Identity>(e);
+        const auto& pos = registry_.get<ecs::Position>(e);
+        const auto& vit = registry_.get<ecs::Vitals>(e);
+        const auto& rep = registry_.get<ecs::Reproduction>(e);
+        const auto& nam = registry_.get<ecs::Name>(e);
+        const auto& trt = registry_.get<ecs::Traits>(e);
+        snapshot_cache_.push_back(ecs::CreatureSnapshot{
+            .id        = id.id,
+            .name      = nam.value,
+            .gene      = trt,
+            .pos       = pos,
+            .hunger    = vit.hunger,
+            .energy    = vit.energy,
+            .age       = vit.age,
+            .fitness   = rep.fitness,
+            .is_elite  = id.is_elite,
+            .is_boss   = id.is_boss,
+            .elite_age = id.elite_age,
+            .dead      = vit.dead,
+        });
     }
     std::ranges::sort(snapshot_cache_, {}, [](const auto& s) { return s.id; });
     return snapshot_cache_;

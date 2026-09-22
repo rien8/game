@@ -98,6 +98,12 @@ private:
 
 class Registry {
 public:
+    // Registry assumes a SINGLE INSTANCE per process. Internal component
+    // storage uses function-static SparseSets per type, shared across all
+    // instances. Creating multiple Registry objects causes silent cross-
+    // contamination of component data. If you need multi-instance support,
+    // refactor to per-instance storage (e.g., std::type_index-keyed map of
+    // std::any-owning unique_ptrs).
     Registry() = default;
 
     [[nodiscard]] auto create() -> Entity;

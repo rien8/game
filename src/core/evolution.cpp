@@ -87,7 +87,8 @@ auto EvolutionEngine::detect_elite_boss(ecs::Registry& r,
     }
 }
 
-auto EvolutionEngine::reproduce(ecs::Registry& r, ecs::Entity parent) -> ecs::Entity {
+auto EvolutionEngine::reproduce(ecs::Registry& r, ecs::Entity parent,
+                                 std::uint64_t& next_id) -> ecs::Entity {
     const auto& parent_traits = r.get<ecs::Traits>(parent);
     auto child = r.create();
     ecs::Traits child_traits = parent_traits;
@@ -95,6 +96,9 @@ auto EvolutionEngine::reproduce(ecs::Registry& r, ecs::Entity parent) -> ecs::En
     r.emplace<ecs::Traits>(child, child_traits);
     r.emplace<ecs::Reproduction>(child);
     r.emplace<ecs::Name>(child, ecs::Name{.value = make_name(child_traits)});
+    // Identity 在这里赋值：避免 caller 忘记导致 child 落到 slot 0 与
+    // 其它无 Identity 的 entity 冲突。
+    r.emplace<ecs::Identity>(child, ecs::Identity{.id = next_id++});
     return child;
 }
 

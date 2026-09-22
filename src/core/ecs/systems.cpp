@@ -88,14 +88,14 @@ auto CreatureBehaviorSystem::update(ecs::Registry& r, [[maybe_unused]] std::uint
             continue;
         }
 
-        // 3) 繁殖：走 EvolutionEngine::reproduce（产生 Traits/Reproduction/Name）
+        // 3) 繁殖：走 EvolutionEngine::reproduce（产生 Traits/Reproduction/Name/Identity）
         if (vitals.hunger > 0.7f && vitals.energy > 0.5f
             && vitals.age >= kMatingAge
             && (vitals.age % kMateInterval == 0)) {
-            auto child = evo_.reproduce(r, e);
+            auto child = evo_.reproduce(r, e, next_id_);
             r.emplace<Position>(child, pos);
             r.emplace<Vitals>(child, Vitals{.hunger = 1.0f, .energy = 0.8f, .age = 0, .dead = false});
-            r.emplace<Identity>(child, ecs::Identity{.id = next_id_++});
+            // Identity already set by reproduce()
             vitals.energy = std::max(0.0f, vitals.energy - 0.3f);
             continue;
         }
