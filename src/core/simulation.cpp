@@ -36,7 +36,8 @@ void SimulationClock::advance(float real_dt, float speed, auto&& tick_fn) {
 Simulation::Simulation(World world, std::uint64_t seed, Params params)
     : params_(params),
       world_(std::move(world)),
-      evolution_(params.evolution, seed) {
+      evolution_(params.evolution, seed),
+      behavior_system_(world_, evolution_, seed, next_id_) {
     clock_.configure(params_.tick_dt, params_.max_ticks_per_frame);
 
     // optimum 初始化（不变）
@@ -67,11 +68,8 @@ auto Simulation::tick() -> void {
     // 2. 环境漂移 / 剧变（optimum 是世界状态，由 Simulation 拥有）
     evolution_.drift_environment(optimum_, tick_, params_.epoch_length, events_);
 
-    // 3. 行为循环：先填过渡 stub（仅 age++），Task 10 才接入 BehaviorSystem。
-    //    这一段是临时占位，Task 10 step 4 整段替换为 behavior_system_.update(...)。
-    for (auto& c : snapshot_cache_) {
-        c.age += 1;
-    }
+    // 3. 行为循环：用 BehaviorSystem
+    behavior_system_.update(registry_, tick_);
 }
 
 auto Simulation::creatures() -> std::span<const ecs::CreatureSnapshot> {

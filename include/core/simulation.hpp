@@ -2,6 +2,7 @@
 
 #include "core/ecs/registry.hpp"
 #include "core/ecs/snapshot.hpp"
+#include "core/ecs/systems.hpp"
 #include "core/evolution.hpp"
 #include "world/world.hpp"
 
@@ -67,6 +68,7 @@ private:
     float last_speed_ = 1.0f;
     std::uint64_t next_id_ = 1;
     ecs::Registry registry_;
+    CreatureBehaviorSystem behavior_system_;
     std::vector<ecs::CreatureSnapshot> snapshot_cache_;
 };
 
