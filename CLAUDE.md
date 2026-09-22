@@ -32,6 +32,13 @@
 - 字符串：`std::string_view`（只读）/ `std::string`（拥有），禁止 C 字符串函数。
 - 错误处理：优先 `std::expected`（C++23）；模板用 concepts，禁止裸 `typename`。
 - 不在头文件中使用 `using namespace`。
+- **模板与 C++23 稳定特性：激进使用，无须讨论直接用**。
+  - 模板优先：`policy class` / `CRTP` / `concepts + requires` 表达接口；避免继承多态、`std::function`、`void*`。
+  - 容器与区间：`std::span` 替代所有"指针 + 长度"参数；集合变换/筛选/排序一律 `std::ranges` / `std::views`，不写手写算法循环（mutation 除外）。
+  - 错误处理：`std::expected<T, E>` 一等公民；新增 API 一律返回 `expected`，旧 API 逐步迁移。
+  - 编译期：能用 `consteval` / `constexpr` 的就别运行时算；分支判定用 `if constexpr`。
+  - 字符串与 IO：`std::format` / `std::print`；禁止 `printf` / `sprintf` / iostream 拼接。
+  - 默认启用清单：`std::optional`、`deducing this`、结构化绑定、`designated initializers`、`std::flat_map` / `std::flat_set`、`std::mdspan`、`std::generator`、`std::move_only_function`、`std::is_scoped_enum`。
 
 ## 临时文件
 - 截图、调试 crop、运行日志、一次性脚本都放 `temp/`（已在 `.gitignore`，不入版本控制）。
