@@ -1,5 +1,6 @@
 #include "core/evolution.hpp"
 
+#include "core/creature.hpp"     // make_name 声明
 #include "core/gene.hpp"        // 提供 free function mutate / crossover / distance / fitness
 #include "pcg/seed.hpp"
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/ecs/registry.hpp"
+#include "core/ecs/snapshot.hpp"
 #include "core/evolution.hpp"
 #include "world/world.hpp"
 
@@ -45,7 +47,7 @@ public:
 
     // 快照给 renderer / 调试。
     [[nodiscard]] auto world() const -> const World& { return world_; }
-    [[nodiscard]] auto creatures() const -> std::span<const Creature> { return creatures_; }
+    [[nodiscard]] auto creatures() -> std::span<const ecs::CreatureSnapshot>;
     [[nodiscard]] auto events() const -> const std::vector<Event>& { return events_; }
     [[nodiscard]] auto world_energy() const noexcept -> float { return world_energy_; }
     [[nodiscard]] auto tick_count() const noexcept -> std::uint64_t { return tick_; }
@@ -58,16 +60,15 @@ private:
     Params params_;
     World world_;
     Traits optimum_{};
-    std::vector<Creature> creatures_;
     std::vector<Event> events_;
-    std::vector<Creature> pending_births_;
     EvolutionEngine evolution_;
     SimulationClock clock_;
     std::uint64_t tick_ = 0;
     float world_energy_ = 0.0f;
     float last_speed_ = 1.0f;
     std::uint64_t next_id_ = 1;
-    std::mt19937_64 behavior_rng_;
+    ecs::Registry registry_;
+    std::vector<ecs::CreatureSnapshot> snapshot_cache_;
 };
 
 }  // namespace game

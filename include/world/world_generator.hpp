@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/creature.hpp"
+#include "core/ecs/registry.hpp"
 #include "world/world.hpp"
 
 #include <cstddef>
@@ -21,9 +22,12 @@ private:
     std::size_t height_;
 };
 
-// 在陆地上生成初始生物。
-auto populate_initial_creatures(const World& world,
-                               std::size_t count,
-                               std::uint64_t seed) -> std::vector<Creature>;
+// 在陆地上生成初始生物，直接进 Registry。
+// 返回实际创建的 entity 数（land_tiles 不足时可能 < count）。
+auto populate_initial_creatures(ecs::Registry& registry,
+                                const World& world,
+                                std::size_t count,
+                                std::uint64_t seed,
+                                std::uint64_t& next_id) -> std::size_t;
 
 }  // namespace game

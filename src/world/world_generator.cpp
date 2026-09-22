@@ -2,7 +2,9 @@
 
 #include "FastNoiseLite.h"
 #include "core/creature.hpp"
+#include "core/ecs/components.hpp"
 #include "core/gene.hpp"
+#include "core/position.hpp"
 #include "pcg/mapping.hpp"
 #include "pcg/noise_field.hpp"
 #include "pcg/seed.hpp"
@@ -144,39 +146,47 @@ auto WorldGenerator::generate(std::uint64_t seed) const -> World {
 
 constexpr std::uint32_t kInitialCreatureSalt = 0x1C7Eu;
 
-auto populate_initial_creatures(const World& world,
+auto populate_initial_creatures(ecs::Registry& registry,
+                                const World& world,
                                 std::size_t count,
-                                std::uint64_t seed) -> std::vector<Creature> {
-    std::vector<Creature> out;
-    out.reserve(count);
-
+                                std::uint64_t seed,
+                                std::uint64_t& next_id) -> std::size_t {
     // 收集所有陆地坐标。
     std::vector<Position> land_tiles;
     for (std::size_t y = 0; y < world.height(); ++y) {
         for (std::size_t x = 0; x < world.width(); ++x) {
-            if (world.is_land(x, y)) land_tiles.push_back({x, y});
+            if (world.is_land(x, y)) land_tiles.push_back(Position{x, y});
         }
     }
-    if (land_tiles.empty()) return out;
+    if (land_tiles.empty()) return 0;
 
     auto rng = std::mt19937_64{pcg::derive_seed(seed, kInitialCreatureSalt)};
     std::uniform_int_distribution<std::size_t> tile_pick(0, land_tiles.size() - 1);
     std::uniform_real_distribution<float> gene_pick(0.0f, 1.0f);
 
+    std::size_t created = 0;
     for (std::size_t i = 0; i < count; ++i) {
         const Position& p = land_tiles[tile_pick(rng)];
         Traits gene;
         for (auto& v : gene.values) v = gene_pick(rng);
-        Creature c;
-        c.id = i + 1;
-        c.pos = p;
-        c.gene = gene;
-        c.name = make_name(gene);
-        c.hunger = 1.0f;
-        c.energy = 1.0f;
-        out.push_back(std::move(c));
+
+        const std::string name = make_name(gene);
+        const std::uint64_t id = next_id++;
+
+        const auto e = registry.create();
+        registry.emplace<ecs::Position>(e, ecs::Position{
+            static_cast<std::uint16_t>(p.x),
+            static_cast<std::uint16_t>(p.y)});
+        registry.emplace<ecs::Traits>(e, gene);
+        registry.emplace<ecs::Vitals>(e, ecs::Vitals{});
+        registry.emplace<ecs::Identity>(e, ecs::Identity{id, false, false, 0});
+        ecs::Name name_comp;
+        name_comp.set(name);
+        registry.emplace<ecs::Name>(e, std::move(name_comp));
+        registry.emplace<ecs::Reproduction>(e, ecs::Reproduction{});
+        ++created;
     }
-    return out;
+    return created;
 }
 
 }  // namespace game

@@ -7,14 +7,13 @@
 
 #include <algorithm>
 #include <format>
+#include <ranges>
 
 namespace game {
 
 namespace {
 
-constexpr std::uint32_t kBehaviorSalt = 0xBE11u;
 constexpr std::uint32_t kOptimumSalt = 0x0E70u;
-constexpr std::size_t kMaxEventsKept = 64;
 
 }  // namespace
 
@@ -37,21 +36,21 @@ void SimulationClock::advance(float real_dt, float speed, auto&& tick_fn) {
 Simulation::Simulation(World world, std::uint64_t seed, Params params)
     : params_(params),
       world_(std::move(world)),
-      evolution_(params.evolution, seed),
-      behavior_rng_(pcg::derive_seed(seed, kBehaviorSalt)) {
+      evolution_(params.evolution, seed) {
     clock_.configure(params_.tick_dt, params_.max_ticks_per_frame);
 
-    // 初始化 optimum。
+    // optimum 初始化（不变）
     {
         auto rng = std::mt19937_64{pcg::derive_seed(seed, kOptimumSalt)};
         std::uniform_real_distribution<float> dist{0.0f, 1.0f};
         for (auto& v : optimum_.values) v = dist(rng);
     }
 
-    // 初始生物放在陆地上。
-    creatures_ = populate_initial_creatures(
-        world_, params_.initial_population, seed);
-    next_id_ = creatures_.size() + 1;
+    // 初始生物：直接进 registry
+    populate_initial_creatures(registry_, world_,
+                                params_.initial_population, seed, next_id_);
+
+    snapshot_cache_.clear();
 }
 
 auto Simulation::advance(float real_dt, float speed) -> void {
@@ -62,53 +61,31 @@ auto Simulation::advance(float real_dt, float speed) -> void {
 auto Simulation::tick() -> void {
     ++tick_;
 
-    // 1. 世界 biomass 重生
+    // 1. world biomass 重生
     world_.regrow_biomass();
 
-    // 2. 环境漂移 / 剧变
+    // 2. 环境漂移 / 剧变（optimum 是世界状态，由 Simulation 拥有）
     evolution_.drift_environment(optimum_, tick_, params_.epoch_length, events_);
 
-    // 3. 生物行为循环
-    pending_births_.clear();
-    for (auto& c : creatures_) {
-        decide_and_act(c, world_, pending_births_,
-                       evolution_, behavior_rng_, next_id_);
+    // 3. 行为循环：先填过渡 stub（仅 age++），Task 10 才接入 BehaviorSystem。
+    //    这一段是临时占位，Task 10 step 4 整段替换为 behavior_system_.update(...)。
+    for (auto& c : snapshot_cache_) {
+        c.age += 1;
     }
+}
 
-    // 4. 收割死亡
-    std::erase_if(creatures_, [](const Creature& c) { return c.dead; });
-
-    // 5. 收纳新生（带 max_population 上限）
-    if (creatures_.size() < params_.max_population) {
-        const std::size_t room = params_.max_population - creatures_.size();
-        const std::size_t take = std::min(room, pending_births_.size());
-        for (std::size_t i = 0; i < take; ++i) {
-            creatures_.push_back(std::move(pending_births_[i]));
-        }
+auto Simulation::creatures() -> std::span<const ecs::CreatureSnapshot> {
+    // 实时组装：按 Identity::id 排序
+    snapshot_cache_.clear();
+    for (auto e : registry_.view<ecs::Identity>()) {
+        const auto& id = registry_.get<ecs::Identity>(e);
+        ecs::CreatureSnapshot s;
+        s.id = id.id;
+        // 其余字段暂时 default；Task 11 补齐
+        snapshot_cache_.push_back(s);
     }
-
-    // 6. 演化层
-    evolution_.evaluate_fitness(creatures_, optimum_);
-    evolution_.detect_elite_boss(creatures_, events_, tick_);
-
-    // 7. 世界能量
-    world_energy_ += world_.total_biomass() * 0.01f;
-
-    // 8. 修剪事件队列
-    if (events_.size() > kMaxEventsKept) {
-        const std::size_t drop = events_.size() - kMaxEventsKept;
-        events_.erase(events_.begin(), events_.begin() + static_cast<std::ptrdiff_t>(drop));
-    }
-
-    // 9. 容灾：所有生物饿死 → 用 5 只初始生物重启种群（避免世界彻底死掉）
-    if (creatures_.empty()) {
-        auto fresh = populate_initial_creatures(world_, 5, tick_);
-        next_id_ = 1;
-        for (auto& c : fresh) {
-            c.id = next_id_++;
-            creatures_.push_back(std::move(c));
-        }
-    }
+    std::ranges::sort(snapshot_cache_, {}, [](const auto& s) { return s.id; });
+    return snapshot_cache_;
 }
 
 }  // namespace game

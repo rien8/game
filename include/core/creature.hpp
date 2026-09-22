@@ -20,6 +20,6 @@ inline void recover_energy(Creature& c) {
     }
 }
 
-inline auto make_name(const Traits& gene) -> std::string;
+auto make_name(const Traits& gene) -> std::string;
 
 }  // namespace game

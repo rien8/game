@@ -8,6 +8,7 @@ namespace game {
 
 // 基因型：4 个属性（size / speed / attack / defense），范围 [0,1]。
 struct Traits {
+    using is_component = void;     // 兼容 ECS Component concept（Task 9）
     std::array<float, 4> values{};
 };
 

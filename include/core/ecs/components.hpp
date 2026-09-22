@@ -2,8 +2,8 @@
 #pragma once
 
 #include "core/ecs/concepts.hpp"
+#include "core/gene.hpp"
 
-#include <array>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -16,10 +16,9 @@ struct Position {
     std::uint16_t y = 0;
 };
 
-struct Traits {
-    using is_component = void;
-    std::array<float, 4> values{};   // 4 维保持；Spec B 改 8
-};
+// 同义于 game::Traits；保持组件名短，统一走 gene.hpp 的 free functions。
+// game::Traits 已标记 is_component（兼容 Component concept）。
+using Traits = ::game::Traits;
 
 struct Vitals {
     using is_component = void;
