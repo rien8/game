@@ -1550,8 +1550,8 @@ public:
                            std::uint64_t current_tick) -> void;
     [[nodiscard]] auto reproduce(ecs::Registry& r,
                                   ecs::Entity parent) -> ecs::Entity;
-    [[nodiscard]] auto mean_fitness(const ecs::Registry& r) const -> float;
-    [[nodiscard]] auto stddev_fitness(const ecs::Registry& r, float mean) const -> float;
+    [[nodiscard]] auto mean_fitness(ecs::Registry& r) const -> float;
+    [[nodiscard]] auto stddev_fitness(ecs::Registry& r, float mean) const -> float;
     ...
 };
 ```
@@ -1613,7 +1613,7 @@ auto EvolutionEngine::detect_elite_boss(ecs::Registry& r,
 
 `mean_fitness` / `stddev_fitness`：
 ```cpp
-auto EvolutionEngine::mean_fitness(const ecs::Registry& r) const -> float {
+auto EvolutionEngine::mean_fitness(ecs::Registry& r) const -> float {
     float sum = 0.0f;
     std::size_t n = 0;
     for (auto e : r.view<ecs::Reproduction>()) {
@@ -1623,7 +1623,7 @@ auto EvolutionEngine::mean_fitness(const ecs::Registry& r) const -> float {
     return n == 0 ? 0.0f : sum / static_cast<float>(n);
 }
 
-auto EvolutionEngine::stddev_fitness(const ecs::Registry& r, float mean) const -> float {
+auto EvolutionEngine::stddev_fitness(ecs::Registry& r, float mean) const -> float {
     float sum = 0.0f;
     std::size_t n = 0;
     for (auto e : r.view<ecs::Reproduction>()) {
