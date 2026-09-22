@@ -27,6 +27,7 @@ add_executable(gamev2
     src/world/world_generator.cpp
     src/render/tile_renderer.cpp
     src/render/creature_assembler.cpp
+    src/core/ecs/registry.cpp
 )
 target_include_directories(gamev2 PRIVATE
     include
