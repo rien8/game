@@ -32,7 +32,7 @@ CreatureBehaviorSystem::CreatureBehaviorSystem(World& world, EvolutionEngine& ev
       next_id_(next_id),
       rng_(pcg::derive_seed(seed, kBehaviorSalt)) {}
 
-auto CreatureBehaviorSystem::update(ecs::Registry& r, std::uint64_t /*tick*/) -> void {
+auto CreatureBehaviorSystem::update(ecs::Registry& r, [[maybe_unused]] std::uint64_t tick) -> void {
     using namespace ecs;
 
     for (Entity e : r.view<Position, Traits, Vitals, Identity>()) {
@@ -88,19 +88,14 @@ auto CreatureBehaviorSystem::update(ecs::Registry& r, std::uint64_t /*tick*/) ->
             continue;
         }
 
-        // 3) 繁殖（Task 10 版：直接克隆 traits + 命名；Task 11 改为走 evo_.reproduce）
+        // 3) 繁殖：走 EvolutionEngine::reproduce（产生 Traits/Reproduction/Name）
         if (vitals.hunger > 0.7f && vitals.energy > 0.5f
             && vitals.age >= kMatingAge
             && (vitals.age % kMateInterval == 0)) {
-            auto& parent_traits = r.get<Traits>(e);
-            auto  child = r.create();
+            auto child = evo_.reproduce(r, e);
             r.emplace<Position>(child, pos);
-            r.emplace<Traits>(child, parent_traits);
-            r.emplace<Vitals>(child, Vitals{.hunger = 1.0f, .energy = 0.8f,
-                                            .age = 0, .dead = false});
-            r.emplace<Identity>(child, Identity{.id = next_id_++});
-            r.emplace<Name>(child, Name{.value = make_name(parent_traits)});
-            r.emplace<Reproduction>(child);
+            r.emplace<Vitals>(child, Vitals{.hunger = 1.0f, .energy = 0.8f, .age = 0, .dead = false});
+            r.emplace<Identity>(child, ecs::Identity{.id = next_id_++});
             vitals.energy = std::max(0.0f, vitals.energy - 0.3f);
             continue;
         }

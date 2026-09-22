@@ -68,7 +68,11 @@ auto Simulation::tick() -> void {
     // 2. 环境漂移 / 剧变（optimum 是世界状态，由 Simulation 拥有）
     evolution_.drift_environment(optimum_, tick_, params_.epoch_length, events_);
 
-    // 3. 行为循环：用 BehaviorSystem
+    // 3. 计算 fitness 并检测精英/Boss（直接对 registry 操作）
+    evolution_.evaluate_fitness(registry_, optimum_);
+    evolution_.detect_elite_boss(registry_, events_, tick_);
+
+    // 4. 行为循环：用 BehaviorSystem
     behavior_system_.update(registry_, tick_);
 }
 

@@ -23,7 +23,7 @@ public:
 
 private:
     World&           world_;
-    [[maybe_unused]] EvolutionEngine& evo_;   // Task 11 will use for evo_.reproduce
+    EvolutionEngine& evo_;
     std::uint64_t&   next_id_;
     std::mt19937_64  rng_;
 };
