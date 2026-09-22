@@ -8,10 +8,10 @@
 
 namespace game::ecs {
 
-// Component: trivially copyable + default-constructible + 自声明 tag
+// Component: move-constructible + default-constructible + 自声明 tag
 template<typename T>
-concept Component = std::is_trivially_copyable_v<T>
-                 && std::is_default_constructible_v<T>
+concept Component = std::is_default_constructible_v<T>
+                 && std::is_move_constructible_v<T>
                  && requires { typename T::is_component; };
 
 template<typename T>
