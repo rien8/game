@@ -20,6 +20,7 @@ find_package(SFML 3 COMPONENTS Graphics Window Audio Network REQUIRED)
 add_executable(gamev2
     src/main.cpp
     src/core/gene.cpp
+    src/core/headless_runner.cpp
     src/core/creature.cpp
     src/core/evolution.cpp
     src/core/simulation.cpp
