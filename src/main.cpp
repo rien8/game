@@ -1,4 +1,5 @@
 #include "core/simulation.hpp"
+#include "core/headless_runner.hpp"
 #include "render/creature_assembler.hpp"
 #include "render/tile_renderer.hpp"
 #include "world/world_generator.hpp"
@@ -93,10 +94,60 @@ auto try_load_atlas(SDL_Renderer* renderer)
     return std::pair{std::move(*m), std::move(*atlas)};
 }
 
+auto has_flag(int argc, char** argv, std::string_view name) -> bool {
+    for (int i = 1; i < argc; ++i) {
+        if (std::string_view{argv[i]} == name) return true;
+    }
+    return false;
+}
+
+auto parse_size_t_arg(int argc, char** argv, std::string_view name)
+    -> std::optional<std::size_t> {
+    for (int i = 1; i + 1 < argc; ++i) {
+        if (std::string_view{argv[i]} == name) {
+            return static_cast<std::size_t>(std::stoull(argv[i + 1]));
+        }
+    }
+    return std::nullopt;
+}
+
+auto print_summary(const game::HeadlessRunner::Summary& s) -> void {
+    std::cout << "\n=== Summary ===\n"
+              << std::format("seed:               {}\n",          s.seed)
+              << std::format("total_ticks:        {}\n",          s.total_ticks)
+              << std::format("initial_population: {}\n",          s.initial_population)
+              << std::format("final_population:   {}\n",          s.final_population)
+              << std::format("mean_energy:        {:.2f}\n",       s.mean_energy)
+              << std::format("final_world_energy: {:.1f}\n",       s.final_world_energy)
+              << "events_by_type:\n";
+    if (s.events_by_type.empty()) {
+        std::cout << "  (none)\n";
+    } else {
+        for (const auto& [k, v] : s.events_by_type) {
+            std::cout << std::format("  {}: {}\n", k, v);
+        }
+    }
+}
+
 }  // namespace
 
 auto main(int argc, char** argv) -> int {
     SetConsoleOutputCP(CP_UTF8);
+
+    if (has_flag(argc, argv, "--text")) {
+        const auto ticks = parse_size_t_arg(argc, argv, "--ticks");
+        if (!ticks || *ticks == 0) {
+            std::cerr << "--ticks must be > 0\n";
+            return 2;
+        }
+        game::HeadlessRunner::Config cfg;
+        cfg.seed       = parse_seed(argc, argv);
+        cfg.ticks      = *ticks;
+        cfg.log_period = parse_size_t_arg(argc, argv, "--period").value_or(60);
+        auto summary = game::HeadlessRunner{}.run(cfg);
+        print_summary(summary);
+        return 0;
+    }
 
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         std::cerr << std::format("SDL_Init failed: {}\n", SDL_GetError());
