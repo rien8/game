@@ -1,0 +1,11 @@
+build/
+.cache/
+.vscode/
+.vs/
+*.obj
+*.exe
+*.pdb
+*.ilk
+*.log
+.superpowers/sdd/
+temp/
