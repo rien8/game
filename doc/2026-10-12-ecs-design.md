@@ -190,11 +190,14 @@ static 语义）。
 ```cpp
 static_assert(std::is_default_constructible_v<T>,
               "组件必须可默认构造");
-static_assert(std::is_nothrow_move_assignable_v<T>,
-              "组件必须支持 noexcept 移动赋值");
+static_assert(std::is_nothrow_move_constructible_v<T>,
+              "组件必须支持 noexcept 移动构造");
 ```
 
-该约束换来：加组件时 `std::construct_at` 原地构造，迁移时直接 move，
+注意契约是**移动构造**而非移动赋值：存储层只提供构造原语（见 4.6），
+迁移时把源对象移动构造进目标的 RAW 存储，从不对已存在的对象做赋值。
+
+该约束换来：加组件时 `std::construct_at` 原地构造，迁移时移动构造，
 删组件时通过函数指针调用析构。无需为每种组件生成构造或移动代码。
 
 ## 4. 存储层
@@ -209,6 +212,8 @@ struct ComponentTypeInfo
     std::size_t alignment;
     const char* name;
     void (*destroy)(void*);
+    /// 移动构造入口。dst 必须是 RAW 存储（见 4.6）。
+    void (*move_construct)(void* dst, void* src);
 };
 ```
 
@@ -286,31 +291,55 @@ public:
 
 每个 archetype 为每种组件持有一个 `Column`，内部按 chunk 分段存储。
 
-### 4.6 迁移算法
+### 4.6 行的生命周期
+
+一个 archetype 中的行有且仅有两种状态：
+
+- **RAW** —— 字节已分配，组件尚未构造
+- **LIVE** —— 该行的每个组件都已构造完成
+
+合法转换只有两条，且**不得跨越**：
+
+```
+RAW ──构造──> LIVE ──析构──> RAW
+```
+
+因此存储层提供的是**构造**原语而非赋值原语。把 `T` 移动赋值进一块从未构造的
+存储是未定义行为，哪怕字节层面「看起来对」也不行。
+
+关键约束：`Archetype::push_back` 只分配 RAW 行，**不构造任何组件**。由调用
+方负责在暴露该行之前把全部组件构造完毕。
+
+### 4.7 迁移算法
 
 以「加组件」为例：
 
 ```
 1. 目标 archetype B = 当前组件集 ∪ {新组件}，排序后查表，无则创建
-2. 在 B 中取一个尾部空行 (b_chunk, b_row)
-3. 对每个共有组件 c：
-       move(A[c][a_chunk][a_row] → B[c][b_chunk][b_row])
+2. B.push_back() → 取尾部 RAW 行 (b_chunk, b_row)
+3. 对每个共有组件 c：把 A 中的 LIVE 对象移动构造到 B 的 RAW 行
 4. 新组件 T：construct_at(B[T][b_chunk][b_row], args...)
-5. 从 A 中移除该实体：
-       取 A 最后一个 chunk 的最后一个实体 swap 到 (a_chunk, a_row)
-       更新被交换实体的 slot
-       若该 chunk 已空，pop 掉
-6. 更新本实体的 slot 指向 (B, b_chunk, b_row)
+   此时 B 的该行已转为 LIVE
+5. 析构 A 中该实体的全部组件 —— (a_chunk, a_row) 转为 RAW
+6. fill_hole(A, a_chunk, a_row)：把 A 最后一个实体移动构造进这个 RAW 空洞，
+   随即析构它在原位的组件并 pop 掉原行；返回被填补实体的句柄
+7. 更新本实体的 slot 指向 (B, b_chunk, b_row)
 ```
 
-第 5 步是关键策略：**用全局尾部实体填补空洞，保证除最后一个 chunk 外
-所有 chunk 永远满**。这样 System 做实体级并行切片时，每个 worker 拿到的
-都是连续区间，无需处理空洞与边界。
+第 6 步之所以能安全地把尾部实体移进空洞，正是因为第 5 步已经把空洞变回
+RAW 状态 —— 对 RAW 存储做移动构造是合法的。
 
-代价是行索引不稳定：swap 会改变其他实体的所在位置。因此结构性变更只
-能发生在帧末单线程 flush 阶段，这正是 Command Buffer 方案的前提。
+删除组件算法对称：跳过第 4 步。
 
-删除组件算法对称：从尾部空行反向构造目标 archetype 即可。
+**为什么不用「交换」**：交换需要对两个都已构造的对象做赋值或交换，而空洞
+在一开始根本不是对象。拆成「先析构变 RAW，再移动构造填入」两步，两个操作
+各自的对象状态都是明确的。
+
+代价是行索引不稳定：填洞会改变其他实体的所在位置。因此结构性变更只能发生
+在帧末单线程 flush 阶段，这正是 Command Buffer 方案的前提。
+
+除最后一个 chunk 外所有 chunk 永远满，这样 System 做实体级并行切片时，
+每个 worker 拿到的都是连续区间，无需处理空洞与边界。
 
 ## 5. 查询层
 
@@ -434,17 +463,25 @@ while 剩余非空:
 
 因此设定降级规则：
 
-> 当前线程若处于 System 执行上下文中（thread_local 标志），则
-> `each_parallel` 退化为串行遍历；否则正常提交线程池。
+> 当一批 System 正在**线程池的 worker 上并发执行**时，标志置位，
+> 各 System 内部的 `each_parallel` 退化为串行遍历；否则正常提交线程池。
+
+标志是「本批是否在进行中」的批级判据，不是「当前线程是否在 System 内」的
+线程级判据。这两者在本设计中恰好等价：只有多 System 批次才会把 System 派到
+worker 上，而单 System 批次就在调用线程上执行，不存在 worker 互相等待的窗口。
 
 实际效果：
 
 | 批次构成 | 批内 System 并行 | 单 System 内 chunk 并行 |
 |---|---|---|
-| 仅 1 个 System | 否 | 是 |
+| 仅 1 个 System | 否 | **是** |
 | 多个 System | 是 | 否（降级） |
 
 `each_parallel` 按 chunk 切分任务，粒度天然为一页 4KB，无需额外调参。
+
+**单 System 批次的内并行是本模块的核心收益之一**：它正是当初选择 Archetype
+分块存储而非每组件独立稀疏存储的原因（见 [11.3](#113-批内多-system-时内部并行降级)）。
+任何让单 System 批次也降级的改动都属于回退，必须由设计所有者显式确认。
 
 ## 8. Command Buffer
 
@@ -582,9 +619,26 @@ using DiagnosticHandler = std::function<void(const Diagnostic&)>;
 
 ### 11.3 批内多 System 时内部并行降级
 
-见 7.3。若某重 System 经常与其他 System 同批，其内部并行不会生效。
-解决方向是让该 System 在读写集上与其他 System 冲突以强制单独成批，
-代价是牺牲一定的并行度。当前规模下可接受。
+见 7.3。若某重 System 经常与其他 System 同批，它的内并行不会生效。
+当前的应对是让该 System 在读写集上与其他 System 产生冲突，从而强制单独成批 ——
+单独成批时它独占调用线程，内并行照常开启。代价是牺牲一定的跨 System 并行度，
+在当前规模下可接受。
+
+### 11.4 组件类型的生命周期要求
+
+存储层提供构造原语而非赋值原语（见 4.6），因此组件可以是持有资源的类型，
+析构由存储层经 `ComponentTypeInfo::destroy` 驱动。
+
+代价是每次实体迁移都要真正构造与析构对象，比字节搬运贵。对于客户端逻辑层
+的几万实体规模，这个开销可接受。
+
+**为什么值得**：早期设计让 `Archetype::push_back` 只分配字节、由迁移路径做
+移动**赋值**。对平凡可复制类型恰好正确，但一旦组件类型写了自己的移动赋值
+（哪怕只是先释放旧资源），就是未定义行为。而 API 表面（`destroy_row`、
+`ComponentTypeInfo::destroy`）又在主动邀请这类组件 —— 接口承诺了它做不到的
+事情，比明确不支持更糟。
+
+2026-10-13 决策：补齐语义，保留对持有资源组件的支持。
 
 ## 12. 构建
 

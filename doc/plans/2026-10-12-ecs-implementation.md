@@ -453,8 +453,12 @@ void emit_diagnostic(const Diagnostic& diag,
 
 - [ ] **Step 4: 更新 CMakeLists.txt**
 
+在**现有列表上追加**，不要用下面的文本整体替换 —— `src/ecs.cpp` 是锚点
+翻译单元，删掉它会让 CMake 因目标无源文件而配置失败：
+
 ```cmake
 add_library(ecs STATIC
+    src/ecs.cpp
     src/ecs/diagnostic.cpp
 )
 
@@ -857,9 +861,6 @@ Expected: `13 test(s), 0 failed`，`exit=0`。
   - `gamev2::ecs::compute_chunk_capacity(std::span<const ComponentId>)`
   - `gamev2::ecs::Column`
     - `Column(const ComponentTypeInfo&, std::size_t chunk_capacity)`
-    - `std::size_t chunk_capacity() const noexcept`
-    - `const ComponentTypeInfo& info() const noexcept`
-    - `std::size_t chunk_count() const noexcept`
     - `void ensure_chunk(std::uint32_t)`
     - `void pop_chunk()`
     - `std::byte* chunk_data(std::uint32_t)` 及 const 重载
@@ -907,16 +908,6 @@ public:
     Column& operator=(Column&&) noexcept = default;
     Column(const Column&) = delete;
     Column& operator=(const Column&) = delete;
-
-    [[nodiscard]] std::size_t chunk_capacity() const noexcept
-    {
-        return capacity_;
-    }
-
-    [[nodiscard]] const ComponentTypeInfo& info() const noexcept
-    {
-        return info_;
-    }
 
     [[nodiscard]] std::size_t chunk_count() const noexcept
     {
@@ -2161,14 +2152,17 @@ std::expected<void, EcsError> World::add(EntityId e, Args&&... args)
 
     auto& slot = slots_[e.index()];
     const auto cid = component_id_of<T>();
-    auto& src = storage_.at(slot.archetype);
+    const auto src_id = slot.archetype;
 
-    if (src.has(cid))
+    if (storage_.at(src_id).has(cid))
     {
         return EcsError::component_exists;
     }
 
-    const auto target = storage_.with(slot.archetype, cid, true);
+    const auto target = storage_.with(src_id, cid, true);
+    // with() 可能新建 archetype 并触发 archetypes_ 重新分配，
+    // 因此对存储的引用必须在它之后再取，否则悬垂。
+    auto& src = storage_.at(src_id);
     auto& dst = storage_.at(target);
 
     dst.push_back(e);
@@ -2201,15 +2195,17 @@ std::expected<void, EcsError> World::remove(EntityId e)
 
     auto& slot = slots_[e.index()];
     const auto cid = component_id_of<T>();
-    auto& src = storage_.at(slot.archetype);
+    const auto src_id = slot.archetype;
 
-    const auto si = src.find(cid);
+    const auto si = storage_.at(src_id).find(cid);
     if (si == kNoIndex)
     {
         return EcsError::component_missing;
     }
 
-    const auto target = storage_.with(slot.archetype, cid, false);
+    const auto target = storage_.with(src_id, cid, false);
+    // 与 add 相同：引用必须在 with() 之后再取。
+    auto& src = storage_.at(src_id);
     auto& dst = storage_.at(target);
 
     dst.push_back(e);
@@ -2271,11 +2267,6 @@ public:
     };
 
     explicit View(World& world);
-
-    [[nodiscard]] std::size_t match_count() const noexcept
-    {
-        return tasks_.size();
-    }
 
     template<typename F>
     void each(F&& f)
@@ -2959,8 +2950,6 @@ Expected: `54 test(s), 0 failed`，`exit=0`。
 **Interfaces:**
 - Consumes: `World`、`EntityId`、`ComponentId`（Task 2、3、6）
 - Produces:
-  - `gamev2::ecs::CommandBuffer::Kind::destroy` / `::add` / `::remove`
-  - `gamev2::ecs::CommandBuffer::Command`
   - `void CommandBuffer::destroy(EntityId)`
   - `template<typename T, typename... Args> void add(EntityId, Args&&...)`
   - `template<typename T> void remove(EntityId)`
@@ -2994,21 +2983,6 @@ namespace gamev2::ecs {
 class CommandBuffer
 {
 public:
-    enum class Kind
-    {
-        destroy,
-        add,
-        remove,
-    };
-
-    struct Command
-    {
-        Kind kind;
-        EntityId target;
-        ComponentId component{};
-        std::function<void(World&)> apply;
-    };
-
     void destroy(EntityId e);
 
     template<typename T, typename... Args>
@@ -3029,13 +3003,19 @@ public:
     void flush(World& world);
 
 private:
+    /// 命令体直接持有可调用对象，因此无需为组件负载引入所有权类型。
+    struct Command
+    {
+        EntityId target;
+        std::function<void(World&)> apply;
+    };
+
     std::vector<Command> commands_;
 };
 
 inline void CommandBuffer::destroy(EntityId e)
 {
-    commands_.push_back(Command{Kind::destroy, e, ComponentId{},
-                                [e](World& w) { w.destroy(e); }});
+    commands_.push_back(Command{e, [e](World& w) { w.destroy(e); }});
 }
 
 template<typename T, typename... Args>
@@ -3045,8 +3025,7 @@ void CommandBuffer::add(EntityId e, Args&&... args)
                   "组件类型无法用给定参数构造");
     auto tuple = std::make_tuple(std::forward<Args>(args)...);
     commands_.push_back(Command{
-        Kind::add, e, component_id_of<T>(),
-        [e, t = std::move(tuple)](World& w) mutable
+        e, [e, t = std::move(tuple)](World& w) mutable
         {
             std::apply(
                 [&w, e](auto&&... a)
@@ -3062,8 +3041,7 @@ template<typename T>
 void CommandBuffer::remove(EntityId e)
 {
     commands_.push_back(Command{
-        Kind::remove, e, component_id_of<T>(),
-        [e](World& w) { (void)w.template remove<T>(e); }});
+        e, [e](World& w) { (void)w.template remove<T>(e); }});
 }
 
 inline void CommandBuffer::append(CommandBuffer&& other)

@@ -1,7 +1,9 @@
 build/
+build-*/
 .cache/
 .vscode/
 .vs/
+.qtcreator/
 *.obj
 *.exe
 *.pdb
