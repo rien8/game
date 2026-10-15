@@ -99,6 +99,23 @@ public:
         return slot_of(e) != nullptr;
     }
 
+    /// 遍历全部存活实体，回调收到真实句柄。
+    ///
+    /// 存活判据与 slot_of 一致：archetype 为 kInvalidArchetype 即已销毁。
+    /// 版本号取自 slot 自身，因此造出的句柄一定能通过 slot_of 的校验。
+    template<typename F>
+    void for_each_entity(F&& f)
+    {
+        for (std::uint32_t i = 0; i < slots_.size(); ++i)
+        {
+            if (slots_[i].archetype == kInvalidArchetype)
+            {
+                continue;
+            }
+            f(EntityId::make(i, slots_[i].version));
+        }
+    }
+
     void report(Diagnostic diag) const
     {
         emit_diagnostic(diag, diag_);

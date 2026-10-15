@@ -46,6 +46,38 @@ set(ECS_TEST_SOURCES
 add_executable(ecs_tests ${ECS_TEST_SOURCES})
 target_link_libraries(ecs_tests PRIVATE ecs)
 
+set(GENETICS_SOURCES
+    src/genetics/locus.cpp
+    src/genetics/species.cpp
+    src/genetics/expression.cpp
+    src/genetics/breeding.cpp
+    src/genetics/survival.cpp
+    src/genetics/statistics.cpp
+    src/genetics/population.cpp
+    src/ecs/adapt/genetics_systems.cpp
+)
+add_library(genetics STATIC ${GENETICS_SOURCES})
+target_include_directories(genetics PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(genetics PUBLIC ecs)
+
+set(GENETICS_TEST_SOURCES
+    tests/main.cpp
+    tests/test_genetics_smoke.cpp
+    tests/test_genetics_locus.cpp
+    tests/test_genetics_species.cpp
+    tests/test_genetics_expression.cpp
+    tests/test_genetics_random.cpp
+    tests/test_genetics_breeding.cpp
+    tests/test_genetics_survival.cpp
+    tests/test_genetics_statistics.cpp
+    tests/test_genetics_population.cpp
+    tests/test_genetics_determinism.cpp
+    tests/test_genetics_performance.cpp
+    tests/test_genetics_systems.cpp
+)
+add_executable(genetics_tests ${GENETICS_TEST_SOURCES})
+target_link_libraries(genetics_tests PRIVATE genetics)
+
 # Opt-in sanitizer build. Off by default so the pinned build stays untouched;
 # the `active_` invariant in ThreadPool is a lifetime race that no ordinary
 # assertion can observe, and reproducing it needs a UAF detector.
@@ -64,8 +96,13 @@ if(GAMEV2_ENABLE_ASAN)
     #
     # 源文件路径必须绝对化：相对路径按消费它的目录解析，放在子目录里就找不到了。
     set(ECS_ASAN_SOURCES)
-    foreach(f IN LISTS ECS_SOURCES ECS_TEST_SOURCES)
+    foreach(f IN LISTS ECS_SOURCES ECS_TEST_SOURCES
+                  GENETICS_SOURCES GENETICS_TEST_SOURCES)
         list(APPEND ECS_ASAN_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/${f}")
     endforeach()
+    # 每个可执行目标都自带 tests/main.cpp（它定义了 main 与 test::run_all），
+    # 合并源列表后同一份 TU 会进数组两次，直接编译成可执行文件会在链接期
+    # 撞上 duplicate symbol。
+    list(REMOVE_DUPLICATES ECS_ASAN_SOURCES)
     add_subdirectory(cmake/asan)
 endif()

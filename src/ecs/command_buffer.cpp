@@ -8,7 +8,10 @@ void CommandBuffer::flush(World& world)
 {
     for (const auto& cmd : commands_)
     {
-        if (!world.is_alive(cmd.target))
+        // create 命令没有目标：它的目标就是待创建的新实体本身，不能套用其余
+        // 命令的「目标已失效则拒绝」检查。其余命令即便误传 EntityId{} 也照样
+        // 受检——它是一个已失效的目标，不是「无目标」。
+        if (cmd.target && !world.is_alive(*cmd.target))
         {
             world.report(Diagnostic{
                 DiagnosticLevel::error,

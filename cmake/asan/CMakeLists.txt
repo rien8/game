@@ -10,8 +10,13 @@
 # lld-link /failifmismatch and refuses to link.
 set(CMAKE_BUILD_TYPE Release)
 
-add_executable(ecs_tests_asan ${ECS_ASAN_SOURCES})
-target_include_directories(ecs_tests_asan PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_compile_options(ecs_tests_asan PRIVATE
+# This target now carries BOTH test suites (ECS_ASAN_SOURCES is fed from
+# ECS_TEST_SOURCES and GENETICS_TEST_SOURCES), so the old `ecs_tests_asan`
+# name understated its scope. Naming matters here: the top-level build dir
+# also drops uninstrumented genetics_tests.exe / ecs_tests.exe, and running
+# one of those by mistake while following the docs yields a false green.
+add_executable(game_tests_asan ${ECS_ASAN_SOURCES})
+target_include_directories(game_tests_asan PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(game_tests_asan PRIVATE
     -fsanitize=address -fno-omit-frame-pointer)
-target_link_options(ecs_tests_asan PRIVATE -fsanitize=address)
+target_link_options(game_tests_asan PRIVATE -fsanitize=address)
