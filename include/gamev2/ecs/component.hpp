@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <span>
 #include <type_traits>
 #include <typeinfo>
@@ -70,18 +71,36 @@ void move_construct_component(void* dst, void* src)
 class ComponentRegistry
 {
 public:
+    /// 取已注册类型的只读视图。
+    ///
+    /// 返回 span 而非引用或拷贝：调用方只做线性查找，取元素地址用完即走。
+    /// 它**不**加锁——锁只能护住函数返回的瞬间，span 会活到调用方用完为止，
+    /// 那时别的注册早已可能让 infos_ 扩容、这块 span 指向已释放的缓冲。
+    /// 目前没有调用方能在并发的注册中持有它：types() 的两个调用点
+    /// （compute_chunk_capacity、Archetype 构造）都在 Storage::find_or_create
+    /// 里，即 World::create / add / remove，而结构变更被 mutates_structure
+    /// 挡在批执行期之外，注册因此只发生在主线程。
+    ///
+    /// 这条不变量靠约定维持，不是类型强制的。一旦将来有 worker 线程走到
+    /// find_or_create 上，就得换成元素地址稳定的存储（定长数组或 deque）。
     [[nodiscard]] std::span<const ComponentTypeInfo> types() const noexcept
     {
         return infos_;
     }
 
     /// 按调用顺序分配下一个组件 ID 并记录类型信息。
+    ///
+    /// 追加必须互斥：component_id_of<T>() 的函数内 static 只保证**同一种类型**
+    /// 注册一次，不同类型之间彼此并行。View 的构造与 World::get_if 都会在
+    /// worker 线程上首次注册各自的类型，同一批里两个 system 各注册一种新类型
+    /// 就是两个线程同时 push_back 到同一个 vector。
     [[nodiscard]] ComponentId register_type_info(
         std::size_t size, std::size_t alignment, const char* name,
         void (*destroy)(void*), void (*move_construct)(void* dst, void* src));
 
 private:
     std::vector<ComponentTypeInfo> infos_;
+    std::mutex mutex_;
 };
 
 [[nodiscard]] ComponentRegistry& global_component_registry();
