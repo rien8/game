@@ -476,6 +476,16 @@ TEST(environment_and_breeding_systems_are_separated_by_the_scheduler)
     CHECK(scheduler.batch_count() >= 2);
 }
 
+TEST(adapt_systems_declare_their_execution_order)
+{
+    // 编译期钉住跨 system 的先后声明。批次归属无法从公开接口观测
+    // （Scheduler 只暴露 batch_count），因此这里至少保证声明本身没被删。
+    // 「order 真的驱动分层」由 test_scheduler.cpp 的执行序测试覆盖。
+    static_assert(AgingSystem::order < BreedingSystem::order);
+    static_assert(EnvironmentSystem::order < BreedingSystem::order);
+    static_assert(EnvironmentSystem::mutates_structure);
+}
+
 TEST(environment_and_aging_systems_are_separated_by_the_scheduler)
 {
     // 与上面那条同一个机制，但对手换成 AgingSystem：它的访问集是

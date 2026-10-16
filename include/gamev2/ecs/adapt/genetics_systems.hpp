@@ -57,6 +57,12 @@ struct Vitality
 class AgingSystem final : public System
 {
 public:
+    /// 本 system 写 Vitality、BreedingSystem 也写，二者访问集冲突，被强制
+    /// 分进不同批次；order 把 AgingSystem 排在前面，兑现「**必须排在
+    /// BreedingSystem 之后**（即之前）」这条约束。冲突由 WriteSet 兜底，
+    /// order 只决定哪一批在前。
+    static constexpr int order = 0;
+
     /// 读集就是本 system 真的读到的那些组件：收集遍历取出 CreaturePhenotype
     /// 判寿命，Vitality 改年龄。它与 EnvironmentSystem 的读集毫无交集
     /// （本类 CreaturePhenotype + Vitality，对方 Position + CreaturePhenotype
@@ -78,12 +84,7 @@ public:
 /// 而 settle 收到的 age 恒为 0（SeasonInput 不携带年龄，递增由 AgingSystem
 /// 负责）：Age 先跑，本季过寿的个体带着真实年龄进结算并当场出局；反过来
 /// 则用上一季的年龄判定，等于让寿命判定整整慢一季。反序唯一可察觉的后果是
-/// 一季的偏差，正因为它不崩不报错，才只能靠这份文档守住。
-///
-/// WriteSet 已经表达了「不得并行」——两者都写 Vitality，Scheduler 的冲突
-/// 检测必然把二者分进不同批次。它表达不了的是「先后」：批次之间的次序由
-/// plan() 的贪心分层决定，不是声明式的顺序契约（要它得另设一个 before /
-/// after 声明，目前只有一个这样的约束，不值得为它改 Scheduler 的接口）。
+/// 一季的偏差，正因为它不崩不报错，才只能靠 order 与 WriteSet 一起守住。
 class BreedingSystem final : public System
 {
 public:
@@ -129,6 +130,16 @@ public:
                                const Environment, const SpeciesTag,
                                const Feeding>;
     using WriteSet = std::tuple<Vitality>;
+
+    /// 排在 AgingSystem 与 EnvironmentSystem 之后。与前两者的冲突分别由
+    /// WriteSet（都写 Vitality）与 EnvironmentSystem::mutates_structure 兜底，
+    /// order 负责让本 system 落进更晚的那一批。
+    ///
+    /// 在此之前这条约束只写在注释里，靠 plan() 恰好按注册顺序分层成立：
+    /// 按 Breeding、Environment、Aging 的顺序注册，plan 会排出
+    /// batch{Breeding} → batch{Environment}，Breeding 于是读到上一季的
+    /// targets() 和尚不存在的 Feeding 组件，整季饥荒静默失效且不报错。
+    static constexpr int order = 1;
 
     /// \pre 本缓冲器必须在本次 execute 返回后才 flush：newborn_ 是
     /// cmd.create 的回写目标，下一轮 execute 会覆盖它。

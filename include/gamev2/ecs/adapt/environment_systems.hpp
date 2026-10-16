@@ -42,10 +42,10 @@ private:
     gamev2::environment::ResourceField resources_;
 };
 
-/// 逐个体写 Feeding，逐站点出 BreedingTarget。必须先于 BreedingSystem 跑完：
-/// 登记顺序决定批次顺序（Scheduler::plan 按注册序贪心分层），而 WriteSet /
-/// ReadSet 只保证二者不同批，表达不了批次之间的先后。顺序反了不会崩，只会让
-/// 本季出生数按上一季的站点表结算。
+/// 逐个体写 Feeding，逐站点出 BreedingTarget。必须先于 BreedingSystem 跑完。
+/// WriteSet / ReadSet 只保证二者不同批，批次之间的先后由 System::order 表达；
+/// 两者都改掉时本 system 会落在 BreedingSystem 之后，读到上一季的站点表，
+/// 那只会让本季出生数按上一季结算。
 ///
 /// Feeding 的首次写入是 `World::add`，即 archetype 迁移。它与另一 system 对
 /// 同一批 slots_ 的无锁遍历并发相撞就是 use-after-free，而访问集表达不了这个
@@ -70,6 +70,13 @@ public:
     /// （plan 的判据里读/读不算冲突，两个访问集不相交的只读 system 会被放进
     /// 同一批并行派发），因此只能由这个标记让它独占批次。
     static constexpr bool mutates_structure = true;
+
+    /// 排在 BreedingSystem 之前。该标记已保证本 system 独占一个批次，
+    /// order 再把这一批钉在前面：BreedingSystem 经 targets_ 指针读本 system
+    /// 的产物，若它落在更早的批次，读到的是上一季的站点表与不存在的
+    /// Feeding 组件，整季饥荒静默失效。二者没有任何共读写集，顺序完全靠
+    /// 这两行声明。
+    static constexpr int order = 0;
 
     using ReadSet = std::tuple<const Position, const CreaturePhenotype,
                                const SpeciesTag>;

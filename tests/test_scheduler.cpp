@@ -652,3 +652,108 @@ TEST(scheduler_same_batch_systems_view_disjoint_components)
     CHECK(!saw_parallelize_a.load());
     CHECK(!saw_parallelize_b.load());
 }
+
+namespace {
+
+/// 执行序记录器。批次内是并行派发的，所以只能断言「批的先后」，不能断言
+/// 同批内谁先跑——下面的断言都刻意留了同批这一层不确定性。
+std::mutex g_log_mutex;
+std::vector<int> g_execution_log;
+
+void log_execution(int tag)
+{
+    const std::lock_guard lock{g_log_mutex};
+    g_execution_log.push_back(tag);
+}
+
+/// 写 Health，与 Later 同为 Health 的写者，因此必然被分进不同批次。
+/// 与 Earlier 没有任何共读写集，本可同批并行——order 是唯一把二者分开的手段。
+struct Earlier final : gamev2::ecs::System
+{
+    static constexpr int order = 0;
+    using ReadSet = std::tuple<>;
+    using WriteSet = std::tuple<Health>;
+    int tag = 1;
+
+    void execute(World&, CommandBuffer&) override
+    {
+        log_execution(tag);
+    }
+};
+
+struct Later final : gamev2::ecs::System
+{
+    static constexpr int order = 1;
+    using ReadSet = std::tuple<>;
+    using WriteSet = std::tuple<Health>;
+    int tag = 2;
+
+    void execute(World&, CommandBuffer&) override
+    {
+        log_execution(tag);
+    }
+};
+
+    struct First final : gamev2::ecs::System
+    {
+        static constexpr int order = 0;
+        using ReadSet = std::tuple<>;
+        using WriteSet = std::tuple<Position>;
+        int tag = 1;
+        void execute(World&, CommandBuffer&) override { log_execution(tag); }
+    };
+
+    struct Second final : gamev2::ecs::System
+    {
+        static constexpr int order = 1;
+        using ReadSet = std::tuple<>;
+        using WriteSet = std::tuple<Velocity>;
+        int tag = 2;
+        void execute(World&, CommandBuffer&) override { log_execution(tag); }
+    };
+
+}  // namespace
+
+TEST(system_order_overrides_registration_order)
+{
+    // 访问集只保证「不并行」，批次之间的先后原先纯属 plan() 按注册顺序
+    // 贪心的副产品。这里故意先注册 Later：没有 System::order 时它会落在
+    // 第一批，Earlier 被挤到第二批，先后正好反了。
+    auto world = World{};
+    auto cmd = CommandBuffer{};
+
+    Earlier earlier;
+    Later later;
+    Scheduler scheduler{2};
+    scheduler.add(later);
+    scheduler.add(earlier);
+
+    g_execution_log.clear();
+    scheduler.run(world, cmd);
+
+    CHECK_EQ(g_execution_log.size(), std::size_t{2});
+    if (g_execution_log.size() == 2)
+    {
+        CHECK_EQ(g_execution_log[0], earlier.tag);
+        CHECK_EQ(g_execution_log[1], later.tag);
+    }
+}
+
+TEST(system_order_does_not_serialize_non_conflicting_systems)
+{
+    // order 只决定「谁先参与分层」，不制造冲突。Position 的两个互不冲突的
+    // 写者即使声明了先后，仍应留在同一批并行派发——否则每个带 order 的
+    // system 都会把整条流水线退化成串行。
+    auto world = World{};
+    auto cmd = CommandBuffer{};
+
+    Second second;
+    First first;
+    Scheduler scheduler{2};
+    scheduler.add(second);
+    scheduler.add(first);
+    scheduler.plan();
+
+    // 写集不相交 => 同一批 => 一次 plan 就够。
+    CHECK_EQ(scheduler.batch_count(), std::size_t{1});
+}

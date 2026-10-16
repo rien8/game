@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <numeric>
 
 namespace gamev2::ecs {
 
@@ -28,6 +29,15 @@ void Scheduler::plan()
     std::vector<bool> taken(entries_.size(), false);
     std::size_t remaining = entries_.size();
 
+    // 按 System::order 稳定排序后再分层：先序的 system 优先占住靠前的批次，
+    // 「谁先谁后」因此由 order 决定，而不是碰巧等于注册顺序。排序的是下标
+    // 视图而非 entries_ 本身，Entry 的排列保持注册序，批次下标的含义不变。
+    // 稳定排序保证 order 相同的 system 仍按注册顺序定序。
+    std::vector<std::size_t> visiting(entries_.size());
+    std::iota(visiting.begin(), visiting.end(), std::size_t{0});
+    std::ranges::stable_sort(visiting, {}, [this](std::size_t i)
+                             { return entries_[i].order; });
+
     while (remaining > 0)
     {
         std::vector<std::size_t> batch;
@@ -37,7 +47,7 @@ void Scheduler::plan()
         // 进空批），因此这里等价于「本批非空且已占用」。
         bool batch_mutates_structure = false;
 
-        for (std::size_t i = 0; i < entries_.size(); ++i)
+        for (const auto i : visiting)
         {
             if (taken[i])
             {

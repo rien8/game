@@ -41,6 +41,22 @@ public:
     /// 标记挡。
     static constexpr bool mutates_structure = false;
 
+    /// 本 system 相对同批其他 system 的先后。plan() 先按它稳定排序再贪心
+    /// 分层，因此「A 必须先于 B」由 `A::order < B::order` 表达，与注册顺序
+    /// 无关。未声明先后关系的 system 一律取 0，彼此之间仍靠注册顺序定序。
+    ///
+    /// 它与 mutates_structure 分工不同：那个标记把 system 单独关进一个批次，
+    /// 这个数字决定谁先参与分层。两者的区别在下面这条限制里。
+    ///
+    /// \warning 只在两者**本来就会冲突**时才等于「B 的批次严格晚于 A」。
+    /// 访问集不相交的两个 system 会被放进同一批并行派发，此时 order 只决定
+    /// 它们在批内的入列次序，管不到执行先后——要真正表达先后而不依赖冲突，
+    /// 得上带类型的依赖声明，那需要改 Scheduler 的接口。
+    ///
+    /// 因此：需要严格先后的 system，必须同时把双方的冲突写进访问集
+    /// （或 mutates_structure），否则这条声明形同虚设。
+    static constexpr int order = 0;
+
     virtual ~System() = default;
 
     /// 结构性变更必须走 cmd，不得直接改动 World；做不到时声明
