@@ -1,3 +1,11 @@
+/// @file locus.hpp
+/// @brief 遗传蓝图的静态数据：位点类型与目录、单倍体的等位基因定义表
+///        LocusTable、可调平衡系数 GeneticsConfig，以及加载期一次性校验
+///        validate()。
+///
+/// 所有物种共享同一张蓝图，物种差异只体现为等位基因分布与激活掩码。蓝图是
+/// 定长数组而非动态容器，才能作为普通值进 ECS 组件；相应地，配置错误必须在
+/// 启动期由 validate 拦下，热路径不做任何检查。
 #pragma once
 
 #include "gamev2/genetics/genome.hpp"
@@ -10,6 +18,8 @@
 
 namespace gamev2::genetics {
 
+/// 位点的两种形态。数量性状位点贡献到一个连续性状轴，结构位点解析为离散
+/// 形态状态；两者共用同一张表，只是消费方式不同。
 enum class LocusKind : std::uint8_t
 {
     Trait,       ///< 数量性状位点，贡献到一个连续性状轴
@@ -26,6 +36,8 @@ enum class StructuralSlot : std::uint8_t
     kSlotCount
 };
 
+/// 单个等位基因的取值定义。显性是设计数据给出的等级而非「谁是 A」，
+/// 一个 A 对一个 a 的真实语义由此表达。
 struct AlleleDef
 {
     float additive = 0.0f;    ///< 加性取值 v_i
@@ -33,6 +45,8 @@ struct AlleleDef
     std::uint8_t dom_rank = 0;///< 显性等级，越大越显
 };
 
+/// 单个位点的完整定义：它的形态、等位基因个数、投射目标、权重、显性系数与
+/// 突变率，以及至多 kMaxAlleles 个等位基因的定义。
 struct LocusDef
 {
     LocusKind kind = LocusKind::Trait;
@@ -75,6 +89,8 @@ struct LocusTable
     std::array<LocusDef, kLocusCount> loci{};
 };
 
+/// 蓝图配置的校验失败原因。除区间退化的 BadTraitRange 外，多数错误同样只在
+/// 启动期暴露一次，因此枚举逐项给注释以便定位。
 enum class LocusConfigError
 {
     ///< allele_count 不在 [2, kMaxAlleles]

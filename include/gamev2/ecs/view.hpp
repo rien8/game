@@ -1,3 +1,10 @@
+/// @file view.hpp
+/// @brief 类型化查询视图：按构造时给定的组件类型集合找出所有匹配的实体行，
+///        以可写引用（模板参数带 const 时为只读引用）交给回调逐行处理。
+///
+/// View 在构造时一次性算出匹配的 archetype 与非空 chunk 列表，遍历期不再做
+/// 任何集合运算，因此扫描代价与实体总数无关，只与命中行数有关。并行版本按
+/// chunk 提交到 World 的线程池，已处于 System 执行上下文时自动退化为串行。
 #pragma once
 
 #include "gamev2/ecs/component.hpp"

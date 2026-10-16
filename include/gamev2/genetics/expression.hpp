@@ -1,3 +1,10 @@
+/// @file expression.hpp
+/// @brief 表达层：把基因型映射为表型。trait_value / structural_state 是单个位点
+///        的取值规则，express 是全基因组的 f(G)，apply_environment 是环境修正
+///        g(E)，phenotype_of 是二者之和。
+///
+/// 两步必须分开且顺序固定：基因效应的夹取先于环境修正，否则一个极端基因型会被
+/// 环境增量救回，掩盖掉本应淘汰的表型。本文件全部是纯函数，不持有状态。
 #pragma once
 
 #include "gamev2/genetics/environment.hpp"

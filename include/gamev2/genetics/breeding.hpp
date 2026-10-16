@@ -1,3 +1,10 @@
+/// @file breeding.hpp
+/// @brief 繁殖：make_gamete 与 mutate 实现减数分裂和突变这两个遗传算子，
+///        make_offspring 把它们串起来抽亲代并产出一个子代基因组。
+///
+/// 亲代池 ParentPool 由地图 / 行为 spec 按物种与空间分桶完毕后传入，本模块
+/// 只借用其中的基因组指针、不关心它的来源，也不接管所有权。抽中的两个亲代
+/// 可能是同一个个体，此时子代为自交——近交衰退在个体层面的入口就在这里。
 #pragma once
 
 #include "gamev2/genetics/environment.hpp"
@@ -49,6 +56,8 @@ struct Parent
     float fitness = 0.0f;
 };
 
+/// 一个待繁殖位置及其亲代池。父池由地图 / 行为 spec 按物种与空间分桶完毕后
+/// 传入，本模块只消费它，不判断它的来源。
 struct ParentPool
 {
     std::span<const Parent> parents;
@@ -59,10 +68,12 @@ struct ParentPool
     /// 本季从该池产生的子代数量。生态位/空间上「一个 site 一个子代」是
     /// 自然读法,但物种级池需要按繁殖力批量产出,否则种群与物种数成反比
     /// 衰减。
- 按 1 处理,保持旧行为。
+    /// 按 1 处理,保持旧行为。
     std::uint32_t progeny = 1;
 };
 
+/// 繁殖期的失败原因。池内不足两个个体时无法完成有性生殖——该状态在真实
+/// 的地理隔离末期可达，如何处置（放弃繁殖或允许自交）由调用方决定。
 enum class BreedingError
 {
     EmptyPool,

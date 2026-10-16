@@ -1,3 +1,11 @@
+/// @file component.hpp
+/// @brief 组件类型注册：把每种组件类型的尺寸、对齐、析构与移动构造入口登记
+///        成进程内唯一的 ComponentId，并附带一份类型擦除的 ComponentTypeInfo
+///        供存储层在不知道 T 的情况下搬运它。
+///
+/// 组件作者无需手写注册代码：component_id_of<T>() 首次调用即完成注册，并在
+/// 编译期校验「对象类型、可默认构造、noexcept 可移动构造、对齐不超过列缓冲」
+/// 四项硬要求，不满足直接编译失败。
 #pragma once
 
 #include <cstddef>
@@ -25,6 +33,8 @@ struct ComponentId
         = default;
 };
 
+/// 组件类型的运行时描述。存储层只经由这份擦除信息分配与搬运元素，
+/// 无需也不应知道 T 本身。
 struct ComponentTypeInfo
 {
     ComponentId id;
@@ -55,6 +65,8 @@ void move_construct_component(void* dst, void* src)
 
 }  // namespace detail
 
+/// 进程内唯一的组件注册表。ID 按首次注册顺序单调分配，由函数内 static 变量
+/// 保证注册只发生一次，register_component<T> 即依赖这一同步。
 class ComponentRegistry
 {
 public:

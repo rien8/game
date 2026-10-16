@@ -1,3 +1,10 @@
+/// @file genome.hpp
+/// @brief 基因组的值类型定义：AlleleCall、Haplotype 与 Genome，以及全模块共用
+///        的两个尺寸常量。
+///
+/// 二倍体基因组存为两条单倍型而非交错的等位数组，是为了让重组（按单倍型整体
+/// 交叉）与统计（按单倍型遍历）都能顺序访问。位点总数与单倍型等位基因上限在
+/// 此定死，Phenotype 与 LocusTable 的定长数组都依赖它们。
 #pragma once
 
 #include <array>

@@ -1,3 +1,11 @@
+/// @file system.hpp
+/// @brief System 基类与访问集声明：System 用 ReadSet / WriteSet 两个 std::tuple
+///        自描述它读哪些组件、可写哪些组件，Scheduler 据此做冲突检测与并行
+///        分层，本模块不另设手写的依赖描述。
+///
+/// 类型上的 const 即访问权限声明：ReadSet 里的 const 元素只读、不计入写集，
+/// 「读」与「可写」因此只需在一处声明。WriteSet 内部元素必须互不相同，否则
+/// 写集定义失去意义，由 static_assert 在编译期拒绝。
 #pragma once
 
 #include "gamev2/ecs/command_buffer.hpp"
@@ -13,6 +21,11 @@
 
 namespace gamev2::ecs {
 
+/// 系统的抽象基类。execute 每帧被调度器调用一次，具体系统通过派生类覆写
+/// 读写集并实现 execute。
+///
+/// 结构性变更（增删实体、增删组件）不得在此期间直接改动 World，必须经 cmd
+/// 排队到帧末统一 flush，理由见 execute 的说明。
 class System
 {
 public:

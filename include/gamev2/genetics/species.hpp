@@ -1,3 +1,9 @@
+/// @file species.hpp
+/// @brief 物种标识与登记表：SpeciesId 句柄、描述「该物种启用哪些位点」的
+///        SpeciesMask，以及签发并保存掩码的 SpeciesRegistry。
+///
+/// 物种之间共享同一张位点蓝图，差异只落在激活掩码上，因此新建物种是廉价操作。
+/// 本模块把物种视为外部给定的静态标签，不涉及物种形成——那是下一代 spec 的事。
 #pragma once
 
 #include "gamev2/genetics/genome.hpp"
@@ -10,6 +16,7 @@
 
 namespace gamev2::genetics {
 
+/// 物种句柄。value 为 0 是保留的非法值，登记表签发的 id 从 1 起。
 struct SpeciesId
 {
     std::uint32_t value = 0;
@@ -28,6 +35,8 @@ struct SpeciesMask
     std::bitset<kLocusCount> active{};
 };
 
+/// 物种登记的失败原因。没有任何激活位点的物种无法产生表型，注册期即拒绝，
+/// 而不是等到表达层才静默产出全零表型。
 enum class SpeciesError
 {
     /// 没有激活任何位点的物种无法产生表型，也无法参与表达层

@@ -1,3 +1,10 @@
+/// @file statistics.hpp
+/// @brief 群体统计：summarize 扫一遍种群的基因组，产出各位点的等位基因频率、
+///        杂合度、近交系数与有效种群大小。
+///
+/// 漂变、瓶颈、近交衰退不是三个算法，而是同一采样机制在三个尺度上的表现，
+/// 因此共用这一条统计路径。近交系数用杂合度反推而不追踪家谱：家谱要在每代
+/// 给每个个体存一份祖先集合，而当代等位基因频率已含有同等信息。
 #pragma once
 
 #include "gamev2/genetics/genome.hpp"
@@ -10,6 +17,8 @@
 
 namespace gamev2::genetics {
 
+/// 单个位点的等位基因频率与杂合度实测 / 理论值。h 的两支相减即近交系数
+/// 的来源。
 struct AlleleStats
 {
     std::array<float, kMaxAlleles> frequency{};

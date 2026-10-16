@@ -1,3 +1,10 @@
+/// @file phenotype.hpp
+/// @brief 表型的值类型定义：性状轴 TraitKind 的固定目录与定长结构
+///        Phenotype。
+///
+/// 性状用一组连续浮点轴表达，结构特征用离散字段表达，二者分开存放而非塞进
+/// 同一张表，是为了让表达层能对两者施加完全不同的规则：前者可被 clamp 与环境
+/// 修正，后者只能被等位基因替换。字段集合编译期固定，才能定长进 ECS。
 #pragma once
 
 #include <array>
@@ -6,6 +13,7 @@
 
 namespace gamev2::genetics {
 
+/// 性状轴的固定目录。枚举顺序即下标，kTraitCount 是哨兵而非真实性状。
 enum class TraitKind : std::uint8_t
 {
     BodySize,

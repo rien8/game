@@ -1,3 +1,11 @@
+/// @file population.hpp
+/// @brief 一季种群结算：SeasonInput 收齐本季全部输入，settle 按固定五步
+///        单线程走完存活筛选 → 逐位置建池交配 → 遗传 → 表型 → 统计，
+///        一次性返回 SeasonOutput。
+///
+/// 「一次性返回」是这里的关键约定：子代先在 staging 里积累，行为系统因此永远
+/// 读不到半新半旧的种群，整季换代在调用方看来是一次原子提交。函数本身不持有
+/// 跨季状态，随机性由调用方传入的 RandomStreams 提供。
 #pragma once
 
 #include "gamev2/genetics/breeding.hpp"
@@ -44,7 +52,7 @@ struct SeasonOutput
     std::vector<Phenotype> offspring_phenotypes;
     std::vector<EnvironmentSnapshot> offspring_environments;
     /// 与 genomes 同序，
- 表示本季活到下一季。
+    /// 表示本季活到下一季。
     std::vector<std::uint8_t> survived;
     /// 与 genomes 同序，本季各体的生存率（各项生理约束存活率之积）。
     /// 与 survived 不同：它恒在 (0, 1]，抽签输赢是另一次抽样。outlived

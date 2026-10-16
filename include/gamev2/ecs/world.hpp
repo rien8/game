@@ -1,3 +1,12 @@
+/// @file world.hpp
+/// @brief ECS 世界：实体的权威所有者，管理槽位表、组件存储、诊断出口与并行
+///        线程池，并提供 create / destroy / add / remove / get_if 等结构与访问
+///        操作，是外部接触本模块的主入口。
+///
+/// 结构操作以 std::expected 返回失败原因而非抛异常（见 EcsError）；执行期的
+/// 结构性变更应经 CommandBuffer 排队到帧末，create() 的文档写明了唯一允许
+/// 直接改结构的例外条件。EntityId 到存储位置（archetype / chunk / row）的
+/// 换算由槽位表负责，World 因此也是全部实体搬移的知情方。
 #pragma once
 
 #include "gamev2/ecs/component.hpp"
@@ -15,6 +24,7 @@
 
 namespace gamev2::ecs {
 
+/// 结构操作失败的原因。诊断 message 的文案随调用点变化，code 才是稳定标识。
 enum class EcsError
 {
     entity_invalid,
@@ -31,6 +41,8 @@ struct EntitySlot
     std::uint32_t row = 0;
 };
 
+/// ECS 的世界容器。实体的权威所有者，同时也是并行遍历所用线程池的持有者，
+/// 因此 World 不可拷贝也不可移动。
 class World
 {
 public:

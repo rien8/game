@@ -1,3 +1,10 @@
+/// @file survival.hpp
+/// @brief 存活与适应力的纯函数：survival_rate 给出各项生理约束存活率之积，
+///        fitness 换算成亲代抽样的相对权重，outlived 单独处理寿命这道硬判定。
+///
+/// 刻意不做成带开发者权重的单一适应度函数：适应力全部来自基因与环境的交互，
+/// 每项约束都要能单独展示、单独调平衡、单独向玩家解释。寿命是确定死亡而非
+/// 概率约束，因此不参与乘积。
 #pragma once
 
 #include "gamev2/genetics/environment.hpp"
@@ -8,6 +15,8 @@
 
 namespace gamev2::genetics {
 
+/// 单个个体的存活判定输入。phenotype 与 environment 之外的 feeding 与
+/// threat_level 来自行为层，尚未接入时传理论值。
 struct SurvivalInput
 {
     const Phenotype& phenotype;
