@@ -42,6 +42,7 @@ private:
         System* system;
         std::vector<ComponentId> reads;
         std::vector<ComponentId> writes;
+        bool mutates_structure = false;
     };
 
     std::vector<Entry> entries_;
@@ -57,6 +58,7 @@ void Scheduler::add(S& system)
     entry.system = &system;
     entry.writes = write_set_of<S>();
     entry.reads = read_set_of<S>();
+    entry.mutates_structure = S::mutates_structure;
     entries_.push_back(std::move(entry));
     planned_ = false;
 }

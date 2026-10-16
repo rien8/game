@@ -38,23 +38,31 @@ run_season(ResourceField& field, const std::span<const Forager> foragers,
             }
             const float share =
                 field.stock(cell) / static_cast<float>(n);
-            const float want = config.demand_rate * f.demand * share;
+            // want 是绝对量，刻意不乘 share：乘了 share 会被 got = min(want, share)
+            // 原样约掉，ratio 退化成 min(1, 1/(rate × demand)) 而与存量无关。
+            const float want = config.demand_rate * f.demand;
             want_of[i] = want;
             got[i] = std::min(want, share);
             per_cell[cell.value] += got[i];
         }
 
         // 第二趟：按格统一扣减。必须与第一趟分开——为的是同一份存量快照，
-        // 不是为了消除顺序依赖：合并成边算边扣后，第 k 个个体读到的是
-        // S₀ - Σ_{j<k} got_j 缩小的存量，份额随之递减，总扣减量系统性偏少
-        // （实测约 24%）。存量偏多 → 下一步 regrow 的基数偏大 → 承载力预算偏松。
+        // 不是为了消除顺序依赖：合并成边算边扣后，被 share 截断的那部分个体
+        // 读到的是 S₀ - Σ_{j<k} got_j 缩小的存量，人均份额随之递减，总扣减量
+        // 系统性偏少。存量偏多 → 下一步 regrow 的基数偏大 → 承载力预算偏松。
         //
-        // 推导：want = demand_rate × demand × share，got = min(want, share)
-        //   ratio = got / want = min(1, share / want) = min(1, 1/(rate × demand))
-        // share 被约掉，ratio 与存量无关，feeding 对存量尺度不变——合并前后
-        // 精确算术下相同，浮点下至多相差一个 ulp，且与遍历顺序无关。
-        // 拿 feeding 向量做顺序比较的测试原理上守不住两趟分离，
-        // 后续者别据此认为两趟可以合并。
+        // 推导：want = demand_rate × demand（绝对量），got = min(want, share）
+        //   ratio = got / want = min(1, share / (rate × demand))
+        // share 留在了分子里，于是 ratio 随存量变化。demand = 1、rate = 0.35 时
+        // 闭式解给出 share = 2.34 / 0.234 / 0.05 → 1.00 / 0.67 / 0.14；而返回值
+        // 是 steps_per_season 步的均值，存量在季内被持续吃空，实测（单体、8 步）
+        // 比闭式解低一档：share = 0.413 / 0.206 / 0.083 / 0.066
+        // → 0.400 / 0.203 / 0.081 / 0.065。两组数都随存量单调下降，而把 share
+        // 乘回 want 时这五档全部输出 1.000000——这正是旧公式给不出的东西。
+        //
+        // 若 want 里再乘一次 share，ratio 变成 min(1, 1/(rate × demand))，阈值
+        // 被钉死在 demand > 1/rate ≈ 2.86，而典型 demand ≈ 1，于是 feeding 恒为 1，
+        // 饥荒永不涌现——本项目第三次栽在「f(g(x)) 把 x 约掉」这个形状上。
         //
         // 残留的顺序依赖只有一处，纯浮点：per_cell[cell] += got[i] 是同格内
         // 全体的浮点累加，输入反转会改累加顺序，量级 n × ulp(capacity) / 2。
@@ -80,10 +88,16 @@ run_season(ResourceField& field, const std::span<const Forager> foragers,
                 // 什么都不需要的个体不该被饿死。
                 satisfaction[i] += 1.0f;
             }
-            // want 为 0 只在本格无资源时发生（capacity_base 为 0 是唯一可能），
-            // 那就是饿，记 0 分。regrow 每步开头无条件执行、regen_rate ∈ (0,1]，
-            // 故每步开始时 stock > 0，于是 want > 0 当且仅当 demand > 0：
-            // 这一支与上面的 demand == 0 落在同一条分支上。
+            // want 是绝对量（regen_rate ∈ (0,1] 且 regrow 无条件执行，故每步
+            // 开始时 stock > 0），而 want = demand_rate × demand，所以
+            // 「want > 0 当且仅当 demand > 0」还差一个 demand_rate > 0。
+            // demand_rate = 0 是合法配置：want 恒为 0，demand > 0 的个体两个
+            // 分支都不命中、全季 satisfaction 保持 0
+            // （environment_system_uses_the_config_given_to_environment_world
+            // 断言的就是这一点）。
+            // demand_rate > 0 时落在 else 分支上的只会是「什么都不需要」的个体。
+            // 真正被饿着的个体是 want > 0 而 share = 0（存量被吃空），
+            // 它走上面那条分支，ratio = got / want = 0。
         }
     }
 

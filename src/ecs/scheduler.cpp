@@ -33,6 +33,9 @@ void Scheduler::plan()
         std::vector<std::size_t> batch;
         std::vector<ComponentId> written;
         std::vector<ComponentId> read;
+        // 批里已有结构变更方时，它已经独占了一批（下面的判据保证它只能
+        // 进空批），因此这里等价于「本批非空且已占用」。
+        bool batch_mutates_structure = false;
 
         for (std::size_t i = 0; i < entries_.size(); ++i)
         {
@@ -41,6 +44,15 @@ void Scheduler::plan()
                 continue;
             }
             const auto& e = entries_[i];
+            // 声明 mutates_structure 的 system 与批内任何成员都冲突，因此
+            // 独占一批。access set 挡不住它：World 的槽位表与列存储在结构
+            // 变更时可能重分配，而另一 system 正在同一张表上做无锁遍历，
+            // 读/读不算冲突的规则正会把两个不相交的只读 system 放进同一批。
+            if (!batch.empty()
+                && (e.mutates_structure || batch_mutates_structure))
+            {
+                continue;
+            }
             // read_set_of 把写集并入读集，故每个 entry 恒有 reads ⊇ writes，
             // 第一个 disjunct 因此恒被第二个蕴含、当前是冗余的。保留它作为
             // 写-写方向的独立守卫：若哪天 read_set_of 改成只含显式 ReadSet，
@@ -55,6 +67,8 @@ void Scheduler::plan()
             batch.push_back(i);
             taken[i] = true;
             --remaining;
+            batch_mutates_structure = batch_mutates_structure
+                                      || e.mutates_structure;
             written.insert(written.end(), e.writes.begin(), e.writes.end());
             read.insert(read.end(), e.reads.begin(), e.reads.end());
         }

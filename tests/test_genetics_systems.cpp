@@ -1,12 +1,17 @@
 #include "gamev2/ecs/adapt/genetics_systems.hpp"
 
+#include "gamev2/ecs/adapt/components.hpp"
+#include "gamev2/ecs/adapt/environment_systems.hpp"
 #include "gamev2/ecs/command_buffer.hpp"
 #include "gamev2/ecs/diagnostic.hpp"
 #include "gamev2/ecs/scheduler.hpp"
 #include "gamev2/ecs/world.hpp"
 
+#include "gamev2/environment/config.hpp"
+
 #include "test_framework.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
@@ -100,6 +105,27 @@ struct Harness
         return e;
     }
 };
+
+/// 按槽位序收集「不是 founders 的实体」的基因组。子代由 cmd.create 在帧末按
+/// born 的顺序创建，槽位序即出生序，因此两次结算可以直接逐位对照。
+std::vector<Genome> offspring_genomes(World& w,
+                                      const std::vector<EntityId>& founders)
+{
+    std::vector<Genome> out;
+    w.for_each_entity([&](const EntityId e)
+    {
+        if (std::ranges::find(founders, e) != founders.end())
+        {
+            return;
+        }
+        const auto* g = w.get_if<Genome>(e);
+        if (g != nullptr)
+        {
+            out.push_back(*g);
+        }
+    });
+    return out;
+}
 
 }  // namespace
 
@@ -453,4 +479,328 @@ TEST(adapt_population_statistics_reports_per_species)
     CHECK_EQ(sys.statistics().size(), std::size_t{1});
     CHECK_EQ(sys.statistics()[0].census, std::uint32_t{3});
     CHECK_EQ(sys.statistics()[0].loci.size(), kLocusCount);
+}
+
+TEST(adapt_breeding_uses_environment_targets_when_provided)
+{
+    World w;
+    Harness h;
+    std::vector<EntityId> founders;
+    for (int i = 0; i < 12; ++i)
+    {
+        const auto e = h.spawn(w);
+        founders.push_back(e);
+        (void)w.add<Position>(e, Position{static_cast<float>(i % 4),
+                                          static_cast<float>(i / 4)});
+        auto* p = w.get_if<CreaturePhenotype>(e);
+        set_trait(*p, TraitKind::Speed, 1.0f);
+        set_trait(*p, TraitKind::Lifespan, 5.0f);
+        set_trait(*p, TraitKind::Fecundity, 0.05f);
+    }
+
+    EnvironmentWorld env{31, gamev2::environment::EnvironmentConfig{}};
+    EnvironmentSystem environment{env, h.species, 0};
+
+    CommandBuffer env_cmd;
+    environment.execute(w, env_cmd);
+    env_cmd.flush(w);
+
+    BreedingSystem sys{h.table, h.species, h.config, 7, 0,
+                       &environment.targets(), 1.0f};
+    CommandBuffer cmd;
+    sys.execute(w, cmd);
+    cmd.flush(w);
+
+    // 环境侧至少给出了一个站点，且预算被承载力封顶后仍有出生。
+    CHECK(!environment.targets().empty());
+    CHECK(w.entity_count() > 12);
+
+    // 每个子代都必须带着 Position 出生。缺了它，下一季的 EnvironmentSystem
+    // 在第一次 for_each_entity 里就会把它跳过——不出站点、不写 Feeding、
+    // 不占格，于是没有人再给它繁殖预算：整条链在第一季之后就静默断了。
+    // 12 个创始个体各有实体可查，这里按「不是创始个体」筛出子代。
+    std::vector<EntityId> newborns;
+    w.for_each_entity([&](const EntityId e)
+    {
+        const auto born_after = std::ranges::none_of(
+            founders, [e](const EntityId f) { return f == e; });
+        if (born_after)
+        {
+            newborns.push_back(e);
+        }
+    });
+    CHECK(!newborns.empty());
+    if (newborns.empty())
+    {
+        return;
+    }
+    const auto side = static_cast<float>(gamev2::environment::kGridSide);
+    for (const EntityId e : newborns)
+    {
+        const auto* pos = w.get_if<Position>(e);
+        CHECK(pos != nullptr);
+        if (pos == nullptr)
+        {
+            continue;
+        }
+        CHECK(pos->x >= 0.0f && pos->x < side);
+        CHECK(pos->y >= 0.0f && pos->y < side);
+    }
+
+    // 上面那两条对「落在哪一格」毫无约束力：未接入时的兜底是
+    // place_in(CellIndex{}, i)，落点 x, y ∈ [0, 0.9)，同样在 [0, 64) 内，
+    // 把 birth_cells 整个丢掉、恒定落格 0 也照样全过。下面两条才是钉住
+    // Step 8 的那一条语义。
+    std::vector<std::uint16_t> published;
+    for (const auto& target : environment.targets())
+    {
+        published.push_back(target.cell.value);
+    }
+    CHECK(!published.empty());
+    if (published.empty())
+    {
+        return;
+    }
+    // 条件二：至少有一个子代不落在 (0, 0)。恒落格 0 的 mutant 死在这里。
+    // 创始个体铺在 (i%4, i/4)，覆盖 12 个格，站点不只在 (0, 0)。
+    std::size_t away_from_origin = 0;
+    for (const EntityId e : newborns)
+    {
+        const auto* pos = w.get_if<Position>(e);
+        if (pos == nullptr)
+        {
+            continue;
+        }
+        const auto cell = gamev2::environment::CellIndex::of(pos->x, pos->y);
+        // 条件一：子代必须落在环境侧发过站点的格子里。
+        CHECK(std::ranges::find(published, cell.value) != published.end());
+        if (cell.value != 0)
+        {
+            ++away_from_origin;
+        }
+    }
+    CHECK(away_from_origin > 0);
+}
+
+TEST(adapt_breeding_keeps_positionless_entities_out_of_every_bucket)
+{
+    // 缺 Position 的个体既不出站点（EnvironmentSystem 整趟跳过它），也不该进
+    // 任何父池：两个 system 对「谁参与繁殖」必须给出同一个答案，设计文档 §8.1
+    // 也是这么写的。
+    //
+    // 夹具把带坐标的个体摆在 (0, 0) 那一格：把缺失压成 Position{} 的写法恰好
+    // 落进同一格，因此这里复现的正是缺陷本身，换任何别的格子都复现不出来。
+    // 容量抬到 40（同 test_environment_sites 的做法）保证该格 headroom 恒 >= 8，
+    // 站点必发——于是「零子代」只可能来自桶被剔空，不会是因为整条链没跑起来。
+    gamev2::environment::EnvironmentConfig config{};
+    config.capacity_base = 40.0f;
+
+    // placed 个个体带 Position，第 placed + 1 个个体身上没有。返回本季子代数。
+    const auto offspring_count = [&](const std::size_t placed)
+    {
+        World w;
+        Harness h;
+        std::vector<EntityId> founders;
+
+        for (std::size_t i = 0; i < placed + 1; ++i)
+        {
+            const auto e = h.spawn(w);
+            founders.push_back(e);
+            if (i < placed)
+            {
+                (void)w.add<Position>(e, Position{0.5f, 0.6f});
+            }
+            // burn = Metabolism 0.12 × BodySize 1 × (1 + Speed 1) = 0.24，
+            // intake = SenseRange 1 × Fecundity 2 × feeding（富格下 1）= 2，
+            // 比值被 clamp 取 1 ⇒ survival_rate 恒为 1，个体逐个必然存活，
+            // 判定与抽签无关——夹具因此是确定的。
+            auto* p = w.get_if<CreaturePhenotype>(e);
+            set_trait(*p, TraitKind::SenseRange, 1.0f);
+            set_trait(*p, TraitKind::Fecundity, 2.0f);
+            set_trait(*p, TraitKind::Metabolism, 0.12f);
+            set_trait(*p, TraitKind::BodySize, 1.0f);
+            set_trait(*p, TraitKind::Speed, 1.0f);
+            set_trait(*p, TraitKind::Lifespan, 5.0f);
+        }
+
+        EnvironmentWorld env{31, config};
+        EnvironmentSystem environment{env, h.species, 0};
+        CommandBuffer env_cmd;
+        environment.execute(w, env_cmd);
+        env_cmd.flush(w);
+
+        BreedingSystem sys{h.table, h.species, h.config, 7, 0,
+                           &environment.targets(), 1.0f};
+        CommandBuffer cmd;
+        sys.execute(w, cmd);
+        cmd.flush(w);
+
+        // 站点确实发得出来：EnvironmentSystem 看得见带 Position 的个体，
+        // 且该格有余量。不成立时下面两条断言都会失去意义，所以直接报失败。
+        CHECK(!environment.targets().empty());
+        return offspring_genomes(w, founders).size();
+    };
+
+    // 对照组：两个带 Position 的个体同在半径内，桶凑够亲代，站点产子代。
+    // 先钉住夹具有出生能力，下面那条的零子代才不是恒真。
+    CHECK(offspring_count(2) > 0);
+    // 第三个个体缺 Position。它没被计入 (0, 0) 格站点的父池，因此那个桶里
+    // 只剩一个亲代，被 bucket.size() < 2 剔掉——它既不产子代，也不被算作
+    // 任何站点的亲代。压成 Position{} 的写法会让它进桶并凭空产出一窝子代。
+    CHECK_EQ(offspring_count(1), std::size_t{0});
+}
+
+TEST(adapt_breeding_without_environment_still_works)
+{
+    World w;
+    Harness h;
+    for (int i = 0; i < 4; ++i)
+    {
+        const auto e = h.spawn(w);
+        auto* p = w.get_if<CreaturePhenotype>(e);
+        set_trait(*p, TraitKind::Speed, 1.0f);
+        set_trait(*p, TraitKind::Lifespan, 5.0f);
+        set_trait(*p, TraitKind::Fecundity, 0.5f);
+    }
+
+    BreedingSystem sys{h.table, h.species, h.config, 7, 0};
+    CommandBuffer cmd;
+    sys.execute(w, cmd);
+    cmd.flush(w);
+
+    // 降级路径必须与本轮之前逐位相同：仍然按 progeny_for 出子代。
+    CHECK(w.entity_count() > 4);
+}
+
+TEST(adapt_breeding_ignores_feeding_when_environment_is_not_wired)
+{
+    // 验收标准 8：未接入环境层时 settle 与 BreedingSystem 的行为必须与本轮
+    // 之前逐位相同。对照组就是「本轮之前」的精确复现——那时的代码从不读
+    // Feeding，因此个体身上有没有 Feeding 组件对它没有任何区别。
+    //
+    // 触发条件很普通：EnvironmentSystem 跑过一次（写下了真的 Feeding）之后，
+    // 调用方仍然用 5 参构造函数。此时若把收集来的 feedings 无条件交给
+    // settle，settle 的判据 feedings.size() == genomes.size() 照样命中，它就会
+    // 去读那些组件，于是 energy_survival 里
+    // intake = SenseRange × Fecundity × feeding 改写 survival_rate，存活抽签、
+    // 活下来的父池、子代基因组逐层跟着变。随机数消费次数不变，所以只有把子代
+    // 基因组本身拿来比才看得见——本文件其余用例都不跑 EnvironmentSystem，
+    // 因此对这条改动完全无感。
+    Harness h;
+    gamev2::environment::EnvironmentConfig scarce{};
+    // want = 0.35 × 2 = 0.7，而存量上限 0.16 × base_fertility ∈ [0.04, 0.16)
+    // 恒小于它，于是 got 恒取满存量，feeding 逐个都远低于 want。
+    //
+    // 0.16 不是随手挑的：burn = Metabolism 0.12 × BodySize 1 × (1 + Speed 1)
+    // = 0.24，intake = SenseRange 1 × Fecundity 2 × feeding，所以
+    // survival_rate = min(feeding / 0.12, 1)。要让夹具真的压低存活率，
+    // 每个个体的 feeding 都必须严格小于 0.12。本配置实测 12 个落在
+    // [0.0224, 0.0712]，最大的一档离 0.12 尚有 1.69 倍余量——而下面那条
+    // 夹具断言用的正是同一个 0.12。抬到 0.5 时最大的一档是 0.2224，个体里
+    // 已有一部分 survival_rate 回到 1；抬到 0.86 时 12 个全体回到 1，
+    // mutant 于是被静默解除：两边全体必然存活，谁死谁活再无差别。
+    scarce.capacity_base = 0.16f;
+
+    const auto seed = [&](World& w, std::vector<EntityId>& founders)
+    {
+        for (int i = 0; i < 12; ++i)
+        {
+            const auto e = h.spawn(w);
+            founders.push_back(e);
+            (void)w.add<Position>(e, Position{static_cast<float>(i % 4),
+                                              static_cast<float>(i / 4)});
+            auto* p = w.get_if<CreaturePhenotype>(e);
+            // burn = Metabolism 0.12 × BodySize 1 × (1 + Speed 1) = 0.24。
+            // 没有 Feeding 时 intake = SenseRange 1 × Fecundity 2 = 2，比值
+            // 2 / 0.24 ≈ 8.3 被 clamp 取 1，thermal 与 escape 各取 1，于是
+            // survival_rate 恒为 1、12 个个体逐个必然存活，判定与种子无关。
+            //
+            // 有 Feeding 时 intake 还要乘上那个落在 [0.022, 0.071] 的值，
+            // 比值落到 0.19 ~ 0.59：实测 12 个里活 4 个，活下来的父池换了
+            // 一批，而两边仍都产出满额子代。mutant 因此被「子代基因组逐位
+            // 不同」抓住（实测 20 处不一致），而不是被「子代数不同」一把抓住
+            // ——后者只说明规模变了，两边的 progeny 都仍是 24。
+            //
+            // 0.24 是量出来的：rate 与 demand 无关，因为 want = 0.35 × demand
+            // 恒大于整格存量，got 恒取满存量，于是 feeding ≈ G / (0.35 × demand)，
+            // demand 在分子上一约就掉了，只剩 burn 留在分母上。
+            set_trait(*p, TraitKind::SenseRange, 1.0f);
+            set_trait(*p, TraitKind::Fecundity, 2.0f);
+            set_trait(*p, TraitKind::Metabolism, 0.12f);
+            set_trait(*p, TraitKind::BodySize, 1.0f);
+            set_trait(*p, TraitKind::Speed, 1.0f);
+            set_trait(*p, TraitKind::Lifespan, 5.0f);
+            // 每个个体四段等位互不相同。子代由抽中的两个亲代重组而来，亲代
+            // 集合一变子代逐位就变；全体 Genome{} 相同时选谁都一样，「抽签
+            // 结果」这条链在测试里根本不存在，这条用例就成了恒真。
+            auto* g = w.get_if<Genome>(e);
+            g->a[0].allele = static_cast<AlleleId>(i % 2);
+            g->a[1].allele = static_cast<AlleleId>((i / 2) % 2);
+            g->b[0].allele = static_cast<AlleleId>((i / 4) % 2);
+            g->b[1].allele = static_cast<AlleleId>((i / 8) % 2);
+        }
+    };
+
+    World fed;
+    std::vector<EntityId> fed_founders;
+    seed(fed, fed_founders);
+
+    World plain;
+    std::vector<EntityId> plain_founders;
+    seed(plain, plain_founders);
+
+    EnvironmentWorld env{71, scarce};
+    EnvironmentSystem environment{env, h.species, 0};
+    CommandBuffer env_cmd;
+    environment.execute(fed, env_cmd);
+    env_cmd.flush(fed);
+
+    // 先钉住夹具：真的写下了 Feeding，且 12 个都落在 survival_rate < 1 的
+    // 区间里。任一不成立，下面那条相等就退化成恒真——所以这里报的是失败
+    // 而不是静默跳过。界取 0.12 而不是 1.0：它是 intake/burn 归 1 的那个
+    // 点，跨过去个体就全体免疫 feeding，mutant 随之失效。
+    std::size_t written = 0;
+    std::size_t hungry = 0;
+    fed.for_each_entity([&](const EntityId e)
+    {
+        const auto* f = fed.get_if<Feeding>(e);
+        if (f == nullptr)
+        {
+            return;
+        }
+        ++written;
+        if (f->satisfaction < 0.12f)
+        {
+            ++hungry;
+        }
+    });
+    CHECK_EQ(written, std::size_t{12});
+    CHECK_EQ(hungry, std::size_t{12});
+
+    // 两个世界走同一条 5 参降级路，同一个种子。唯一的差别就是 fed 身上多出
+    // 的那批 Feeding 组件。
+    BreedingSystem sys_fed{h.table, h.species, h.config, 7, 1};
+    CommandBuffer cmd_fed;
+    sys_fed.execute(fed, cmd_fed);
+    cmd_fed.flush(fed);
+
+    BreedingSystem sys_plain{h.table, h.species, h.config, 7, 1};
+    CommandBuffer cmd_plain;
+    sys_plain.execute(plain, cmd_plain);
+    cmd_plain.flush(plain);
+
+    const auto a = offspring_genomes(fed, fed_founders);
+    const auto b = offspring_genomes(plain, plain_founders);
+
+    // 对照组必须有子代，否则下面那条循环一次都不跑，整条用例是空的。
+    CHECK(!b.empty());
+    // 先逐位比内容再比长度：长度不等时只比公共前缀，既不越界（CHECK_EQ
+    // 非致命，按 b.size() 索引 a 会越界），又不会因为长度先炸就漏掉内容
+    // 本身已经不同这一事实。
+    const auto common = std::min(a.size(), b.size());
+    for (std::size_t i = 0; i < common; ++i)
+    {
+        CHECK(a[i] == b[i]);
+    }
+    CHECK_EQ(a.size(), b.size());
 }

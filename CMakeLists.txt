@@ -76,7 +76,11 @@ set(GENETICS_TEST_SOURCES
     tests/test_genetics_systems.cpp
 )
 add_executable(genetics_tests ${GENETICS_TEST_SOURCES})
-target_link_libraries(genetics_tests PRIVATE genetics)
+# environment 只挂在可执行目标上，不挂 genetics——见下面那条不变量。链路
+# genetics_tests -> environment -> genetics -> ecs 无环；本轮起 genetics_tests
+# 要直接构造 EnvironmentWorld / EnvironmentSystem，而它们的 out-of-line 符号在
+# src/ecs/adapt/environment_systems.cpp，属 environment 目标。
+target_link_libraries(genetics_tests PRIVATE genetics environment)
 
 set(ENVIRONMENT_SOURCES
     src/environment/climate.cpp

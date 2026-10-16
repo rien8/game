@@ -492,9 +492,15 @@ namespace gamev2::environment {
 struct EnvironmentConfig
 {
     std::uint32_t steps_per_season = 8;
-    /// fertility = 1 时一格支持几个体。默认种群稳定在
-    /// Σcapacity ≈ 4096 × 3 ≈ 12k，略高于 1 万个体的规模定位。
-    float capacity_base = 3.0f;
+    /// fertility = 1 时一格支持几个体，即出生硬上限：Σcapacity =
+    /// 4096 × capacity_base × mean(base_fertility)，mean(base_fertility) =
+    /// (0.25 + 1) / 2 = 0.625 —— 不是 1。默认 3.9 → ≈ 9984。
+    ///
+    /// 它不是种群平衡点：满占用下每步需求 demand_rate × d × n = 0.35c 高于
+    /// 再生上限 regen_rate × c = 0.25c，满占用本就不可持续；未饱和分支的
+    /// 均衡解约 n ≈ c / (1.75 d) ≈ 0.57c。真要把稳定种群顶到 1 万，要调的是
+    /// regen_rate / demand_rate，不是 capacity_base。
+    float capacity_base = 3.9f;
     /// 每步向 capacity 回归的比例，(0, 1]。
     float regen_rate = 0.25f;
     /// 单体单步最多吃掉本地存量的比例。
@@ -1407,7 +1413,7 @@ TEST(sites_are_empty_when_no_creatures)
 TEST(over_capacity_cell_emits_no_site)
 {
     const EnvironmentConfig config{};
-    // capacity_base = 3，base_fertility <= 1，单格容量不超过 3 个体。
+    // capacity_base = 3.9，base_fertility <= 1，单格容量不超过 3.9 个体。
     // 塞 20 个进去必然过载，headroom 归零。
     auto foragers = crowd(20, 1.0f);
     std::vector<std::uint32_t> keys(foragers.size(), 1);
@@ -1624,7 +1630,7 @@ Expected: 三个都 `exit=0`。`environment_tests` 输出 `24 test(s), 0 failed`
 （smoke 1 + climate 6 + resource 5 + sites 12）。其余两个用例数不变。
 
 `capacity_is_split_between_species_by_current_share` 的总数断言依赖
-`capacity_base = 3`、该格 `base_fertility ≈ 1`、`offspring_scale = 2`：
+`capacity_base = 3.9`、该格 `base_fertility ≈ 1`、`offspring_scale = 2`：
 headroom 取 2、A 拿 round(2 × 0.75) = 2、B 拿 round(2 × 0.25) = 0，
 总和为 2 而非 6。若该断言失败，先打印实际值再判断是公式错还是
 `base_fertility` 让 capacity 小于 4；后者是正常的，把断言改成

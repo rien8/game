@@ -2,6 +2,7 @@
 /// @brief 遗传模块的 ECS 适配层：定义相关组件，并把繁殖、存活、统计装配成 System。
 #pragma once
 
+#include "gamev2/ecs/adapt/components.hpp"
 #include "gamev2/ecs/entity.hpp"
 #include "gamev2/ecs/system.hpp"
 #include "gamev2/ecs/world.hpp"
@@ -56,6 +57,14 @@ struct Vitality
 class AgingSystem final : public System
 {
 public:
+    /// 读集就是本 system 真的读到的那些组件：收集遍历取出 CreaturePhenotype
+    /// 判寿命，Vitality 改年龄。它与 EnvironmentSystem 的读集毫无交集
+    /// （本类 CreaturePhenotype + Vitality，对方 Position + CreaturePhenotype
+    /// + SpeciesTag + Feeding），两个只读 system 在 plan 的判据下不冲突——
+    /// 二者曾被塞进同一批并行派发，而 EnvironmentSystem 的 World::add 会迁移
+    /// archetype、与本类对 slots_ 的无锁遍历撞成 use-after-free。这个形状现在
+    /// 由 EnvironmentSystem::mutates_structure 挡住，不必在这里占位声明一个
+    /// 读不到的组件。
     using ReadSet = std::tuple<const CreaturePhenotype>;
     using WriteSet = std::tuple<Vitality>;
 
@@ -78,6 +87,8 @@ public:
 class BreedingSystem final : public System
 {
 public:
+    /// 原有构造函数：不接入环境层，父池退化为「一物种一池 + progeny_for」，
+    /// 行为与接入环境层之前逐位相同。
     BreedingSystem(const gamev2::genetics::LocusTable& table,
                    const gamev2::genetics::SpeciesRegistry& species,
                    const gamev2::genetics::GeneticsConfig& config,
@@ -87,9 +98,36 @@ public:
     {
     }
 
+    /// 接入环境层：父池改用 targets 给的站点，feeding 取自 Feeding 组件，
+    /// 新生个体落在其站点的格内。`targets` 为 nullptr 时行为与上一个
+    /// 构造函数完全一致。
+    ///
+    /// \pre targets 若非空，其生命周期必须覆盖本 system 的下一次 execute——
+    ///       指向的是 EnvironmentSystem::targets() 那张表，而后者每季 execute
+    ///       都会 clear() 再重建。
+    BreedingSystem(const gamev2::genetics::LocusTable& table,
+                   const gamev2::genetics::SpeciesRegistry& species,
+                   const gamev2::genetics::GeneticsConfig& config,
+                   std::uint64_t root_seed, std::uint64_t season_index,
+                   const std::vector<BreedingTarget>* targets,
+                   float mating_radius_cells)
+        : table_{table}, species_{species}, config_{config},
+          root_seed_{root_seed}, season_index_{season_index},
+          targets_{targets}, mating_radius_cells_{mating_radius_cells}
+    {
+    }
+
     /// 只读并拷贝出组件；Vitality 只被就地改写，结构变更全走队列。
+    ///
+    /// `const Feeding` 是一条真的读：收集遍历逐个体取出它，取到的是喂给
+    /// settle 的那份 feedings——注意只在接入环境层时（targets_ != nullptr）
+    /// 这份取值才真的进 settle，未接入时给的是空 span，取值被 settle 的
+    /// 1.0f 降级分支顶掉。与 EnvironmentSystem 的 WriteSet 之间它同时构成
+    /// 一条真的读写冲突，但那一条并不是结构变更风险的挡法——那个形状由
+    /// EnvironmentSystem::mutates_structure 独占批次来兜。
     using ReadSet = std::tuple<const Genome, const CreaturePhenotype,
-                               const Environment, const SpeciesTag>;
+                               const Environment, const SpeciesTag,
+                               const Feeding>;
     using WriteSet = std::tuple<Vitality>;
 
     /// \pre 本缓冲器必须在本次 execute 返回后才 flush：newborn_ 是
@@ -102,6 +140,14 @@ private:
     const gamev2::genetics::GeneticsConfig& config_;
     std::uint64_t root_seed_;
     std::uint64_t season_index_;
+
+    /// nullptr 表示未接入环境层。指针而非引用：调用方可能这一季还没有
+    /// 环境系统跑过，那时给一个空引用比给 nullptr 更难查。
+    const std::vector<BreedingTarget>* targets_ = nullptr;
+    /// 「父池」的空间半径，单位为格，交给 adapt 层做分桶——Parent::index
+    /// 必须是本物种数组内的下标，那个数组由 execute 切出，环境层无从知道
+    /// 它的形状。
+    float mating_radius_cells_ = 0.0f;
 
     /// cmd.create 的回写目标。execute 返回后栈上的局部量已经失效，而
     /// flush 发生在 execute 之后，新句柄只能寄存在成员里。

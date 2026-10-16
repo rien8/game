@@ -45,13 +45,20 @@ void EnvironmentSystem::execute(World& world, CommandBuffer& /*cmd*/)
     std::vector<Forager> foragers;
     std::vector<std::uint32_t> species_keys;
 
+    const auto species_count = species_.species_count();
     world.for_each_entity([&](const EntityId e)
     {
         const auto* pos = world.get_if<Position>(e);
         const auto* phe = world.get_if<CreaturePhenotype>(e);
         const auto* tag = world.get_if<SpeciesTag>(e);
+        // 判据与 BreedingSystem 的那处逐字相同。未注册的 id 若放进来，
+        // 该实体会占位吃光本格存量、并出现在 targets() 里，而 BreedingSystem
+        // 会把它整个跳过——一个只消耗不繁殖的幽灵物种。这里不另报诊断：
+        // 登记表的守卫与诊断都在 BreedingSystem 那一处，两处都报会让同一个
+        // 坏实体的诊断条数翻倍。
         if (pos == nullptr || phe == nullptr || tag == nullptr
-            || tag->species.value == 0)
+            || tag->species.value == 0
+            || tag->species.value > species_count)
         {
             return;
         }

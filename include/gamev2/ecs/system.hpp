@@ -24,14 +24,27 @@ namespace gamev2::ecs {
 /// 系统的抽象基类。execute 每帧被调度器调用一次，具体系统通过派生类覆写
 /// 读写集并实现 execute。
 ///
-/// 结构性变更（增删实体、增删组件）不得在此期间直接改动 World，必须经 cmd
-/// 排队到帧末统一 flush，理由见 execute 的说明。
+/// 结构性变更（增删实体、增删组件）原则上不得在此期间直接改动 World，必须
+/// 经 cmd 排队到帧末统一 flush。确有做不到的 system 只能声明
+/// mutates_structure，把风险交给调度器兜住。
 class System
 {
 public:
+    /// 本 system 的 execute 会不会直接改动 World 的结构（增删组件即 archetype
+    /// 迁移）。为真时 Scheduler::plan 让它与所有 system 冲突，独占一个批次。
+    ///
+    /// 访问集表达不了这件事。World::add 会重写 slots_ 里的
+    /// archetype/chunk/row 并可能重分配 storage_ 的列缓冲，而 for_each_entity
+    /// 是在 slots_ 上的无锁裸下标循环；两者并发撞上是 use-after-free，不是读到
+    /// 过期值。plan 的冲突判据里读/读不算冲突，因此两个访问集不相交的只读
+    /// system 会被放进同一批并行派发——那个形状挡不住结构变更，只能由这一个
+    /// 标记挡。
+    static constexpr bool mutates_structure = false;
+
     virtual ~System() = default;
 
-    /// 结构性变更必须走 cmd，不得直接改动 World。
+    /// 结构性变更必须走 cmd，不得直接改动 World；做不到时声明
+    /// mutates_structure。
     virtual void execute(World& world, CommandBuffer& cmd) = 0;
 };
 

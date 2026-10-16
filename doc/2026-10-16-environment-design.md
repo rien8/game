@@ -240,9 +240,9 @@ private:
 struct EnvironmentConfig
 {
     std::uint32_t steps_per_season = 8;
-    /// fertility = 1 时一格支持几个体。默认种群稳定在
+    /// fertility = 1 时一格支持几个体，即出生硬上限。
     /// Σcapacity = 4096 × capacity_base × mean(base_fertility)，mean = 0.625。
-    /// 默认 3.9 → ≈ 9984，落在 1 万个体的规模定位上。
+    /// 它不是种群平衡点：满占用下需求 0.35c > 再生 0.25c，本就不可持续。
     float capacity_base = 3.9f;
     float regen_rate = 0.25f;
     /// 单体单步的绝对摄取上限。与 share 同量纲（都是「个体」）。
@@ -259,6 +259,18 @@ struct EnvironmentConfig
 ```
 
 `EnvironmentConfig` 的量不做成编译期常量，与 `GeneticsConfig` 同一个理由：它们恰恰是需要反复调平衡的参数，固化进二进制会让每次调参都变成一次重编。
+
+**`Σcapacity ≈ 9984` 是出生硬上限，不是种群平衡点。** `capacity_base` 从 3.0 调到
+3.9 的理由原先是「让均衡落在 ~9984 ≈ 1 万」，这个前提不成立：满占用下每步需求是
+`demand_rate × d × n = 0.35c`，再生上限只有 `regen_rate × c = 0.25c`（d = 1），
+满占用本来就不可持续；未饱和分支的均衡解约为 `n ≈ c / (1.75 d) ≈ 0.57c`。实测
+（seed 31，Σcapacity = 10089.3）N = 9984 时 `feeding` 已经是 mean 0.796 /
+min 0.321，且随 N 继续下降。`total_birth_budget_stays_under_total_capacity` 测的
+正是「不超过上限」，那条仍然是对的。
+
+真实均衡由资源预算决定，且落在上限之下相当一段。要把稳定种群顶到 1 万，该调的是
+`regen_rate` / `demand_rate`，不是 `capacity_base`；确切均衡点需要遗传层的存活率
+才能解出来，本内核给不出，不在本模块职责内。本轮只纠正文档，取值保持不变。
 
 ---
 

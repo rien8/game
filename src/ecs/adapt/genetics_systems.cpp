@@ -1,7 +1,9 @@
 #include "gamev2/ecs/adapt/genetics_systems.hpp"
 
+#include "gamev2/ecs/adapt/components.hpp"
 #include "gamev2/ecs/diagnostic.hpp"
 
+#include "gamev2/environment/climate.hpp"
 #include "gamev2/genetics/breeding.hpp"
 #include "gamev2/genetics/random.hpp"
 #include "gamev2/genetics/statistics.hpp"
@@ -12,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -23,13 +26,15 @@ using namespace gamev2::genetics;
 namespace {
 
 /// 一个待提交的子代。物种随子代一起记下：SeasonOutput 只给基因型与表型，
-/// 不回传子代出自哪个父池。
+/// 不回传子代出自哪个父池。cell 同理——settle 按 sites 顺序追加子代，
+/// 「哪个子代属于哪个格」只能靠这个顺序对回去。
 struct StagedOffspring
 {
     SpeciesId species;
     Genome genome;
     Phenotype phenotype;
     environment::EnvironmentSnapshot environment;
+    environment::CellIndex cell;
 };
 
 /// 单个池单季的子代数上限。
@@ -76,6 +81,33 @@ std::uint32_t progeny_for(const std::vector<Phenotype>& pool) noexcept
     return static_cast<std::uint32_t>(std::lround(fecundity));
 }
 
+/// 格距离是否在半径内。切比雪夫距离——正方形邻域，与「半径 R 格」的
+/// 自然读法一致。
+[[nodiscard]] bool in_radius(const environment::CellIndex from,
+                             const environment::CellIndex to,
+                             const float radius_cells) noexcept
+{
+    const auto side = static_cast<std::uint16_t>(environment::kGridSide);
+    const auto dx = std::fabs(static_cast<float>(from.value % side)
+                              - static_cast<float>(to.value % side));
+    const auto dy = std::fabs(static_cast<float>(from.value / side)
+                              - static_cast<float>(to.value / side));
+    return std::max(dx, dy) <= radius_cells;
+}
+
+/// 子代落在它所属格里的坐标。抖动只由出生序号决定，同一种子两次运行
+/// 必须落在同一处，否则确定性测试挂在个体位置而不是算法上。
+[[nodiscard]] Position place_in(const environment::CellIndex cell,
+                                const std::size_t birth_index) noexcept
+{
+    const auto side = static_cast<std::uint16_t>(environment::kGridSide);
+    const auto slot =
+        static_cast<std::uint32_t>((birth_index * 2654435761ULL) % 1000U);
+    const float jitter = static_cast<float>(slot) / 1000.0f * 0.9f;
+    return Position{static_cast<float>(cell.value % side) + jitter,
+                    static_cast<float>(cell.value / side) + jitter};
+}
+
 }  // namespace
 
 // View 的回调只给组件引用（View 的 Row 是 std::tuple<Ts&...>），不给实体
@@ -114,7 +146,13 @@ void BreedingSystem::execute(World& world, CommandBuffer& cmd)
     std::vector<environment::EnvironmentSnapshot> environments;
     std::vector<float> threats;
     std::vector<std::uint32_t> species_ids;
-    /// 与上面五个 vector 同序，用来把 settle 的 survived 下标对回实体
+    std::vector<Position> positions;
+    /// 与 positions 同序。缺 Position 的个体在任何半径内都不进父池——把缺失
+    /// 压成 Position{} 会让它落进 (0, 0) 那一格，于是凭空成为那一格站点的
+    /// 亲代，而环境层从来不为它产出过站点。
+    std::vector<std::uint8_t> has_position;
+    std::vector<float> feedings;
+    /// 与上面六个 vector 同序，用来把 settle 的 survived 下标对回实体
     std::vector<EntityId> handles;
 
     world.for_each_entity([&](EntityId e)
@@ -145,6 +183,14 @@ void BreedingSystem::execute(World& world, CommandBuffer& cmd)
         phenotypes.push_back(p->phenotype);
         environments.push_back(env->snapshot);
         threats.push_back(0.0f);
+        const auto* pos = world.get_if<Position>(e);
+        positions.push_back(pos == nullptr ? Position{}
+                                            : Position{pos->x, pos->y});
+        has_position.push_back(pos != nullptr);
+        // 缺 Feeding 组件按理论摄食上限处理，与「未接入环境层」是同一条
+        // 降级路径，两者必须给出同一个答案。
+        const auto* fed = world.get_if<Feeding>(e);
+        feedings.push_back(fed == nullptr ? 1.0f : fed->satisfaction);
         species_ids.push_back(tag->species.value);
         handles.push_back(e);
     });
@@ -163,6 +209,7 @@ void BreedingSystem::execute(World& world, CommandBuffer& cmd)
         std::vector<Phenotype> pool_phenotypes;
         std::vector<environment::EnvironmentSnapshot> pool_environments;
         std::vector<float> pool_threats;
+        std::vector<float> pool_feedings;
         for (std::size_t i = 0; i < genomes.size(); ++i)
         {
             if (species_ids[i] != s)
@@ -174,6 +221,7 @@ void BreedingSystem::execute(World& world, CommandBuffer& cmd)
             pool_phenotypes.push_back(phenotypes[i]);
             pool_environments.push_back(environments[i]);
             pool_threats.push_back(threats[i]);
+            pool_feedings.push_back(feedings[i]);
         }
         if (members.empty())
         {
@@ -181,23 +229,117 @@ void BreedingSystem::execute(World& world, CommandBuffer& cmd)
         }
 
         const std::vector<std::uint32_t> pool_species(members.size(), s);
+        std::vector<ParentPool> sites;
+        // 与 sites 同序：sites[k] 的子代落在 target_cells[k]。
+        std::vector<environment::CellIndex> target_cells;
+        // ParentPool::parents 是 span，只借用不拥有，因此装桶的 vector 必须活得
+        // 比 settle 长。桶若留在分支的块体内，sites[k].parents 在 settle 读到
+        // 它时早已悬垂——原代码把 parents 提到 settle 之前正是为此，接环境层
+        // 时不能把这个前提丢掉。两条分支各用自己的容器：空间路径一桶一个，
+        // 降级路径仍是一个大池。
+        std::vector<std::vector<Parent>> buckets;
         std::vector<Parent> parents;
-        parents.reserve(members.size());
-        for (std::size_t i = 0; i < members.size(); ++i)
+        // 两条分支填 Parent 时用的是同一套约定：index 填本池内的下标，
+        // settle 靠它回查 survived 与季节适应力；fitness 是先验权重，
+        // settle 重建父池时整列替换成季节适应力，这里给什么都不影响结果。
+        if (targets_ != nullptr)
         {
-            // index 填的是本池内的下标，settle 靠它回查 survived 与季节
-            // 适应力。fitness 是先验权重，settle 重建父池时整列替换成季节
-            // 适应力，这里给什么都不影响结果。
-            parents.push_back(Parent{i, &pool_genomes[i], 1.0f});
+            // 空间分桶在 adapt 层完成：Parent::index 必须是本物种数组内的
+            // 下标，而那个数组由本函数切出，环境层无从知道它的形状。
+            // 缺 Position 的个体进不了任何桶——环境层同样只为有 Position
+            // 的实体产出站点，两个 system 对「谁参与繁殖」答案一致。
+            //
+            // reserve 而非依赖扩容：下面交给 sites 的 span 指向 buckets 的
+            // 内层缓冲，预留一次之后那批缓冲的位置就再也不会变。
+            buckets.reserve(targets_->size());
+            for (const auto& target : *targets_)
+            {
+                if (target.species.value != s)
+                {
+                    continue;
+                }
+                std::vector<Parent> bucket;
+                for (std::size_t i = 0; i < members.size(); ++i)
+                {
+                    if (has_position[members[i]] == 0)
+                    {
+                        continue;
+                    }
+                    const auto& p = positions[members[i]];
+                    if (in_radius(environment::CellIndex::of(p.x, p.y),
+                                  target.cell, mating_radius_cells_))
+                    {
+                        bucket.push_back(Parent{i, &pool_genomes[i], 1.0f});
+                    }
+                }
+                if (bucket.size() < 2)
+                {
+                    // 池内不足两个个体时 make_offspring 必然失败，
+                    // 与其让它空转一轮，不如不产出子代——省下的格子
+                    // 才能让子代认对位置。
+                    continue;
+                }
+                buckets.push_back(std::move(bucket));
+                sites.push_back(ParentPool{buckets.back(), SpeciesId{s},
+                                           target.environment,
+                                           target.progeny});
+                target_cells.push_back(target.cell);
+            }
         }
-        const std::vector<ParentPool> sites{ParentPool{
-            parents, SpeciesId{s}, std::nullopt, progeny_for(pool_phenotypes)}};
+        else
+        {
+            parents.reserve(members.size());
+            for (std::size_t i = 0; i < members.size(); ++i)
+            {
+                parents.push_back(Parent{i, &pool_genomes[i], 1.0f});
+            }
+            sites.push_back(ParentPool{parents, SpeciesId{s}, std::nullopt,
+                                       progeny_for(pool_phenotypes)});
+        }
+
+        // 子代认回自己的格靠顺序：settle 按 sites 顺序逐个追加子代，而
+        // birth_cells 是按 sites[k].progeny 摊平的同一个序列。
+        //
+        // **已知限制**：摊平按下标对位，因此只在「每个站点要么足额、要么整站
+        // 缺席」时成立，而后者由上面的 bucket.size() < 2 保证。settle 还会在
+        // 建池后把本季死亡的亲代剔掉，于是某个站点可以**中途少产**：站点 A 产
+        // 0、站点 B 产 2 时，B 的两个孩子都落进 A 的格。触发条件是同格亲代整批
+        // 团灭（make_offspring 因池里活着的不足两个而失败），而饥荒正是把
+        // survival_rate 压下来、把这一支变成常态分支的机制。
+        //
+        // 修它需要 settle 按站点回报实际产量（遗传层的契约变更），已作为独立
+        // 任务推迟；在此之前，下面的 std::min 只兜得住尾部 shortfall。
+        //
+        // 另有一处不对称：settle 把 `progeny == 0` 按 1 处理，这里摊 0 份。
+        // 这一半不可达——build_sites 只在 progeny > 0 时才发站点。
+        std::vector<environment::CellIndex> birth_cells;
+        if (targets_ != nullptr)
+        {
+            for (std::size_t k = 0; k < sites.size(); ++k)
+            {
+                for (std::uint32_t n = 0; n < sites[k].progeny; ++n)
+                {
+                    birth_cells.push_back(target_cells[k]);
+                }
+            }
+        }
 
         // 统计交给 PopulationStatisticsSystem：settle 里那份每季 O(S·N) 重算
         // 一遍等位基因频率，生产路径上没人读。
+        //
+        // 未接入环境层时给空 span，而不是一串 1.0f。settle 的判据是
+        // 「feedings.size() == genomes.size()」，一串 1.0f 同样命中，于是它会
+        // 去读个体身上真的有的 Feeding——而那只有环境层跑过之后才存在。
+        // 后果不是数值漂移：energy_survival 里
+        // intake = SenseRange × Fecundity × feeding 直接改写 survival_rate，
+        // 存活抽签、活下来的父池、子代基因组逐层跟着变。空 span 让 settle 走回
+        // 它自己的 1.0f 降级分支，调用形状与本轮之前逐字相同。
+        const std::span<const float> feedings_in =
+            targets_ != nullptr ? std::span<const float>{pool_feedings}
+                                : std::span<const float>{};
         const auto out = settle(
             SeasonInput{pool_genomes, pool_phenotypes, pool_environments,
-                        pool_threats, pool_species, sites, false},
+                        pool_threats, pool_species, sites, false, feedings_in},
             table_, species_, config_, streams);
 
         for (std::size_t i = 0; i < members.size(); ++i)
@@ -218,9 +360,19 @@ void BreedingSystem::execute(World& world, CommandBuffer& cmd)
         }
         for (std::size_t i = 0; i < out.offspring.size(); ++i)
         {
+            // 兜底的 min 只挡住**尾部** shortfall：settle 因「本季死绝、活下
+            // 来的亲代不足两个」而少于预算数时，多出的子代认回最后一个站点，
+            // 好过越界读。**中部** shortfall（站点 A 产 0、站点 B 产 2）会让
+            // B 的子代落进 A 的格，那个形状这里挡不住——见上面 birth_cells
+            // 的已知限制。
+            const auto cell =
+                birth_cells.empty()
+                    ? environment::CellIndex{}
+                    : birth_cells[std::min(i, birth_cells.size() - 1)];
             born.push_back(StagedOffspring{SpeciesId{s}, out.offspring[i],
-                                          out.offspring_phenotypes[i],
-                                          out.offspring_environments[i]});
+                                           out.offspring_phenotypes[i],
+                                           out.offspring_environments[i],
+                                           cell});
         }
     }
 
@@ -250,9 +402,28 @@ void BreedingSystem::execute(World& world, CommandBuffer& cmd)
     newborn_.assign(born.size(), EntityId{});
     for (std::size_t i = 0; i < born.size(); ++i)
     {
-        cmd.create(newborn_[i], SpeciesTag{born[i].species},
-                   Environment{born[i].environment}, born[i].genome,
-                   CreaturePhenotype{born[i].phenotype}, Vitality{});
+        // 接入环境层才挂 Position：组件集在创建那一刻定死，事后 add 只会把刚
+        // 出生的个体迁往新 archetype，而它本季还没进过任何一格，谁也不知道该
+        // 迁到哪去。
+        //
+        // 未接入时不给。gene/表型/环境与随机流消费都不受它影响（门禁测试逐位
+        // 相同仍然成立），但无条件下挂时 birth_cells 是空的、cell 恒为 (0, 0)，
+        // 于是历史上每一个未接入期出生的个体都被钉在那一格——实体组件集与本轮
+        // 之前不同，任何未来读 Position 的 system 都会看到那堆个体。
+        if (targets_ != nullptr)
+        {
+            const auto place = place_in(born[i].cell, i);
+            cmd.create(newborn_[i], SpeciesTag{born[i].species},
+                       Environment{born[i].environment}, born[i].genome,
+                       CreaturePhenotype{born[i].phenotype}, Vitality{},
+                       Position{place.x, place.y});
+        }
+        else
+        {
+            cmd.create(newborn_[i], SpeciesTag{born[i].species},
+                       Environment{born[i].environment}, born[i].genome,
+                       CreaturePhenotype{born[i].phenotype}, Vitality{});
+        }
     }
 }
 

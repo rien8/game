@@ -73,14 +73,17 @@ std::vector<Forager> crowd_in(const CellIndex cell, const std::size_t n)
 
 /// 本夹具下唯一无法严格相等的量：第二趟的 per_cell 是同格 n 个 got 的浮点
 /// 累加，反转输入即反转加数顺序，末位会有舍入差。累加和的上界是 capacity
-/// 量级，而 capacity = capacity_base × base_fertility = 3.0 × [0.25, 1.0)，
-/// 故上界是 3.0（本配置实测全 4096 格为 [0.750, 2.999]）。
+/// 量级，而 capacity = capacity_base × base_fertility = 3.9 × [0.25, 1.0)，
+/// 故上界是 3.9（本配置实测全 4096 格为 [0.9752, 3.8984]）。
 /// 顺序求和的严格误差界是 (n−1)·u·Σ|xᵢ|（u = 2⁻²⁴ ≈ 5.96e-8），
-/// 40 项取 Σ ≈ 3.0 得 ≈ 7e-6；feeding 是 [0,1] 上的比值，传播后远小于此。
-/// 取 1e-5 贴着这个界，而不是随手挑一个「看起来够大」的值。
+/// 40 项取 Σ ≤ 3.8984 得 ≈ 9.1e-6（实测 9.06e-6）；feeding 是 [0,1] 上的
+/// 比值，传播后远小于此。取 1e-5 贴着这个界，而不是随手挑一个「看起来够大」
+/// 的值。
 ///
-/// 这个界随同格个体数 n 线性增长：capacity = 3.0 时 n ≈ 57 就突破 1e-5。
-/// 1e-5 因此不是普适容差，换夹具须重推。
+/// 这个界随同格个体数 n 线性增长：capacity ≤ 3.9 时 n ≈ 44 就突破 1e-5
+/// （capacity ≤ 3.0 时这个数是 ≈ 57），而夹具用的正是 40，余量只剩约 10%。
+/// 1e-5 因此不是普适容差，换夹具须重推；下一次动 capacity_base 时这条会先
+/// 变红——那时该重推的是界，不是 epsilon。
 ///
 /// 一旦 run_season 改成按与输入无关的规范序累加 per_cell，这个界会塌缩到 0，
 /// 届时应当把断言收回严格相等。
@@ -169,10 +172,9 @@ TEST(feeding_is_independent_of_forager_order)
     // 反转输入后，第 i 个个体在新列表里的位置是 n-1-i。直接比 first[i] 与
     // second[i] 是拿两个不同个体互比，只有全体同质时才成立。
     //
-    // 这条只守顺序不变性，守不住「两趟是否分开」：got/want 在饱和时等于
-    // 1/(rate×demand)、未饱和时等于 1，两种情况都与 share 无关，所以
-    // 合并两趟后 feeding 精确算术下相同、浮点下至多相差一个 ulp，
-    // 且与遍历顺序无关。分开那一条由下一条测试守。
+    // 这条守的是顺序不变性。「两趟是否分开」由下一条守：want 是绝对量而
+    // got = min(want, share)，share 走的是扣减前的存量，合并两趟会让被
+    // 截断的个体人均份额逐个变小，总扣减量随之偏少。
     // CHECK 只记失败、不中止；长度不符时继续按下标取会越界，把整轮带崩。
     CHECK_EQ(first.size(), second.size());
     if (first.size() != second.size())
@@ -202,52 +204,85 @@ TEST(two_pass_feeding_uses_pre_draw_stock)
     // run_season 里的 field.regrow() 整行删掉，这条测试照样绿——
     // regrow 唯一能被观测到的地方就是第二步开头那次非空回归。
     config.steps_per_season = 2;
+    // capacity = capacity_base × base_fertility，而 base_fertility ∈ [0.25, 1)，
+    // 故单格容量落在 [10, 40)。夹具的不等式全部按这个区间推，逐条 CHECK 在下面。
+    config.capacity_base = 40.0f;
     const ClimateField climate{5, config};
     ResourceField field{climate, config};
 
-    // 闭式解的前提：夹具全员未饱和，否则 got 会走 share 分支而 Σ 公式失效。
-    CHECK(config.demand_rate * 2.0f <= 1.0f);
-
-    // 全体未饱和（demand_rate × demand ≤ 0.7 < 1）：want < share，got 取 want。
-    // 于是「先算后扣」每步的扣减量有闭式解 存量 × rate × Σdemand / n，
-    // 与遍历顺序无关。边算边扣则让后面的个体读到已被扣过的存量，
-    // 扣减量必然小于此式——这才是两趟必须分开的可观测后果。
+    // 夹具：一格 40 个个体，前 20 个「吃得少」（want_lo ≈ 0.07，恒未被
+    // share 截断），后 20 个「能吃」（want_hi = 1.4，恒被 share 截断）。
     //
-    // 注：feeding 向量抓不到这一条。got/want 在饱和时等于 1/(rate×demand)、
-    // 在未饱和时等于 1，两种情况都与 share 无关，所以合并两趟后 feeding
-    // 精确算术下相同、浮点下至多相差一个 ulp，且与遍历顺序无关。
-    // 只有绝对扣减量（进而终态存量）会变。
-    std::vector<Forager> foragers;
+    // 异质是必须的：want 是绝对量，同质个体下合并两趟得到的扣减量与分开时
+    // 逐位相同——要么谁都没被截断（got 恒为 want，per_cell 两种写法都是
+    // Σwant），要么被截断的那批在合并后人均份额逐个变小、闭式解整个失效。
+    // 换句话说，want 里乘 share 的那版公式下这条测试根本无从构造：那时
+    // got/want 与 share 无关，两趟合并前后 feeding 精确算术下相同。
     constexpr std::size_t n = 40;
+    constexpr std::size_t kHungry = 20;
+    const float want_hi = config.demand_rate * 4.0f;
+    const float want_lo = config.demand_rate * 0.2f;
+
+    std::vector<Forager> foragers;
     for (std::size_t i = 0; i < n; ++i)
     {
         const auto jitter = static_cast<float>(i % 60) * 0.01f;
-        const auto demand = 0.05f * static_cast<float>(i + 1);
+        const auto demand = i < kHungry ? 0.2f : 4.0f;
         foragers.push_back(Forager{1.0f + jitter, 1.0f, demand});
     }
     field.count_occupants(foragers);
 
-    // 夹具全员未饱和，got 取 want，故每步 ratio 恰为 1，两步后 feeding 恰为 1。
+    // 两条分支都要有人，理由见上。跑完之后立刻核对：未被截断的恰为 1.0，
+    // 被截断的落在 (0, 1)。want 是绝对量，于是 ratio = share / want，
+    // share 由扣减前的存量决定——这条断言本身就是「存量进入 feeding」的证据。
     const auto feeding = run_season(field, foragers, config);
-    for (const float value : feeding)
+    CHECK_EQ(feeding.size(), n);
+    if (feeding.size() != n)
     {
-        CHECK_EQ(value, 1.0f);
+        // 长度不符时上面已经记过失败；继续按下标取会越界，把整轮带崩。
+        return;
+    }
+    for (std::size_t i = 0; i < kHungry; ++i)
+    {
+        CHECK_EQ(feeding[i], 1.0f);
+    }
+    for (std::size_t i = kHungry; i < n; ++i)
+    {
+        CHECK(feeding[i] > 0.0f);
+        CHECK(feeding[i] < 1.0f);
     }
 
+    // 两趟闭式解：每步的开头存量 stock 入参，被 share 截断的那批人均取
+    // share / n，其余取 want，per_cell 汇总后一次性扣减。
     const auto cell = CellIndex::of(1.0f, 1.0f);
     const float capacity = field.capacity(cell);
-    // Σdemand = 0.05 × (1+…+40) = 41。每步的扣减量 = 该步开头存量 × 0.35875。
-    const float rate = config.demand_rate * 41.0f / 40.0f;
-    // 第一步：满格上 regrow 是空操作，扣减后剩 64.125% capacity。
-    const float s1 = capacity - capacity * rate;
-    // 第二步开头的 regrow 把它抬到 73.09%，扣减后再剩其中 64.125%。
-    const float s2 = s1 + config.regen_rate * (capacity - s1);
-    const float expected = s2 - s2 * rate;
-    // 两步的终态都远高于 0（0.641 / 0.731 / 0.469 × capacity），不触发
-    // draw 的夹零，也不越出 [0, capacity]。
-    //
-    // 边算边扣会让存量多留约 0.0575 × capacity ≈ 0.14，是 1e-4 的上千倍；
-    // 删掉 regrow 则偏差同量级。二者都被这一条挡住。
+    const auto per_cell = [n, kHungry, want_lo](const float stock)
+    {
+        const float share = stock / static_cast<float>(n);
+        return static_cast<float>(n - kHungry) * share
+               + static_cast<float>(kHungry) * want_lo;
+    };
+
+    // 夹具的前置不等式，逐步核对。第一步 stock = capacity，regrow 在满格上
+    // 是空操作，因此 s1 就是起点存量。
+    const float s1 = capacity - per_cell(capacity);
+    const float grown = s1 + config.regen_rate * (capacity - s1);
+    const float want_steps[2] = {capacity / static_cast<float>(n),
+                                grown / static_cast<float>(n)};
+    for (const float share : want_steps)
+    {
+        CHECK(share > 0.0f);
+        CHECK(want_lo < share);
+        CHECK(want_hi > share);
+    }
+    const float expected = grown - per_cell(grown);
+    CHECK(expected > 0.0f);
+    CHECK(expected < capacity);
+
+    // 边算边扣：被截断的 20 个个体人均份额逐个变小，总扣减量偏少
+    // （第一步就少掉约 (1 − (39/40)^20) × C/2 - C/2 ≈ 0.15 C，C = 10 时约 1.5）。
+    // 删掉 regrow：终态从 grown − per_cell(grown) 变成 s1 − per_cell(s1)，
+    // 差 0.125 × (capacity − s1) ≥ 0.8。二者都比 1e-4 大两个数量级以上。
     CHECK(std::abs(field.stock(cell) - expected) <= 1e-4f);
 }
 
@@ -289,7 +324,7 @@ TEST(sites_are_empty_when_no_creatures)
 TEST(over_capacity_cell_emits_no_site)
 {
     const EnvironmentConfig config{};
-    // capacity_base = 3，base_fertility <= 1，单格容量不超过 3 个体。
+    // capacity_base = 3.9，base_fertility <= 1，单格容量不超过 3.9 个体。
     // 塞 20 个进去必然过载，headroom 归零。
     auto foragers = crowd(20, 1.0f);
     std::vector<std::uint32_t> keys(foragers.size(), 1);
@@ -305,14 +340,13 @@ TEST(over_capacity_cell_emits_no_site)
 TEST(progeny_of_a_lone_creature_is_capped_by_offspring_scale)
 {
     EnvironmentConfig config{};
-    // 默认 capacity_base = 3 时本格不够发站点：cell(1,1) 的
-    // base_fertility 实测 0.399 ⇒ capacity = 1.197，减去 1 个占位者只剩
-    // headroom = 0.197，round 归零 ⇒ build_sites 不发站点。
-    // 下面的 CHECK 只记失败、不中止，接着 sites[0] 就是对空 vector 取下标，
-    // 崩溃点在这里而不是在被测代码里——不同种子的 base_fertility 不同，
-    // 于是这条测试在不同种子下时绿时崩。提到 40（同
-    // each_site_carries_its_cell_weather 的推导），使 1 个占位者的 headroom
-    // 恒 >= 6，站点在任意种子下必发。
+    // 默认 capacity_base = 3.9 下这一格会发站点，但发的不是满窝：cell(1,1)
+    // 的 base_fertility 实测 0.825 ⇒ capacity = 3.219，减去 1 个占位者只剩
+    // headroom = 2.219，round 得 2，于是 eco_ceiling = 2 < parent_ceiling = 3，
+    // 下面那条 CHECK_EQ(sites[0].progeny, 3) 会被 eco 上限挡住。
+    // 提到 40（同 each_site_carries_its_cell_weather 的推导），使 1 个占位者
+    // 的 headroom 恒 >= 9、生态上限恒高于繁殖上限，站点在任何种子下都必发
+    // 且满窝——不然后面「取整方向钉死为 lround」那一族根本没被覆盖。
     config.capacity_base = 40.0f;
     // offspring_scale 取 2.5 而不是默认的 2.0：这里要同时守繁殖上限与
     // lround 的取整方向。默认 2.0 时 here × offspring_scale 恒为偶整数，
@@ -445,11 +479,13 @@ TEST(each_site_carries_its_cell_weather)
 {
     EnvironmentConfig config{};
     config.temperature_amplitude = 0.0f;
-    // 默认 capacity_base = 3 时本格不够发站点：cell(7,9) 的
-    // base_fertility = 0.399 ⇒ capacity = 1.197，减去 1 个占位者只剩
-    // headroom = 0.197，round 归零 ⇒ build_sites 不发站点，这条测试无从断言。
+    // 默认 capacity_base = 3.9 下本格发得出站点，但只在某些种子下：cell(7,9)
+    // 的 base_fertility 实测 0.399 ⇒ capacity = 1.556，减去 1 个占位者只剩
+    // headroom = 0.556，round 归 1，站点勉强发出、progeny = 1。base_fertility
+    // 的下界是 0.25，那一档给出 capacity = 0.975 < 1，headroom 归零，站点
+    // 根本不发——于是这条测试在不同种子下时绿时崩。
     // 提到 40 留出余量（同 capacity_is_split_between_species_by_current_share
-    // 的推导），使 1 个占位者的 headroom 恒 ≥ 6，站点必发。
+    // 的推导），使 1 个占位者的 headroom 恒 ≥ 6，站点在任意种子下必发。
     config.capacity_base = 40.0f;
     const ClimateField climate{5, config};
     ResourceField field{climate, config};
