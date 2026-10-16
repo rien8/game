@@ -3,14 +3,16 @@ assets/parts_processed.
 
 Algorithm (per PNG):
   1. Read the part's bbox from manifest.json. The bbox encloses the character.
-  2. In the bbox's lower half (cy >= bbox.cy + bbox.h * 0.5), scan every row
-     and count "shadow-like" pixels in the bbox's central horizontal band:
+  2. In the bbox's lower 70% (cy >= bbox.y + bbox.h * 0.30), scan every row
+     across the bbox's horizontal extent and count "shadow-like" pixels:
          RGB >= 240 (near white) AND 0 < alpha < 80.
   3. Find the longest contiguous run of rows that all have at least
      min(row_count_threshold, ~80) shadow pixels. This run is the horizontal
      band of the elliptical drop shadow.
-  4. Fit an ellipse to that band:
-       cx = bbox center x (already constrained by central band)
+  4. Within that band, take the longest *consecutive* stretch of rows that
+     still clear the threshold (CORE_THRESHOLDS, strictest first), and fit an
+     ellipse to that stretch:
+       cx = bbox center x (already constrained to the bbox extent)
        cy = run midpoint
        a_axis = horizontal extent of the run on its longest row
        b_axis = half the run height
@@ -48,13 +50,14 @@ CORE_THRESHOLDS = (100, 80, 60, 40)  # try the strictest first, fall back if no 
 ELLIPSE_PAD = 1.15          # grow the fitted ellipse slightly to catch anti-aliased fringe
 
 
-def _row_max_contiguous(rgba, y: int, w: int) -> tuple[int, int]:
-    """Return (longest_run, run_start) of shadow-like pixels on row y."""
+def _row_max_contiguous(rgba, y: int, x_lo: int, x_hi: int) -> tuple[int, int]:
+    """Return (longest_run, run_start) of shadow-like pixels on row y,
+    scanning only [x_lo, x_hi) — the bbox's horizontal extent."""
     longest = 0
     cur = 0
-    cur_start = 0
-    best_start = 0
-    for x in range(w):
+    cur_start = x_lo
+    best_start = x_lo
+    for x in range(x_lo, x_hi):
         r, g, b, a = rgba[x, y]
         if r >= RGB_MIN and g >= RGB_MIN and b >= RGB_MIN and 0 < a < ALPHA_MAX:
             if cur == 0:
@@ -66,6 +69,28 @@ def _row_max_contiguous(rgba, y: int, w: int) -> tuple[int, int]:
         else:
             cur = 0
     return longest, best_start
+
+
+def _longest_core_run(rows: list[tuple[int, int, int]], start: int,
+                      end: int, threshold: int) -> list[tuple[int, int, int]]:
+    """Longest run of *consecutive* rows within [start, end] whose contiguous
+    run is >= threshold.
+
+    Consecutiveness matters: b_axis and cy are derived from the first and last
+    row of the result, so a gap between two qualifying rows would silently
+    inflate both. The caller then erases a taller ellipse than the shadow it
+    found, clipping whatever sits between them (typically the feet).
+    """
+    best: list[tuple[int, int, int]] = []
+    cur: list[tuple[int, int, int]] = []
+    for y, run, sx in rows:
+        if y < start or y > end or run < threshold:
+            cur = []
+            continue
+        cur.append((y, run, sx))
+        if len(cur) > len(best):
+            best = list(cur)
+    return best
 
 
 def _find_shadow_ellipse(im: Image.Image, bbox: tuple[int, int, int, int]) -> tuple[float, float, float, float] | None:
@@ -82,11 +107,13 @@ def _find_shadow_ellipse(im: Image.Image, bbox: tuple[int, int, int, int]) -> tu
     cy_start = int(by_ + bh * LOWER_HALF_START)
     w, h = im.size
     rgba = im.load()
+    x_lo = max(0, bx)
+    x_hi = min(w, bx + bw)
 
     # 1) Per-row contiguous run within bbox width.
     rows: list[tuple[int, int, int]] = []  # (y, run_len, run_start_x)
     for y in range(max(0, cy_start), min(h, by_ + bh + 1)):
-        run, sx = _row_max_contiguous(rgba, y, w)
+        run, sx = _row_max_contiguous(rgba, y, x_lo, x_hi)
         rows.append((y, run, sx))
 
     # 2) Longest contiguous run of qualifying rows.
@@ -107,8 +134,7 @@ def _find_shadow_ellipse(im: Image.Image, bbox: tuple[int, int, int, int]) -> tu
 
     # 3) Try each CORE_THRESHOLD in order, strictest first.
     for core_thresh in CORE_THRESHOLDS:
-        core_rows = [(y, run, sx) for (y, run, sx) in rows
-                     if best_start <= y <= best_end and run >= core_thresh]
+        core_rows = _longest_core_run(rows, best_start, best_end, core_thresh)
         if len(core_rows) < MIN_RUN_ROWS:
             continue
         widest_w = 0
