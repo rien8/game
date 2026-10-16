@@ -7,7 +7,7 @@
 /// 环境增量救回，掩盖掉本应淘汰的表型。本文件全部是纯函数，不持有状态。
 #pragma once
 
-#include "gamev2/genetics/environment.hpp"
+#include "gamev2/environment/climate.hpp"
 #include "gamev2/genetics/genome.hpp"
 #include "gamev2/genetics/locus.hpp"
 #include "gamev2/genetics/phenotype.hpp"
@@ -42,10 +42,9 @@ namespace gamev2::genetics {
 /// `< kTraitCount`，Structural 位点的 `< kSlotCount`——write_slot 的兜底
 /// 断言中 alleles 的下标都靠这条兜底。
 ///
-/// \pre `genome` 的每个 `AlleleCall::allele` 落在所属位点的
-/// `[0, allele_count)` 内。validate() 只约束表侧（`allele_count <= kMaxAlleles`），
-/// 而 AlleleId 是 uint8_t，外部直接构造的 Genome 可以带出越界下标；本模块
-/// 自身经重组 / 突变产出的基因组天然满足。
+/// 越界的 `AlleleCall::allele` 夹到该位点最后一个已声明的等位基因：AlleleId
+/// 是 uint8_t，而 Genome 是公开的 ECS 组件，外部直接 add 就能带进越界下标，
+/// 本模块自身经重组 / 突变产出的基因组天然不会。
 [[nodiscard]] Phenotype express(const Genome& genome,
                                 const LocusTable& table,
                                 const SpeciesMask& mask,
@@ -53,14 +52,14 @@ namespace gamev2::genetics {
 
 /// g(E)：环境只修正性状轴，不触碰结构字段。
 void apply_environment(Phenotype& phenotype,
-                       const EnvironmentSnapshot& environment,
+                       const environment::EnvironmentSnapshot& environment,
                        const GeneticsConfig& config);
 
 /// P = f(G) ⊕ g(E)
 [[nodiscard]] Phenotype phenotype_of(const Genome& genome,
                                      const LocusTable& table,
                                      const SpeciesMask& mask,
-                                     const EnvironmentSnapshot& environment,
+                                     const environment::EnvironmentSnapshot& environment,
                                      const GeneticsConfig& config);
 
 }  // namespace gamev2::genetics

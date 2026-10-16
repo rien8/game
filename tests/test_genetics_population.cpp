@@ -11,6 +11,7 @@
 #include <vector>
 
 using namespace gamev2::genetics;
+using gamev2::environment::EnvironmentSnapshot;
 
 namespace {
 
@@ -970,4 +971,45 @@ TEST(settle_reports_the_season_fitness_of_every_individual)
     CHECK_EQ(out.season_fitness[1], 1.0f);
     CHECK_EQ(out.survived[2], std::uint8_t{0});
     CHECK_EQ(out.season_fitness[2], 0.0f);
+}
+
+TEST(empty_feedings_matches_explicit_all_ones)
+{
+    const std::vector<Genome> genomes(8, Genome{});
+    const std::vector<Phenotype> phenotypes(8, robust_phenotype());
+    const std::vector<EnvironmentSnapshot> envs(8, EnvironmentSnapshot{});
+    const std::vector<float> threats(8, 0.0f);
+    const std::vector<std::uint32_t> species_ids(8, 1);
+
+    std::vector<Parent> parents;
+    for (std::size_t i = 0; i < genomes.size(); ++i)
+    {
+        parents.push_back(Parent{i, &genomes[i], 1.0f});
+    }
+    const std::vector<ParentPool> sites{
+        ParentPool{parents, SpeciesId{1}, std::nullopt, 2}};
+
+    SpeciesRegistry registry;
+    (void)registry.register_species(all_loci());
+
+    auto without_rng = RandomStreams{31, 0};
+    const auto without = settle(
+        SeasonInput{genomes, phenotypes, envs, threats, species_ids, sites,
+                    false},
+        neutral_table(), registry, GeneticsConfig{}, without_rng);
+
+    const std::vector<float> ones(genomes.size(), 1.0f);
+    auto with_rng = RandomStreams{31, 0};
+    const auto with = settle(
+        SeasonInput{genomes, phenotypes, envs, threats, species_ids, sites,
+                    false, ones},
+        neutral_table(), registry, GeneticsConfig{}, with_rng);
+
+    // 空 span 的回落路径必须与显式全 1 等价，否则「没接环境层」这条降级
+    // 路径的行为取决于调用方是忘了填还是故意填。
+    CHECK(without.survived == with.survived);
+    CHECK(without.survival_rates == with.survival_rates);
+    CHECK(without.season_fitness == with.season_fitness);
+    CHECK_EQ(without.offspring.size(), with.offspring.size());
+    CHECK_EQ(without.offspring.size(), std::size_t{2});
 }

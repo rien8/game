@@ -29,7 +29,7 @@ struct StagedOffspring
     SpeciesId species;
     Genome genome;
     Phenotype phenotype;
-    EnvironmentSnapshot environment;
+    environment::EnvironmentSnapshot environment;
 };
 
 /// 单个池单季的子代数上限。
@@ -111,7 +111,7 @@ void BreedingSystem::execute(World& world, CommandBuffer& cmd)
 {
     std::vector<Genome> genomes;
     std::vector<Phenotype> phenotypes;
-    std::vector<EnvironmentSnapshot> environments;
+    std::vector<environment::EnvironmentSnapshot> environments;
     std::vector<float> threats;
     std::vector<std::uint32_t> species_ids;
     /// 与上面五个 vector 同序，用来把 settle 的 survived 下标对回实体
@@ -161,7 +161,7 @@ void BreedingSystem::execute(World& world, CommandBuffer& cmd)
         std::vector<std::size_t> members;
         std::vector<Genome> pool_genomes;
         std::vector<Phenotype> pool_phenotypes;
-        std::vector<EnvironmentSnapshot> pool_environments;
+        std::vector<environment::EnvironmentSnapshot> pool_environments;
         std::vector<float> pool_threats;
         for (std::size_t i = 0; i < genomes.size(); ++i)
         {

@@ -6,7 +6,7 @@
 #include "gamev2/ecs/system.hpp"
 #include "gamev2/ecs/world.hpp"
 
-#include "gamev2/genetics/environment.hpp"
+#include "gamev2/environment/climate.hpp"
 #include "gamev2/genetics/genome.hpp"
 #include "gamev2/genetics/locus.hpp"
 #include "gamev2/genetics/population.hpp"
@@ -32,7 +32,7 @@ struct CreaturePhenotype
 
 struct Environment
 {
-    gamev2::genetics::EnvironmentSnapshot snapshot;
+    gamev2::environment::EnvironmentSnapshot snapshot;
 };
 
 struct Vitality

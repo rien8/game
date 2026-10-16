@@ -6,6 +6,7 @@
 #include <cstdint>
 
 using namespace gamev2::genetics;
+using gamev2::environment::EnvironmentSnapshot;
 
 namespace {
 
@@ -266,4 +267,39 @@ TEST(express_accumulates_loci_into_their_own_axes)
     CHECK(p.traits[axis(TraitKind::Strength)] == 25.5f);
     // 没有位点指向的轴必须原样停在 trait_base 上。
     CHECK(p.traits[axis(TraitKind::Lifespan)] == 0.0f);
+}
+
+TEST(express_clamps_out_of_range_allele_to_the_last_declared_one)
+{
+    // AlleleId 是 uint8_t，Genome 又是公开 ECS 组件，外部 add 进来的基因组
+    // 必然可能带出越界下标。两个位点的 allele_count 都是 2，而 alleles[2] 与
+    // alleles[3] 保持默认（additive 与 state 均为 0），因此「夹到
+    // allele_count - 1」与「夹到 kMaxAlleles - 1」给出可区分的答案。
+    auto table = LocusTable{};
+    table.loci[0] = make_trait_locus(1.5f, -1.5f, 0, 1, 0.0f);
+    table.loci[0].target = axis(TraitKind::BodySize);
+    table.loci[1] = make_structural_locus(4, 0, 7, 1);
+    table.loci[1].target = static_cast<std::uint8_t>(StructuralSlot::BodySegments);
+
+    SpeciesMask mask{};
+    mask.active.set(0);
+    mask.active.set(1);
+
+    GeneticsConfig config{};
+    config.trait_base[axis(TraitKind::BodySize)] = 10.0f;
+    config.trait_min.fill(-1000.0f);
+    config.trait_max.fill(1000.0f);
+
+    Genome corrupt{};
+    for (std::size_t i = 0; i < kLocusCount; ++i)
+    {
+        corrupt.a[i].allele = 200;
+        corrupt.b[i].allele = 255;
+    }
+
+    const auto p = express(corrupt, table, mask, config);
+
+    // 10 + 1.0 * (-1.5)：夹到 allele 1，而不是未配置的槽位 2/3（取值 0）。
+    CHECK(p.traits[axis(TraitKind::BodySize)] == 8.5f);
+    CHECK_EQ(p.body_segments, std::uint8_t{7});
 }

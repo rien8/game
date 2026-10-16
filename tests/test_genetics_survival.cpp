@@ -3,6 +3,7 @@
 #include "test_framework.hpp"
 
 using namespace gamev2::genetics;
+using gamev2::environment::EnvironmentSnapshot;
 
 namespace {
 

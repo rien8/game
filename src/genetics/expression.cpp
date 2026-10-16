@@ -17,6 +17,20 @@ float allele_value(const AlleleDef& allele, std::int8_t jitter,
     return allele.additive + static_cast<float>(jitter) * config.jitter_unit;
 }
 
+/// 取位点的等位基因定义，越界夹到最后一个已声明的等位基因。
+///
+/// AlleleId 是 uint8_t，而 Genome 是公开的 ECS 组件，外部直接 add 就能带进
+/// 越界下标；这里必须挡住，否则统计路径夹了而表达路径不夹，同一批坏基因组会
+/// 在两处给出互不相干的答案，其中一处还是越界读。
+///
+/// 夹到 allele_count - 1 而非 kMaxAlleles - 1：后者可能命中从未配置过的槽位
+/// （additive 与 state 均为 0），把一次数据损坏变成一次静默的性状归零。
+const AlleleDef& allele_def(const LocusDef& locus, AlleleId id) noexcept
+{
+    const auto last = static_cast<AlleleId>(locus.allele_count - 1);
+    return locus.alleles[std::min(id, last)];
+}
+
 void write_slot(Phenotype& p, const LocusDef& locus,
                 std::uint8_t state) noexcept
 {
@@ -54,8 +68,8 @@ float trait_value(const LocusDef& locus, AlleleId x, std::int8_t jx,
                   AlleleId y, std::int8_t jy,
                   const GeneticsConfig& config) noexcept
 {
-    const AlleleDef& ax = locus.alleles[x];
-    const AlleleDef& ay = locus.alleles[y];
+    const AlleleDef& ax = allele_def(locus, x);
+    const AlleleDef& ay = allele_def(locus, y);
 
     const float vx = allele_value(ax, jx, config);
     const float vy = allele_value(ay, jy, config);
@@ -77,8 +91,8 @@ float trait_value(const LocusDef& locus, AlleleId x, std::int8_t jx,
 std::uint8_t structural_state(const LocusDef& locus, AlleleId x,
                               AlleleId y) noexcept
 {
-    const AlleleDef& ax = locus.alleles[x];
-    const AlleleDef& ay = locus.alleles[y];
+    const AlleleDef& ax = allele_def(locus, x);
+    const AlleleDef& ay = allele_def(locus, y);
 
     if (ax.dom_rank == ay.dom_rank)
     {
@@ -127,7 +141,7 @@ Phenotype express(const Genome& genome, const LocusTable& table,
 }
 
 void apply_environment(Phenotype& phenotype,
-                       const EnvironmentSnapshot& environment,
+                       const environment::EnvironmentSnapshot& environment,
                        const GeneticsConfig& config)
 {
     // 温度偏离适宜区抬高代谢：温度应激是真实的代谢负担，它经由
@@ -155,7 +169,7 @@ void apply_environment(Phenotype& phenotype,
 
 Phenotype phenotype_of(const Genome& genome, const LocusTable& table,
                        const SpeciesMask& mask,
-                       const EnvironmentSnapshot& environment,
+                       const environment::EnvironmentSnapshot& environment,
                        const GeneticsConfig& config)
 {
     Phenotype p = express(genome, table, mask, config);

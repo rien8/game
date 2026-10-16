@@ -8,8 +8,8 @@
 /// 跨季状态，随机性由调用方传入的 RandomStreams 提供。
 #pragma once
 
+#include "gamev2/environment/climate.hpp"
 #include "gamev2/genetics/breeding.hpp"
-#include "gamev2/genetics/environment.hpp"
 #include "gamev2/genetics/genome.hpp"
 #include "gamev2/genetics/locus.hpp"
 #include "gamev2/genetics/phenotype.hpp"
@@ -29,7 +29,7 @@ struct SeasonInput
 {
     std::span<const Genome> genomes;
     std::span<const Phenotype> phenotypes;
-    std::span<const EnvironmentSnapshot> environments;
+    std::span<const environment::EnvironmentSnapshot> environments;
     std::span<const float> threats;
     /// 与 genomes 同序的物种标签，供第 5 步按物种分组统计
     std::span<const std::uint32_t> species_ids;
@@ -42,6 +42,12 @@ struct SeasonInput
     /// 离线分析）用的可选副本。它每季按物种重扫一遍全体基因组，成本
     /// O(S·N)，生产路径上原样再算一遍没有收益，因此默认关闭。
     bool want_statistics = false;
+    /// 与 genomes 同序，本季的实际摄入满足度（0..1）。
+    ///
+    /// 空 span 表示调用方未接入环境层，逐个按理论摄食上限 1.0 处理。
+    /// 放在末尾而非与 threats 并列，是为了不动既有调用方的位置参数顺序
+    /// —— 语义分组上的不便，不值二十几处与本次改动无关的测试编辑。
+    std::span<const float> feedings{};
 };
 
 /// 子代先在 staging 里积累，整季结算完成后一次性返回。
@@ -50,7 +56,7 @@ struct SeasonOutput
 {
     std::vector<Genome> offspring;
     std::vector<Phenotype> offspring_phenotypes;
-    std::vector<EnvironmentSnapshot> offspring_environments;
+    std::vector<environment::EnvironmentSnapshot> offspring_environments;
     /// 与 genomes 同序，
     /// 表示本季活到下一季。
     std::vector<std::uint8_t> survived;

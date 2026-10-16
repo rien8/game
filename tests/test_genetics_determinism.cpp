@@ -13,6 +13,7 @@
 #include <vector>
 
 using namespace gamev2::genetics;
+using gamev2::environment::EnvironmentSnapshot;
 
 namespace {
 

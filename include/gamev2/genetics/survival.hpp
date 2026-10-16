@@ -7,7 +7,7 @@
 /// 概率约束，因此不参与乘积。
 #pragma once
 
-#include "gamev2/genetics/environment.hpp"
+#include "gamev2/environment/climate.hpp"
 #include "gamev2/genetics/locus.hpp"
 #include "gamev2/genetics/phenotype.hpp"
 
@@ -20,7 +20,7 @@ namespace gamev2::genetics {
 struct SurvivalInput
 {
     const Phenotype& phenotype;
-    const EnvironmentSnapshot& environment;
+    const environment::EnvironmentSnapshot& environment;
     /// 实际摄入的能量，取值 0..1 的资源满足度。行为 spec 接入前传理论值 1。
     float feeding = 1.0f;
     /// 捕食威胁等级，0..1。无天敌时传 0。

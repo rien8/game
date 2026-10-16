@@ -15,9 +15,10 @@ namespace {
 
 /// 子代的环境快照取自待繁殖位置的父池。生态 spec 交付前没有采样结果时，
 /// 退回全默认快照：温度偏移 0、光照与资源充足度 1。
-[[nodiscard]] EnvironmentSnapshot site_environment(const ParentPool& pool)
+[[nodiscard]] environment::EnvironmentSnapshot site_environment(
+    const ParentPool& pool)
 {
-    return pool.environment.value_or(EnvironmentSnapshot{});
+    return pool.environment.value_or(environment::EnvironmentSnapshot{});
 }
 
 }  // namespace
@@ -57,8 +58,12 @@ SeasonOutput settle(const SeasonInput& input, const LocusTable& table,
         {
             continue;
         }
-        const SurvivalInput s{input.phenotypes[i], input.environments[i],
-                              1.0f, input.threats[i]};
+        const SurvivalInput s{
+            input.phenotypes[i], input.environments[i],
+            // 空 span 是「未接入环境层」的降级路径，逐个回落理论摄食上限。
+            input.feedings.size() == input.genomes.size() ? input.feedings[i]
+                                                           : 1.0f,
+            input.threats[i]};
         const float rate = survival_rate(s, config);
         if (uniform_unit(survival_rng) < rate)
         {
@@ -98,7 +103,7 @@ SeasonOutput settle(const SeasonInput& input, const LocusTable& table,
                        out.season_fitness[parent.index]});
         }
         const ParentPool live{living, site.species, site.environment};
-        const EnvironmentSnapshot env = site_environment(site);
+        const environment::EnvironmentSnapshot env = site_environment(site);
         // 0 按 1 处理：留 0 的调用方得到的是「每个 site 一个子代」的旧行为，
         // 而 0 本身在生态上说不通（既没灭绝也没繁殖）。
         const std::uint32_t count = site.progeny == 0 ? 1 : site.progeny;

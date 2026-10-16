@@ -7,7 +7,7 @@
 /// 可能是同一个个体，此时子代为自交——近交衰退在个体层面的入口就在这里。
 #pragma once
 
-#include "gamev2/genetics/environment.hpp"
+#include "gamev2/environment/climate.hpp"
 #include "gamev2/genetics/genome.hpp"
 #include "gamev2/genetics/locus.hpp"
 #include "gamev2/genetics/random.hpp"
@@ -62,9 +62,8 @@ struct ParentPool
 {
     std::span<const Parent> parents;
     SpeciesId species{};
-    /// 待繁殖位置的环境快照，由地图 spec 采样后传入。本模块不读它——
-    /// 表型层的 g(E) 属于后续 spec，未提供时调用方应落到默认值。
-    std::optional<EnvironmentSnapshot> environment{};
+    /// 待繁殖位置的环境快照，由环境 spec 采样后传入。表型层的 g(E) 读它。
+    std::optional<environment::EnvironmentSnapshot> environment{};
     /// 本季从该池产生的子代数量。生态位/空间上「一个 site 一个子代」是
     /// 自然读法,但物种级池需要按繁殖力批量产出,否则种群与物种数成反比
     /// 衰减。
