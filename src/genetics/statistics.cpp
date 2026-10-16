@@ -103,8 +103,18 @@ SpeciesStatistics summarize(std::span<const Genome> genomes,
     }
     out.f_coefficient = (f_weight_sum > 0.0f) ? f_weighted_sum / f_weight_sum
                                               : 0.0f;
+    // 缺额是逐位点的量，必须先除到位点数再取倒数，与上面 heterozygosity
+    // 同一个口径。裸求和会让 Ne 随激活位点数线性缩水：掩码大小不同的两个
+    // 物种即便逐位点数据完全一致，Ne 也会差出与位点数成正比的倍数。
+    //
+    // 不走教科书那条 1 / (2F̄)：F̂ = 1 - H_obs/H_exp 在有限样本下系统性偏负
+    // （2n 次多项抽样使 E[H_obs] ≈ 2n/(2n-1) × H_exp），偏差按 1/n 收缩，
+    // 取倒数后随机交配的正常种群会报出负的 Ne，且绝对值随普查规模一起发散
+    // ——n = 64 时已到 -122。F̄ 只作诊断读数保留在 f_coefficient 里。
     out.effective_population =
-        (h_loss_sum > 0.0f) ? 1.0f / (2.0f * h_loss_sum) : 0.0f;
+        (h_loss_sum > 0.0f) ? static_cast<float>(active.size())
+                                 / (2.0f * h_loss_sum)
+                             : 0.0f;
     return out;
 }
 

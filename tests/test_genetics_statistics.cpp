@@ -146,17 +146,20 @@ TEST(statistics_clamps_out_of_range_allele_indices)
 
 TEST(statistics_counts_monomorphic_loci_at_full_loss_in_ne)
 {
-    // 全体同型合子：每位点 H_exp = 0，故 h_loss_sum = 300，Ne = 1 / (2 × 300)。
+    // 全体同型合子：每位点 H_exp = 0，缺额 1，逐位点均值也是 1，
+    // 故 Ne = 1 / (2 × 1) = 0.5。300 个位点不把它压成 1/600 —— 那是裸求和，
+    // 会让 Ne 随激活位点数缩水。
     const std::vector<Genome> pop{make_genome(0, 0), make_genome(0, 0),
                                   make_genome(0, 0), make_genome(0, 0)};
     const auto s = summarize(pop, all_loci());
-    CHECK(s.effective_population == 1.0f / 600.0f);
+    CHECK(s.effective_population == 0.5f);
 
     // 单态位点并没有被跳过，只是它对 h_loss 的贡献恒为 1；真正参与
     // 缺额计算的是多态位点的 1 - H_exp。混一个多态位点进去就能把两者
     // 分开：位点 0-3 全员杂合，H_exp = 0.5，缺额 0.5；其余 296 个位点
-    // 单态，缺额 1。h_loss_sum = 4 × 0.5 + 296 = 298，Ne = 1 / 596。
-    // 若缺额误用 H_obs（此处为 1），h_loss_sum 会变成 296，Ne = 1 / 592。
+    // 单态，缺额 1。h_loss_sum = 4 × 0.5 + 296 = 298，均值 298/300，
+    // Ne = 300 / (2 × 298)。若缺额误用 H_obs（此处为 1），h_loss_sum 会
+    // 变成 296，均值 296/300，Ne = 300 / 592。
     std::vector<Genome> partial(4, make_genome(0, 0));
     for (auto& genome : partial)
     {
@@ -167,7 +170,7 @@ TEST(statistics_counts_monomorphic_loci_at_full_loss_in_ne)
         }
     }
     CHECK(summarize(partial, all_loci()).effective_population
-          == 1.0f / 596.0f);
+          == static_cast<float>(kLocusCount) / 596.0f);
 }
 
 TEST(statistics_heterozygosity_is_mean_over_loci)
@@ -176,4 +179,21 @@ TEST(statistics_heterozygosity_is_mean_over_loci)
     const auto s = summarize(pop, all_loci());
     // 全 Aa：每位点 H_obs = 1
     CHECK(s.heterozygosity == 1.0f);
+}
+
+TEST(effective_population_is_per_locus_not_a_sum)
+{
+    // 同一批基因组，只改激活位点数，Ne 必须不变：它与 heterozygosity 是
+    // 同一个口径的逐位点量。若实现漏掉归一化，位点数翻倍则 h_loss_sum 翻倍，
+    // Ne 减半——两个掩码大小不同的物种之间就此不可比。
+    const std::vector<Genome> pop{make_genome(0, 1)};
+
+    SpeciesMask narrow{};
+    narrow.active.set(0);
+    const auto one = summarize(pop, narrow);
+    const auto many = summarize(pop, all_loci());
+
+    CHECK(one.effective_population == many.effective_population);
+    // 全 Aa 双等位：每位点 H_exp = 0.5，缺额 0.5，Ne = 1 / (2 × 0.5) = 1。
+    CHECK(one.effective_population == 1.0f);
 }
