@@ -126,6 +126,13 @@ set(WORLD_TEST_SOURCES
 add_executable(world_tests ${WORLD_TEST_SOURCES})
 target_link_libraries(world_tests PRIVATE world)
 
+# 演示入口：world 模块的调用方，自带 main。刻意不进下面的 ASan foreach ——
+# 那条列表把所有 *_TEST_SOURCES 连同 tests/main.cpp 编成单个可执行目标，而本
+# 目标自带 main，合并会撞 duplicate symbol。world 设计文档 §7 警告过「ASan
+# 列表漏掉整个模块」，因此这里显式记一笔：这是排除，不是遗漏。
+add_executable(sim src/sim/main.cpp)
+target_link_libraries(sim PRIVATE world)
+
 # Opt-in sanitizer build. Off by default so the pinned build stays untouched;
 # the `active_` invariant in ThreadPool is a lifetime race that no ordinary
 # assertion can observe, and reproducing it needs a UAF detector.
