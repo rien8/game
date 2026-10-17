@@ -8,6 +8,7 @@
 
 #include "gamev2/ecs/adapt/environment_systems.hpp"
 #include "gamev2/ecs/adapt/genetics_systems.hpp"
+#include "gamev2/ecs/adapt/movement_system.hpp"
 #include "gamev2/ecs/command_buffer.hpp"
 #include "gamev2/ecs/scheduler.hpp"
 #include "gamev2/ecs/world.hpp"
@@ -115,7 +116,11 @@ private:
     // breeding_ 必须收 genetics_config_ 这个成员而不是构造函数的按值形参：
     // BreedingSystem 把配置存成 const 引用，形参一返回引用就悬垂，而它要到
     // 每季 execute 里的 settle 才被读。
+    //
+    // movement_ 只收标量（root_seed 与季号），不持有任何引用，因此它在声明
+    // 顺序里的位置不影响正确性；放这里只是为了与它在调度器中的注册顺序对齐。
     gamev2::ecs::adapt::EnvironmentWorld env_;
+    gamev2::ecs::adapt::MovementSystem movement_;
     gamev2::ecs::adapt::EnvironmentSystem environment_;
     gamev2::ecs::adapt::AgingSystem aging_;
     gamev2::ecs::adapt::BreedingSystem breeding_;

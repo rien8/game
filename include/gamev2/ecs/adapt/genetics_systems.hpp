@@ -136,13 +136,19 @@ public:
     /// 1.0f 降级分支顶掉。与 EnvironmentSystem 的 WriteSet 之间它同时构成
     /// 一条真的读写冲突，但那一条并不是结构变更风险的挡法——那个形状由
     /// EnvironmentSystem::mutates_structure 独占批次来兜。
+    /// `const Position` 是一条真的读：空间分桶逐个体取出它算所在格。
+    /// 它以前漏在这里，于是 MovementSystem 写 Position 与本 system 读
+    /// Position 这条冲突表达不出去——访问集不相交的两个 system 会被排进
+    /// 同一批并行执行，而 System::order 只在「本来就会冲突」时才等于批次
+    /// 先后（见 system.hpp 的 \warning）。补上它，「移动先于繁殖」才成立。
     using ReadSet = std::tuple<const Genome, const CreaturePhenotype,
                                const Environment, const SpeciesTag,
-                               const Feeding>;
+                               const Feeding, const Position>;
     using WriteSet = std::tuple<Vitality>;
 
-    /// 排在 AgingSystem 与 EnvironmentSystem 之后。与前两者的冲突分别由
-    /// WriteSet（都写 Vitality）与 EnvironmentSystem::mutates_structure 兜底，
+    /// 排在 AgingSystem、EnvironmentSystem 与 MovementSystem 之后。与前两者
+    /// 的冲突分别由 WriteSet（都写 Vitality）与 EnvironmentSystem::
+    /// mutates_structure 兜底，与 MovementSystem 的由 Position 的读写兜底，
     /// order 负责让本 system 落进更晚的那一批。
     ///
     /// 在此之前这条约束只写在注释里，靠 plan() 恰好按注册顺序分层成立：
@@ -161,6 +167,13 @@ private:
     const gamev2::genetics::GeneticsConfig& config_;
     std::uint64_t root_seed_;
     std::uint64_t season_index_;
+
+    /// 逐物种的近交系数，下标 = SpeciesId::value - 1。每季由 settle 从**该
+    /// 物种**的亲代池算出的 offspring_inbreeding 按下标写回，**不需要调用方
+    /// 喂**——它来自 breeding 自己的亲代池，而走 statistics 的 f_coefficient
+    /// 那条路会被地图的生态结构污染（见 genetics/survival.hpp 的
+    /// SurvivalInput::inbreeding）。
+    std::vector<float> inbreeding_;
 
     /// nullptr 表示未接入环境层。指针而非引用：调用方可能这一季还没有
     /// 环境系统跑过，那时给一个空引用比给 nullptr 更难查。

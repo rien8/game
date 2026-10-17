@@ -87,6 +87,7 @@ set(ENVIRONMENT_SOURCES
     src/environment/resource.cpp
     src/environment/sites.cpp
     src/ecs/adapt/environment_systems.cpp
+    src/ecs/adapt/movement_system.cpp
 )
 # 不变量：genetics 的任何 TU 都不得引用 src/environment/*.cpp 定义的符号。
 # 今天成立是因为 genetics 只用到纯聚合体 EnvironmentSnapshot（零 out-of-line

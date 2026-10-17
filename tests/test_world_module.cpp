@@ -7,6 +7,7 @@
 #include "gamev2/genetics/genome.hpp"
 #include "gamev2/genetics/phenotype.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -25,7 +26,9 @@ using gamev2::ecs::adapt::SpeciesTag;
 using gamev2::ecs::adapt::Vitality;
 using gamev2::environment::CellIndex;
 using gamev2::environment::EnvironmentConfig;
+using gamev2::environment::kCellCount;
 using gamev2::environment::kGridSide;
+using gamev2::genetics::AlleleCall;
 using gamev2::genetics::Genome;
 using gamev2::genetics::GeneticsConfig;
 using gamev2::genetics::LocusKind;
@@ -485,40 +488,84 @@ TEST(equal_seeds_produce_identical_seasons)
     }
 }
 
-/// 跑三季，种群规模不得超过所选各格承载力之和。
+/// 逐格余量之和 Σ max(0, capacity − occupants)。
+///
+/// 判据与 EnvironmentSystem 的收集判据逐字相同：缺 Position / CreaturePhenotype
+/// / SpeciesTag、或引用未注册物种的实体都不占格，因此 occupants 与 build_sites
+/// 读到的 `field.occupants` 是同一份数。
+///
+/// 它同时是「run_season 之后观察到的坐标 = build_sites 读到的那份」这条前提
+/// 的落点：移动在季初跑完，子代则落在亲代格内（place_in 的抖动取 [0, 0.9)，
+/// 加在整数格坐标上不跨格），因此 flush 之后看到的分布正是下一季的余量。
+double total_headroom(gamev2::world::World& w)
+{
+    const auto& env = w.environment();
+    std::vector<std::uint32_t> occupants(kCellCount, 0);
+    w.entities().for_each_entity(
+        [&w, &occupants](const EntityId e)
+        {
+            // get_if 不是 const 成员，因此这里不能用 const 引用接着 entities()。
+            const auto* pos = w.entities().get_if<Position>(e);
+            const auto* phe = w.entities().get_if<CreaturePhenotype>(e);
+            const auto* tag = w.entities().get_if<SpeciesTag>(e);
+            if (pos == nullptr || phe == nullptr || tag == nullptr
+                || tag->species.value == 0
+                || tag->species.value > w.species().species_count())
+            {
+                return;
+            }
+            ++occupants[CellIndex::of(pos->x, pos->y).value];
+        });
+
+    double sum = 0.0;
+    for (std::size_t c = 0; c < kCellCount; ++c)
+    {
+        const auto cell = CellIndex{static_cast<std::uint16_t>(c)};
+        sum += std::max(0.0f, env.resources().capacity(cell)
+                                - static_cast<float>(occupants[c]));
+    }
+    return sum;
+}
+
+/// 跑三季，每季出生数都不得超过上一季末各格余量之和。
 ///
 /// 被钉住的是 build_sites 的出生预算公式：它取逐格 `max(0, capacity -
 /// occupants)` 乘份额再逐格 `lround`（src/environment/sites.cpp），且只在
-/// `progeny > 0` 时发站点。子代必定落回本站点的格——place_in 的抖动取
-/// [0, 0.9)，加在整数格坐标上不跨格——所以「在场数 + 本季出生」被 capacity
-/// 逐格压住。population 是 census 之和（World::run_season），逐季断言它不越界。
+/// `progeny > 0` 时发站点。于是单季
 ///
-/// 铺到接近上限是这条断言的前提。roomy_config 的 capacity_base = 40 把单格
-/// 容量顶到 [10, 40]；只铺「远低于上限」的数量时，出生预算改由
-/// parent_ceiling = lround(在场数 × offspring_scale) 决定（build_sites 取
-/// eco_ceiling 与 parent_ceiling 的较小者），capacity 这条约束根本没被触到，
-/// 种群停在一个远低于 Σcapacity 的规模上，断言恒真。铺到 0.85 之后
+///     出生数 ≤ Σ lround(headroom_c) ≤ Σ headroom_c + kCellCount/2
+///
+/// 死亡数非负，于是 `季末规模 ≤ 季初规模 + Σheadroom + kCellCount/2`。
+///
+/// **为什么不能断言「季末规模 ≤ Σcapacity」。** 那条界（少一个 O(格数) 的余量）
+/// 在没有移动时成立，那时初始分布均匀、格数不变；接入 MovementSystem 之后它
+/// 不成立，而成立不了是有原因的：`headroom` 逐格取 `max(0, ...)`，于是**超载
+/// 格贡献 0，而它多占的那些个体并不会去扣减别的格的余量**。个体被随机游走推进
+/// 超载格、余量却留在空着的格里时，Σheadroom 就能显著超过 `Σcapacity − 种群`，
+/// 总规模因此越过 Σcapacity。实测首季 Σheadroom = 27294 对
+/// `Σcapacity − 种群` = 17586，季末 112778 对 Σcapacity = 103480。
+/// 这不是 `build_sites` 违约——每一格都守住了自己的 headroom——而是「个体不能
+/// 被强制迁走」这条设定在容量层面的后果。真正可断言的只有逐格那一条。
+///
+/// 铺到接近上限是前提。roomy_config 的 capacity_base = 40 把单格容量顶到
+/// [10, 40]；铺得太稀时出生预算改由 parent_ceiling = lround(在场数 ×
+/// offspring_scale) 决定（build_sites 取 eco_ceiling 与 parent_ceiling 的
+/// 较小者），capacity 这条约束根本没被触到，断言恒真。铺到 0.85 之后
 /// eco_ceiling 接手，headroom 归零才压得住出生——那正是要验的机制。
 ///
-/// 取 256 格（步长 16）而非全部 4096 格：sizeof(Genome) 实测 1200 字节，
-/// 全铺会到十万量级。这 256 格是封闭的——站点只为有占位者的格发出，而初始
-/// 个体只落在这里，子代又只落在站点格里，因此上限在这个子集上就已经咬得住。
-TEST(population_never_exceeds_total_capacity)
+/// 取整余量只由逐格 lround 产生，量级是格数而与占位数无关，因此把 headroom
+/// 误当成 capacity 的 mutant 必然越界：那样每格一季就多放出约 0.85 倍容量的
+/// 子代。
+TEST(population_never_exceeds_the_capacity_left_below_it)
 {
     Fixture f;
 
-    constexpr std::size_t kStride = 16;
-    constexpr std::size_t kCells = 256;
-    double capacity_sum = 0.0;
     std::size_t seeded = 0;
-    for (std::size_t c = 0; c < kCells; ++c)
+    for (std::size_t c = 0; c < kCellCount; ++c)
     {
-        const auto cell =
-            CellIndex{static_cast<std::uint16_t>(c * kStride)};
-        const float cap = f.world.environment().resources().capacity(cell);
-        capacity_sum += cap;
-
-        const auto n = static_cast<std::size_t>(cap * 0.85f);
+        const auto cell = CellIndex{static_cast<std::uint16_t>(c)};
+        const auto n = static_cast<std::size_t>(
+            f.world.environment().resources().capacity(cell) * 0.85f);
         const auto x = static_cast<float>(cell.value % kGridSide);
         const auto y = static_cast<float>(cell.value / kGridSide);
         for (std::size_t i = 0; i < n; ++i)
@@ -531,21 +578,14 @@ TEST(population_never_exceeds_total_capacity)
     // 容量读回来全是 0 的话这轮什么也没铺，下面的断言会恒真。
     CHECK(seeded > 0);
 
-    // 余量取 kCells/2 + 1，即逐格 lround 的半个单位再多一个。推导是单季的：
-    // 本季出生 ≤ Σ lround(headroom_c) ≤ Σ headroom_c + kCells/2，而
-    // Σ headroom_c = capacity_sum - 本季起始在场数，于是季末规模至多
-    // capacity_sum + kCells/2。三季不需要三倍余量——headroom 每季按当前在册
-    // 个体重算，规模涨上去它就缩回去。
-    //
-    // 这点余量比总占位数小一个数量级，因此把 headroom 误当成 capacity 的
-    // mutant 必然越界：那样每格一季就多放出约 0.85 倍容量的子代，超出余量
-    // 一个量级以上。实测峰值 6374 对上限 6506，把 limit 压到 6373 就报红。
-    const auto limit = static_cast<std::size_t>(capacity_sum) + kCells / 2 + 1;
-
-    for (std::uint32_t season = 0; season < 3; ++season)
+    std::size_t previous = f.world.run_season().population;
+    for (int round = 0; round < 3; ++round)
     {
+        const auto headroom = static_cast<std::size_t>(total_headroom(f.world));
         const auto report = f.world.run_season();
-        CHECK(report.population <= limit);
+        CHECK(report.population
+              <= previous + headroom + kCellCount / 2 + 1);
+        previous = report.population;
     }
 }
 
@@ -577,51 +617,33 @@ TEST(population_never_exceeds_total_capacity)
 /// 剩下唯一能改变子代基因组的就只有 RandomStreams{root_seed_, season_index_}。
 /// 删掉 World::run_season 里的 breeding_.advance_season(season_) 之后两边都
 /// 退回季 0 的流，子代基因组逐位相同，本测试立刻变红。
-TEST(season_number_reaches_the_breeding_random_stream)
-{
-    Fixture at_zero;
-    Fixture at_one;
-    at_zero.seed(16);
-    (void)at_one.world.run_seasons(1);
-    at_one.seed(16);
+/// 季号流进繁殖随机流这条守卫，在 World 层已经**不可构造**，因此被删。
+///
+/// 它原先的形状是：把同一批初始个体放进两个处于不同季号的世界各结算一季，
+/// 逐条掐掉站点结构、摄食存量、气候三处差异，剩下的自由变量就只有
+/// `RandomStreams{root_seed_, season_index_}`。删掉 World::run_season 里的
+/// breeding_.advance_season(season_) 之后两边都退回季 0 的流，测试立刻变红。
+///
+/// 接入 MovementSystem 之后这条路断了，而且断得没法绕：**季号现在同时决定
+/// 两条流**。移动的随机流是 mix_seed(mix_seed(root_seed, season),
+/// kMovementPurpose)，于是季 0 与季 1 的同一批个体落在不同坐标上 → 每格的
+/// 在场数不同 → build_sites 的站点结构与每格 progeny 不同 → make_offspring
+/// 的调用次数不同。子代数就此不等（实测两季分别产出不同数量），而子代基因组
+/// 的差异于是有了「站点结构不同」这个与季号无关的解释——正是这条测试当初
+/// 逐条掐掉的那一项。
+///
+/// 要恢复它，就得造出两个**移动流相同、繁殖流不同**的世界。而移动流是
+/// `World::season_` 的函数、繁殖流也是，`run_season` 里两者来自同一个成员，
+/// 因此任何 World 层的调用序列都无法只动其中一个。
+///
+/// **代价要说清楚：World::run_season 里 breeding_.advance_season(season_)
+/// 这一行从今起没有任何测试守卫。** 机制本身仍在 adapt 层被覆盖
+/// （test_genetics_systems.cpp::breeding_advance_season_replaces_the_season_index），
+/// 没有覆盖的是 World 层这个调用点。要补回来只有两条路，都不便宜：让
+/// World 暴露可控的季号注入点（那是给测试开的生产代码口子），或者把移动从
+/// World 的默认装配里摘出去（已否决——移动是世界循环的一部分）。
+/// 补法未定之前不要「顺手加回来」，它会恒红而不是恒绿。
 
-    (void)at_zero.world.run_seasons(1);
-    (void)at_one.world.run_seasons(1);
-
-    // age_seasons 是亲子代的分割线，与 report_counts_the_dead_as_gone 同一把
-    // 尺子：亲代被 AgingSystem 递增过，子代挂的是默认构造的 Vitality。
-    const auto newborn_genomes = [](Fixture& f)
-    {
-        std::vector<Genome> genomes;
-        f.world.entities().for_each_entity(
-            [&f, &genomes](const EntityId e)
-            {
-                if (f.world.entities().get_if<Vitality>(e)->age_seasons == 0)
-                {
-                    genomes.push_back(*f.world.entities().get_if<Genome>(e));
-                }
-            });
-        return genomes;
-    };
-
-    const auto zero = newborn_genomes(at_zero);
-    const auto one = newborn_genomes(at_one);
-
-    // 夹具确实生出了子代，否则「两边逐位不同」会因为两边都是空而恒假成立。
-    CHECK(!zero.empty());
-    CHECK(!one.empty());
-    CHECK_EQ(zero.size(), one.size());
-
-    bool differs = false;
-    for (std::size_t i = 0; i < zero.size() && i < one.size(); ++i)
-    {
-        if (!(zero[i] == one[i]))
-        {
-            differs = true;
-        }
-    }
-    CHECK(differs);
-}
 
 /// 缺 Position 的幽灵个体既不被环境杀死，也永远不进父池——设计文档 §5
 /// 契约表第二行。
@@ -721,4 +743,219 @@ TEST(creatures_without_position_never_die_and_never_breed)
 
     // 「不死」逐个查句柄，不经「总数不变」间接推。
     CHECK_EQ(count_ghosts(), ghosts_before);
+}
+
+/// 近交衰退必须真的进到每季的存活判定里，否则 genetics 层那两条测试照样
+/// 全绿，而整条机制在世界层是断的。
+///
+/// 两个世界只差 inbreeding_load，其余逐位相同（含 root_seed 与随机流）。
+///
+/// **布局是「成对但彼此隔离」**：每两个个体挨在相邻两格（必定落进对方的
+/// mating_radius 邻域，构成一个 size = 2 的亲代池），而各对之间隔 10 格，
+/// 加上 MovementSystem 每季最多挪 2 格，两季内都凑不���第三个。size = 2 且
+/// 适应力全为 1 时 Σw² = 1/2，于是 load = 4 把惩罚压到 0。
+///
+/// 不隔离成对的话两个池会并成更大的一个，Σw² 掉到 1/4，惩罚只剩 0——
+/// 那就恒不红。也不必让池真的只剩一个：那种情况下 make_offspring 直接失败、
+/// 一个子代都产不出来，近交系数压根不会被更新。
+TEST(inbreeding_reaches_the_survival_lottery)
+{
+    LocusTable table = neutral_table();
+    EnvironmentConfig env = roomy_config();
+
+    GeneticsConfig plain = steady_genetics();
+    plain.inbreeding_load = 0.0f;
+    GeneticsConfig loaded = plain;
+    loaded.inbreeding_load = 4.0f;
+
+    gamev2::world::World control{table, plain, env, 77};
+    gamev2::world::World inbred{table, loaded, env, 77};
+
+    const auto control_id = control.species().register_species(all_loci());
+    const auto inbred_id = inbred.species().register_species(all_loci());
+    CHECK(control_id.has_value());
+    CHECK(inbred_id.has_value());
+
+    const auto scatter = [](gamev2::world::World& w, const SpeciesId sid)
+    {
+        auto& entities = w.entities();
+        for (std::size_t k = 0; k < 4; ++k)
+        {
+            const auto base = static_cast<float>(k * 10);
+            for (std::size_t m = 0; m < 2; ++m)
+            {
+                const auto id = entities.create();
+                (void)entities.add<SpeciesTag>(id, SpeciesTag{sid});
+                (void)entities.add<Genome>(id, Genome{});
+                (void)entities.add<Environment>(id, Environment{});
+                (void)entities.add<CreaturePhenotype>(
+                    id, CreaturePhenotype{creature_phenotype()});
+                (void)entities.add<Vitality>(id, Vitality{});
+                (void)entities.add<Position>(
+                    id, Position{base + static_cast<float>(m) + 0.5f, 0.5f});
+            }
+        }
+    };
+    scatter(control, *control_id);
+    scatter(inbred, *inbred_id);
+
+    // 季 0 建立亲代池并把 Σw² = 0.5 存下来；季 1 才吃得到它。
+    (void)control.run_season();
+    (void)inbred.run_season();
+    const auto control_alive = control.run_season().population;
+    const auto inbred_alive = inbred.run_season().population;
+
+    CHECK(control_alive > 0);
+    CHECK_EQ(inbred_alive, std::size_t{0});
+}
+
+/// 近交系数必须**逐物种**存取：整份覆盖会让排在后面的物种抹掉前面的读数，
+/// 于是下一季所有物种都吃最后一个物种的值。
+///
+/// 判据是**两个物种下场不同**：
+///
+/// - 物种 1 排成「相邻两格一对、各对隔 10 格」，每个 3×3 邻域恰好装下一对，
+///   亲代池 size = 2 ⇒ Σw² = 1/2。
+/// - 物种 2 铺成 9×9 的密块（每格一个），邻域里 9 个 ⇒ Σw² = 1/9。
+///
+/// load = 4 时物种 1 的惩罚是 clamp(1 − 2, 0, 1) = 0（全灭），物种 2 是
+/// clamp(1 − 4/9) = 0.556（活）。若两者共用一个读数，它们会**同生共死**——
+/// 这正是整份覆盖的可观察后果，因此这条断言对 mutant 有鉴别力。
+///
+/// 两个物种刻意分处地图两端：build_sites 按 (格, 物种) 分组，BreedingSystem
+/// 的桶也只收同物种成员，所以它们的亲代池不会互相污染。
+TEST(inbreeding_is_kept_per_species)
+{
+    LocusTable table = neutral_table();
+    EnvironmentConfig env = roomy_config();
+    GeneticsConfig config = steady_genetics();
+    config.inbreeding_load = 4.0f;
+
+    gamev2::world::World world{table, config, env, 77};
+    const auto first = world.species().register_species(all_loci());
+    const auto second = world.species().register_species(all_loci());
+    CHECK(first.has_value());
+    CHECK(second.has_value());
+
+    auto& entities = world.entities();
+    const auto put = [&entities](const SpeciesId sid, const float x,
+                                const float y)
+    {
+        const auto id = entities.create();
+        (void)entities.add<SpeciesTag>(id, SpeciesTag{sid});
+        (void)entities.add<Genome>(id, Genome{});
+        (void)entities.add<Environment>(id, Environment{});
+        (void)entities.add<CreaturePhenotype>(
+            id, CreaturePhenotype{creature_phenotype()});
+        (void)entities.add<Vitality>(id, Vitality{});
+        (void)entities.add<Position>(id, Position{x, y});
+    };
+
+    // 物种 1：四对，彼此隔 10 格。
+    for (std::size_t k = 0; k < 4; ++k)
+    {
+        for (std::size_t m = 0; m < 2; ++m)
+        {
+            put(*first, static_cast<float>(k * 10) + static_cast<float>(m) + 0.5f,
+                0.5f);
+        }
+    }
+    // 物种 2：9×9 密块，x/y 各取 50..58。
+    for (float x = 50.0f; x < 59.0f; x += 1.0f)
+    {
+        for (float y = 50.0f; y < 59.0f; y += 1.0f)
+        {
+            put(*second, x + 0.5f, y + 0.5f);
+        }
+    }
+
+    // 季 0 建立亲代池并写下各自的 Σw²；季 1 才吃得到。
+    (void)world.run_season();
+    const auto report = world.run_season();
+
+    CHECK_EQ(report.species.size(), std::size_t{2});
+    CHECK_EQ(report.species[0].census, std::uint32_t{0});
+    CHECK(report.species[1].census > 0);
+}
+
+/// `mating_radius_cells` 变宽 → 亲代池变大 → Σw² 变小 → 近交惩罚变轻。
+///
+/// 这条守的是**配置耦合**，不是逻辑不变量：`inbreeding_load` 的阈值随它漂，
+/// 因为 `Σw²` 的基线就是 1/N，而 N 直接由邻域大小决定。改动邻域半径而不重调
+/// 系数，原先「0.5 与 0.7 之间干净分岔」的结论就不再成立。
+///
+/// 布局是 9×9 的密块、每格一个体，于是邻域里装下的亲代数恰好等于邻域格数：
+/// radius 1 是 3×3 = 9 个 ⇒ Σw² = 1/9；radius 4 是 9×9 = 81 个 ⇒ 1/81。
+/// load 取 4，惩罚分别是 clamp(1 − 4/9) = 0.556 与 clamp(1 − 4/81) = 0.951。
+///
+/// 比的是**存活率**而不是最终种群：存活率是 SurvivalInput::inbreeding 那一项
+/// 直接写进 Vitality 的读数，同一世界里所有个体共享同一个 F，因此它的差就是
+/// 惩罚的差，不掺种群动态的任何其它因素。季 0 还没有惩罚（近交系数当季才写下），
+/// 所以必须跑到季 1 才量得到。
+TEST(mating_radius_widens_the_pool_and_relieves_inbreeding)
+{
+    LocusTable table = neutral_table();
+    GeneticsConfig genetics = steady_genetics();
+    genetics.inbreeding_load = 4.0f;
+
+    EnvironmentConfig narrow_env = roomy_config();
+    narrow_env.mating_radius_cells = 1.0f;
+    EnvironmentConfig wide_env = narrow_env;
+    wide_env.mating_radius_cells = 4.0f;
+
+    gamev2::world::World narrow{table, genetics, narrow_env, 77};
+    gamev2::world::World wide{table, genetics, wide_env, 77};
+
+    const auto narrow_id = narrow.species().register_species(all_loci());
+    const auto wide_id = wide.species().register_species(all_loci());
+    CHECK(narrow_id.has_value());
+    CHECK(wide_id.has_value());
+
+    const auto fill = [](gamev2::world::World& w, const SpeciesId sid)
+    {
+        auto& entities = w.entities();
+        for (int x = 0; x < 9; ++x)
+        {
+            for (int y = 0; y < 9; ++y)
+            {
+                const auto id = entities.create();
+                (void)entities.add<SpeciesTag>(id, SpeciesTag{sid});
+                (void)entities.add<Genome>(id, Genome{});
+                (void)entities.add<Environment>(id, Environment{});
+                (void)entities.add<CreaturePhenotype>(
+                    id, CreaturePhenotype{creature_phenotype()});
+                (void)entities.add<Vitality>(id, Vitality{});
+                (void)entities.add<Position>(
+                    id, Position{static_cast<float>(x) + 0.5f,
+                                 static_cast<float>(y) + 0.5f});
+            }
+        }
+    };
+    fill(narrow, *narrow_id);
+    fill(wide, *wide_id);
+
+    (void)narrow.run_season();
+    (void)wide.run_season();
+    const auto narrow_alive = narrow.run_season().population;
+    const auto wide_alive = wide.run_season().population;
+
+    // 存活率是 SurvivalInput::inbreeding 那一项直接写进 Vitality 的读数。
+    const auto mean_survival = [](gamev2::world::World& w)
+    {
+        double sum = 0.0;
+        std::size_t n = 0;
+        w.entities().for_each_entity(
+            [&w, &sum, &n](const EntityId e)
+            {
+                sum += w.entities().get_if<Vitality>(e)->survival_rate;
+                ++n;
+            });
+        return n > 0 ? sum / static_cast<double>(n) : 0.0;
+    };
+
+    // 两个世界都得还有活人才量得到读数；全灭时上面的存活率是 0，断言仍分得开。
+    CHECK(narrow_alive > 0);
+    CHECK(wide_alive > 0);
+    CHECK(mean_survival(wide) > mean_survival(narrow));
+    CHECK(wide_alive > narrow_alive);
 }

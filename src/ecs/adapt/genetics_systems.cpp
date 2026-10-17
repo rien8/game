@@ -198,6 +198,10 @@ void BreedingSystem::execute(World& world, CommandBuffer& cmd)
     // 一个物种结算一次。settle 的 SeasonOutput 不回传子代出自哪个父池，
     // 多个池同处一次调用时子代认不回自己的物种，一次一种则归属由调用点
     // 天然确定。空间邻域分桶属于生态 spec。
+    //
+    // 近交系数按物种分开存，下标即 SpeciesId::value − 1。补齐到当前物种数，
+    // 免得下标越界；尚未结算过的物种保持 0（等于不压制）。
+    inbreeding_.resize(species_.species_count(), 0.0f);
     RandomStreams streams{root_seed_, season_index_};
     std::vector<std::uint8_t> survived(genomes.size(), 0);
     std::vector<StagedOffspring> born;
@@ -337,10 +341,19 @@ void BreedingSystem::execute(World& world, CommandBuffer& cmd)
         const std::span<const float> feedings_in =
             targets_ != nullptr ? std::span<const float>{pool_feedings}
                                 : std::span<const float>{};
+        // 本物种自己的近交系数。缺项按 0：那是「本季还没算过这个物种」，
+        // 漏压一次好过读越界。
+        const float inbreeding = s <= inbreeding_.size() ? inbreeding_[s - 1]
+                                                         : 0.0f;
         const auto out = settle(
             SeasonInput{pool_genomes, pool_phenotypes, pool_environments,
-                        pool_threats, pool_species, sites, false, feedings_in},
+                        pool_threats, pool_species, sites, false, feedings_in,
+                        inbreeding},
             table_, species_, config_, streams);
+        // **必须按下标写回，不能整份覆盖。** 逐物种结算的结果只属于那个物种，
+        // 而一季可能有多个物种各结算一次；整份覆盖会让排在后面的物种抹掉前面
+        // 的读数，下一季所有物种于是都吃最后一个物种的近交系数。
+        inbreeding_[s - 1] = out.offspring_inbreeding;
 
         for (std::size_t i = 0; i < members.size(); ++i)
         {

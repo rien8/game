@@ -27,15 +27,15 @@ new 四个 system、逐个 `scheduler.add`、调用 `plan()`、每季
 
 - 一季的编排只有一处实现，调用方与测试共用
 - 季末报告的口径与世界的真实存续状态一致
-- 不改动三个已有模块的语义，只在 `ecs/adapt` 增加两个推进方法
+- 不改动三个已有模块的语义，只在 `ecs/adapt` 增加推进方法与 `MovementSystem`
 - 批量推进与逐季推进逐位等价，使世界可被分段推进
 
 ### 1.2 非目标
 
 本轮明确不做：
 
-- 初始种群生成（调用方经 `entities()` 自行放入）
-- 个体在格内的移动（行为系统的活，环境设计文档 §1.2 已排除）
+- 初始种群生成（调用方经 `entities()` 自行放入；`src/sim/main.cpp` 是一份
+  完整的参考实现）
 - 存档与序列化
 - 帧循环、tick 速率、渲染（`run_season` 是唯一推进单位，没有「帧」）
 - 气候场与资源场的写入入口（只读暴露）
@@ -120,6 +120,7 @@ void BreedingSystem::advance_season(std::uint32_t season_index) noexcept
 ```cpp
 SeasonReport World::run_season()
 {
+    movement_.advance_season(season_);
     environment_.advance_season(season_);
     breeding_.advance_season(season_);
 
@@ -139,15 +140,17 @@ SeasonReport World::run_season()
 
 四步的顺序没有一条是靠调度器保证的，全部是本模块的显式序列：
 
-1. **先推进季号，再跑调度器。** 两处的 `season_index_` 都在 `execute` 开头
-   消费一次（`climate().advance(season_index_)` 与
+1. **先推进季号，再跑调度器。** 三处的 `season_index_` 都在 `execute` 开头
+   消费一次（移动的随机流、`climate().advance(season_index_)` 与
    `RandomStreams{root_seed_, season_index_}`），因此推进必须整体发生在
    `scheduler_.run` 之前。中途改会让同一批 system 看到不同的季。
-2. **`scheduler_.run` 内部。** 三个 system 的相对先后由各自已声明的
-   `order` 与访问集决定，本模块不干预。换代（死亡销毁与子代创建）也在此刻
-   生效：`Scheduler::run` 把各 system 的缓冲并进 `cmd` 之后就在末尾
-   `cmd.flush(world)`（`src/ecs/scheduler.cpp:144`）。世界在这一步之后才
-   处于「本季已结算」的状态。
+2. **`scheduler_.run` 内部。** 四个 system 的相对先后由各自已声明的
+   `order` 与访问集决定，本模块不干预；排出来的批次是
+   `{Movement, Aging}` / `{Environment}` / `{Breeding}`，第一批并发派发。
+   换代（死亡销毁与子代创建）也在此刻生效：`Scheduler::run` 把各 system 的
+   缓冲并进 `cmd` 之后就在末尾 `cmd.flush(world)`
+   （`src/ecs/scheduler.cpp:144`）。世界在这一步之后才处于「本季已结算」的
+   状态。`PopulationStatisticsSystem` 仍刻意不在其中（决策 3）。
 3. **不要再加一次 `cmd_.flush`。** 它不是无害的重复：`CommandBuffer::flush`
    末尾有 `commands_.clear()`（`src/ecs/command_buffer.cpp:24`），第二次
    flush 面对的是空缓冲、纯属空转。多一行 flush，「统计必须排在换代之后」
@@ -322,8 +325,10 @@ private:
 
 ## 7. 测试策略
 
-`tests/test_world_module.cpp`，共 11 条。末列「实际鉴别力」不是客套，是逐条
-写明这条测试今天能抓住什么、抓不住什么——它对着下面「逐条说明要害」与 §8。
+`tests/test_world_module.cpp`，共 10 条（原先 11 条；
+`season_number_reaches_the_breeding_random_stream` 因移动接入而不可构造，已删，
+理由见 §8）。末列「实际鉴别力」不是客套，是逐条写明这条测试今天能抓住什么、
+抓不住什么——它对着下面「逐条说明要害」与 §8。
 
 | # | 测试 | 验证点 | 实际鉴别力 |
 |---|------|--------|-----------|
@@ -335,8 +340,7 @@ private:
 | 6 | `season_index_actually_moves_the_world` | 季号真的进了气候场：跨图采 8 格，季 0 与季 1 的气温至少有一格不同 | 中高。对「振幅或相位整体不变」这类真失效敏感；对舍入不敏感（本测试比较的两季上季节项 4.24 °C 比 ulp 9.5e-7 大六个量级） |
 | 7 | `run_seasons_equals_repeated_run_season` | `run_seasons(5)` 的五个报告与五次 `run_season()` 逐项相同 | 只验等价性。两个世界来自同一个二进制，任何变异同时作用在两边、轨迹一起变，原理上免疫「两边同时坏」 |
 | 8 | `equal_seeds_produce_identical_seasons` | 同 `root_seed` 的两个世界跑四季，逐位相同 | 与第 7 条同类：同一种推进方式在两个实例上的复核，同样不免疫「两侧同时坏」 |
-| 9 | `season_number_reaches_the_breeding_random_stream` | 同一批初始个体在季 0 与季 1 各结算一季，子代基因组逐位不同 | **高。** 站点结构、摄食存量、气候三处非季号差异已在该测试注释里逐条掐掉，`CHECK_EQ(子代数)` 钉住站点结构相同。删掉 `breeding_.advance_season` 即变红 |
-| 9 | `population_never_exceeds_total_capacity` | 跨模块不变量：铺 256 格（步长 16）、每格放 `floor(cap × 0.85)` 个体，`population ≤ Σcapacity + kCells/2 + 1`，连跑三季逐季断言 | **高。** 上限只对这 256 格求和。铺得不够满时改由 `parent_ceiling` 决定出生预算，断言恒真——把它误当成 capacity 的 mutant 则必然越界，实测峰值 6374 对上限 6506 |
+| 9 | `population_never_exceeds_the_capacity_left_below_it` | 跨模块不变量：铺满整张图、每格放 `floor(cap × 0.85)` 个体，逐季断言 `population ≤ 期初 + Σheadroom + kCellCount/2 + 1` | **高。** 上界逐格算，对格间分布不作假设——个体被随机游走推进超载格时照样咬得住（全局界 `Σcapacity` 在有移动时不成立，见 §8）。铺得不够满时改由 `parent_ceiling` 决定出生预算，断言恒真——把它误当成 capacity 的 mutant 则必然越界 |
 | 10 | `creatures_without_position_never_die_and_never_breed` | 幽灵个体的数量在三季内恒定，且两侧 `population` 的差恰好是幽灵数 | **高。** 差分把「幽灵自己那 5 条」与「它们对世界的影响」分开；给幽灵补上 `Position` 的 mutant 三季全红 |
 
 逐条说明要害：
@@ -345,15 +349,17 @@ private:
   它测的是「统计落在正确的时刻」，而这件事一旦回归，报告里的
   `population` 会变成一个静默错位的数字：它含本季将死者、不含新生代，
   不崩不报错。
-- **测试 10 借用 `test_environment_systems.cpp` 的算法**（`capacity_base = 40`，
+- **测试 9 借用 `test_environment_systems.cpp` 的算法**（`capacity_base = 40`，
   逐格读真实容量再放 `floor(cap × 0.85)` 个体），不重新设计布点。它守的是
   「世界这个编排层没有把承载力封顶弄坏」。取值不能是 `floor(cap / 2)`——
   那样单格在场数才到容量的一半，`build_sites` 取 `eco_ceiling` 与
   `parent_ceiling = lround(在场数 × offspring_scale)` 的较小者，接管的是
   后者，capacity 这条约束根本没被触到，断言恒真。
-- **测试 11 守的是 §5 契约表第二行。** 那个行为是既有的、正确的，但它
+- **测试 10 守的是 §5 契约表第二行。** 那个行为是既有的、正确的，但它
   足够反直觉（不死也不繁殖），而 `entities()` 是本模块新开的、调用方
-  一定会用到的入口。
+  一定会用到的入口。移动接入之后它仍然成立：缺 `Position` 的实体在
+  `MovementSystem` 的收集判据里同样被跳过，与另两个 system 对「谁参与世界
+  运转」给出同一个答案。
 
 **刻意不写的测试**：不为「`EnvironmentSystem` 必须先于 `BreedingSystem`」
 单写一条。决定执行次序的是 `System::order`（`EnvironmentSystem` 为 0、
@@ -374,39 +380,66 @@ ecs）。ASan 的 `foreach` 遍历的是具名列表，必须把 `WORLD_SOURCES`
 
 ## 8. 未决事项
 
-- **「季号真的流进了繁殖随机流」这条在 World 层没有任何测试守卫。**
-  `run_seasons_equals_repeated_run_season` 比的是同一二进制里的两个世界，
-  任何变异都同时作用在两边、轨迹一起变，逐位相等自然成立——**它验证等价性，
-  原理上免疫「两边同时坏」**。其余测试各管一段（季号编号、气候、单季 census），
-  都够不着繁殖随机流。已实测确认：删掉 `World::run_season` 里
-  `breeding_.advance_season(season_);` 这一行，四个套件仍然全绿。
-  机制本身在 adapt 层是覆盖的
+- **「季号真的流进了繁殖随机流」这条在 World 层已从「没有守卫」变成
+  「守卫不可构造」，因此那条测试被删了。**
+  原先它守的是：把同一批初始个体放进两个处于不同季号的世界各结算一季，
+  逐条掐掉站点结构、摄食存量、气候三处差异，剩下的自由变量就只有
+  `RandomStreams{root_seed_, season_index_}`。删掉 `World::run_season` 里的
+  `breeding_.advance_season(season_);` 会让两边都退回季 0 的流，测试立刻变红。
+  **`MovementSystem` 接入之后这条路断了，而且绕不过去**：季号现在同时决定
+  移动的随机流（`mix_seed(mix_seed(root_seed, season), kMovementPurpose)`）与
+  繁殖的随机流，于是季 0 与季 1 的同一批个体落在不同坐标 → 每格在场数不同 →
+  `build_sites` 的站点结构与每格 `progeny` 不同 → `make_offspring` 调用次数
+  不同。子代基因组的差异于是有了「站点结构不同」这个与季号无关的解释，
+  而那正是这条测试当初逐条掐掉的第一项。实测两季的子代数直接不相等。
+  要恢复它就得造出两个**移动流相同、繁殖流不同**的世界，而 `run_season` 里
+  两者来自同一个 `season_` 成员，任何 World 层的调用序列都做不到。
+  **代价要说清楚：`breeding_.advance_season(season_)` 这一行现在完全没有测试
+  守卫。** 机制本身在 adapt 层仍被覆盖
   （`test_genetics_systems.cpp::breeding_advance_season_replaces_the_season_index`），
-  **未被覆盖的是 World 层的调用点**。补法有两条，都不属于本轮：给存档往返
-  测试（同一份存档按不同季号恢复，结果应不同），或在 adapt 层暴露
-  `RandomStreams` 的观测口。**明确否决了「钉一个黄金值」**——那会把一个尚未被
-  任何测试钉住的行为变成一碰就碎的快照，是 §9 那个 bug 的另一种形式。
-- **这个装配下并行永远不会发生，`worker_count` 是结构性惰性的。**
-  `World` 排出的 3 个批次全是单 system 批：`EnvironmentSystem` 带
-  `mutates_structure` 独占一批；`AgingSystem` 与 `BreedingSystem` 同写
-  `Vitality` 被强制分层；`PopulationStatisticsSystem` 根本不在调度器里
-  （决策 3 要求它的 census 落在 flush 之后）。因此线程池没有机会并行派发
-  任何东西。后果：`worker_count_does_not_change_the_result` 原本是个
-  **恒绿**的用例——它比较两个不同 worker 数的世界，而并行压根不发生，两边
-  必然逐位相同。这条已删除，取而代之的是 ECS 侧
-  `adapt_systems_plan_into_three_singleton_batches`：它直接断言同一个三 system
-  装配排成 3 批，因而**可能变红**（实测把 `AgingSystem::WriteSet` 清空使其与
-  `BreedingSystem` 不再冲突，该断言即失败）。值得守的是「并行不发生」这个结构
-  前提，而不是一个恒真的运行结果。
-- **守卫「删掉 `breeding_.advance_season`」的观测量是子代基因组，不是
-  `heterozygosity`。** 后者是本套件里最顺手的统计量，但对这条约束没有鉴别力：
-  测试 7 与测试 8 比的都是「两条轨迹是否逐位相同」，而任何变异都同时作用在
-  两边、轨迹一起变，于是两边照样相同——实测删掉该行后这两条仍然全绿。
-  真正能把季号变成唯一自由变量的是测试 9 的形状：两个世界都是**未变异**的，
-  只是同一批初始个体分别落在季 0 与季 1 结算，于是差异只能来自 `season_index_`。
-  顺带记一笔 `heterozygosity` 在本套件里剩下的正当职责：它只承担「同一条轨迹的
-  逐位复核」。任何形如「它每季都该变」、或拿它当某种漂移探针的断言，都不能
+  没有覆盖的是 World 层这个调用点。补法有两条，都不便宜：让 `World` 暴露可控
+  的季号注入点（那是给测试开的生产代码口子），或给存档往返测试。**明确否决了
+  「钉一个黄金值」**——那会把一个尚未被任何测试钉住的行为变成一碰就碎的快照。
+  顺带记一笔 `heterozygosity` 在本套件里剩下的正当职责：它只承担「同一条轨迹
+  的逐位复核」。任何形如「它每季都该变」、或拿它当某种漂移探针的断言，都不能
   由它支撑。
+- **「并行永不发生、`worker_count` 结构性惰性」这条已经作废。**
+  `MovementSystem` 接入前，`World` 排出的 3 个批次全是单 system 批，
+  `Scheduler::run` 因此从不向线程池派发；`worker_count_does_not_change_the_result`
+  正因如此是个恒绿用例，已删除。
+  现在四个 system 排成 `{Movement, Aging}` / `{Environment}` / `{Breeding}`
+  三批——**四个 system 三批**这件事本身就说明有一批装着两个，于是并行第一次
+  真的发生，`worker_count` 从此有意义。
+  第一批能并排的依据是两者访问集确实不相交：`MovementSystem` 写 `Position`、
+  只读 `CreaturePhenotype`，`AgingSystem` 读 `CreaturePhenotype`、写
+  `Vitality`；两者都只在 `execute` 里就地改写、不做结构变更，而
+  `World::get_if` 全程只读（`slot_of` / `find` / `column_at` / `chunk_data`
+  都不分配）。
+  守卫换成了两条：`world_assembly_plans_into_three_batches_with_one_parallel_pair`
+  断言四 system 排成三批，而
+  `movement_and_aging_do_not_conflict_so_a_batch_can_run_them_in_parallel`
+  直接断言这两个 system 排成一批——后者才是可证伪的那条（实测给
+  `AgingSystem::ReadSet` 加上 `const Position`，两条一起变红）。
+  **`BreedingSystem::ReadSet` 补上 `const Position` 是这条的前提**：它本来就在
+  `execute` 里 `get_if<Position>` 却没声明，于是「移动写、繁殖读」这条冲突表达
+  不出去，两者会被排进同一批并发执行，而 `System::order` 只在「本来就会冲突」
+  时才等于批次先后（见 `system.hpp` 的 `\warning`）。
+- **承载力的全局界不成立，能断言的只有逐格那条。**
+  `population_never_exceeds_total_capacity` 原本断言「季末规模 ≤ Σcapacity
+  + O(格数)」，靠的是那 256 格封闭且初始均匀。移动打破封闭性之后它就不成立，
+  而且成立不了是有原因的：`headroom` 逐格取 `max(0, capacity − occupants)`，
+  于是**超载格贡献 0，而它多占的那些个体并不会去扣减别的格的余量**。个体被
+  随机游走推进超载格、余量却留在空着的格里时，Σheadroom 就能显著超过
+  `Σcapacity − 种群`，总规模因此越过 Σcapacity。实测首季 Σheadroom = 27294
+  对 `Σcapacity − 种群` = 17586，季末 112778 对 Σcapacity = 103480。
+  这不是 `build_sites` 违约——每一格都守住了自己的 headroom——而是「个体不能被
+  强制迁走」这条设定在容量层面的后果。
+  该测试已改名为 `population_never_exceeds_the_capacity_left_below_it`，
+  断言换成真正成立的那一条：`季末规模 ≤ 季初规模 + Σheadroom + O(格数)`，
+  其中 `headroom` 由测试侧的 `total_headroom` 按 `EnvironmentSystem` 的收集判据
+  逐字重算。观察时机是安全的：移动在季初跑完，子代落在亲代格内
+  （`place_in` 的抖动取 [0, 0.9)，加在整数格坐标上不跨格），因此 flush 之后
+  看到的分布正是下一季的余量。
 - **`EnvironmentWorld` 补了 `climate()` / `resources()` 的 const 重载。**
   本模块的只读访问器 `World::environment()` 返回 `const EnvironmentWorld&`，
   而原访问器只有非常量版本，导致测试里不得不 `const_cast`——那会把「这个访问器
@@ -435,9 +468,22 @@ ecs）。ASan 的 `foreach` 遍历的是具名列表，必须把 `WORLD_SOURCES`
   豁免——往一个已经不存在的实体上挂组件一定是 bug。
   命令合并同时改成按**批次**顺序（原为注册顺序），使命令序列与
   `System::order` 决定的执行次序一致。
-- 个体移动接入后，`Position` 每季的更新时机：必须在 `EnvironmentSystem`
-  之前（摄食要用当季坐标），且在 `BreedingSystem` 之前（空间分桶要用
-  当季坐标）。届时多半要再加一个 system，届时它的 `order` 排在 0。
+- **~~一个空掉的格永远不会再被填上，地图因此单调失血~~ ——已由
+  `MovementSystem` 修掉，这条留作记录。**
+  它是 `sim` 可执行程序（`src/sim/main.cpp`）在移动接入**之前**跑 300 季实测
+  出来的：种群从 6979 缓慢滑到 2014，每季出生与死亡基本拉平，滑的不是收支
+  而是**可用格数**。`build_sites` 的出生预算取
+  `min(eco_ceiling, parent_ceiling)`，而
+  `parent_ceiling = lround(here × offspring_scale)`（`src/environment/sites.cpp`）。
+  没有亲代就没有站点：`here = 0` 时两项都产出 0，而站点表只由在格个体生成，
+  于是一个格一旦清空就永远空着。个体不移动时，地图上没有任何机制能把邻格的
+  过剩迁过来，格数只减不增。
+  `MovementSystem` 每季把个体按 `Speed` 朝随机方向推进一步，空格因此能被走进
+  来的个体重新殖民。实测：同一份 `sim` 配置，移动前 200 季从 6979 滑到 2740
+  且仍在下滑；移动后升到 9858 并从第 50 季起稳定持平在 Σcapacity ≈ 9984
+  附近，出生 ≈ 死亡 ≈ 1900/季。`H_obs` 也从一路掉到 0.34 变成稳在 0.44。
+  注意修掉的只是「格数流失」：**总规模越过 Σcapacity 仍是可能的**，那是另一条
+  性质，见上面「承载力的全局界不成立」。
 - `threats` 的来源：捕食威胁等级仍由调用方给，环境层不产生；
   `BreedingSystem` 目前恒给 0.0f
 - 存档需求出现时，`ClimateField` / `ResourceField` / `LocusTable` /

@@ -1,6 +1,7 @@
 #include "gamev2/ecs/adapt/components.hpp"
 #include "gamev2/ecs/adapt/environment_systems.hpp"
 #include "gamev2/ecs/adapt/genetics_systems.hpp"
+#include "gamev2/ecs/adapt/movement_system.hpp"
 #include "gamev2/ecs/command_buffer.hpp"
 #include "gamev2/ecs/scheduler.hpp"
 #include "gamev2/ecs/world.hpp"
@@ -27,6 +28,7 @@ using gamev2::ecs::adapt::CreaturePhenotype;
 using gamev2::ecs::adapt::EnvironmentSystem;
 using gamev2::ecs::adapt::EnvironmentWorld;
 using gamev2::ecs::adapt::Feeding;
+using gamev2::ecs::adapt::MovementSystem;
 using gamev2::ecs::adapt::PopulationStatisticsSystem;
 using gamev2::ecs::adapt::Position;
 using gamev2::ecs::adapt::SpeciesTag;
@@ -482,30 +484,26 @@ TEST(adapt_systems_declare_their_execution_order)
     // 编译期钉住跨 system 的先后声明。批次归属无法从公开接口观测
     // （Scheduler 只暴露 batch_count，不暴露哪个 system 在哪一批），
     // 因此这里至少保证声明本身没被删。「order 真的驱动分层」由
-    // test_scheduler.cpp 的执行序测试覆盖，「三个 adapt system 排成三批」
-    // 由下面那条覆盖。
+    // test_scheduler.cpp 的执行序测试覆盖，批次条数由下面两条覆盖。
     static_assert(AgingSystem::order < BreedingSystem::order);
     static_assert(EnvironmentSystem::order < BreedingSystem::order);
+    // 移动必须先于摄食：EnvironmentSystem 按当季坐标分格算摄食，
+    // 而 MovementSystem 每季改写 Position。
+    static_assert(MovementSystem::order < EnvironmentSystem::order);
     static_assert(EnvironmentSystem::mutates_structure);
 }
 
-TEST(adapt_systems_plan_into_three_singleton_batches)
+TEST(environment_aging_and_breeding_plan_into_three_singleton_batches)
 {
-    // 世界模块装配进调度器的正是这三个 system（PopulationStatisticsSystem
-    // 刻意不进，见 doc/2026-10-16-world-design.md 第 2 节），而它们必须排成
-    // 三个**单 system** 批：
+    // 这三个 system 排成三个**单 system** 批：
     //
     // - EnvironmentSystem 带 mutates_structure，因此独占一批；
     // - AgingSystem 与 BreedingSystem 同写 Vitality，WriteSet 强制分层；
     // - BreedingSystem 的 order = 1 让它落进更晚的那一批。
     //
-    // 「单 system」这一半才是关键：Scheduler::run 只在批内多于一个 system 时
-    // 才向线程池派发，所以三个单 system 批意味着并行在这个装配下永不发生。
-    //
-    // 这条断言替掉了原先挂在 world_tests 上的 worker_count 用例。那条用例
-    // 比较两个不同 worker 数的世界各跑三季、断言结果一致，但正因为并行在这
-    // 个装配下永不发生，它恒绿、没有任何鉴别力。值得守的是「并行不发生」这个
-    // 结构前提，而它只能从 Scheduler 的公开接口观测——放在这里才可能变红。
+    // **这条现在只描述这三个 system 的子装配。** 世界模块装进调度器的是
+    // 四个（含 MovementSystem），因此「世界装配下并行永不发生」这句话已经
+    // 作废——世界装配的那条见 world_assembly_plans_into_three_batches。
     auto species = one_species();
     auto table = neutral_table();
     auto config = default_genetics();
@@ -522,6 +520,75 @@ TEST(adapt_systems_plan_into_three_singleton_batches)
     scheduler.plan();
 
     CHECK_EQ(scheduler.batch_count(), std::size_t{3});
+}
+
+TEST(world_assembly_plans_into_three_batches_with_one_parallel_pair)
+{
+    // 世界模块装配进调度器的四个 system（PopulationStatisticsSystem 刻意不进，
+    // 见 doc/2026-10-16-world-design.md 第 2 节），按 order 稳定排序后是
+    // Movement(-1) → Environment(0) → Aging(0) → Breeding(1)，贪心分层得到：
+    //
+    //     batch 0 = {MovementSystem, AgingSystem}
+    //     batch 1 = {EnvironmentSystem}
+    //     batch 2 = {BreedingSystem}
+    //
+    // **四个 system 排成三批，这件事本身就是断言。** Scheduler 只暴露
+    // batch_count 而不暴露每批的成员，因此「3 批」与「4 个 system」合起来
+    // 唯一地说明有一批装着两个 system——而 Scheduler::run 只在批内多于一个
+    // system 时才向线程池派发，于是并行在这个装配下**确实会发生**。
+    //
+    // 这条断言替掉了它此前那个孪生的 worker_count 用例。那条用例比较两个不同
+    // worker 数的世界各跑三季、断言结果一致，在并行压根不发生的旧装配下它
+    // 恒绿、没有任何鉴别力。值得守的是「并行会发生」这个结构前提，而它只能
+    // 从 Scheduler 的公开接口观测。
+    //
+    // 第一批能并排是因为两者的访问集确实不相交：MovementSystem 写 Position
+    // 且只读 CreaturePhenotype，AgingSystem 读 CreaturePhenotype、写 Vitality，
+    // 两者都只在 execute 里就地改写、不做结构变更，而 World::get_if 全程只读
+    // （slot_of / find / column_at / chunk_data 都不分配）。同批并发因此是安全的，
+    // 这条断言也就是那份论证的可执行形式。
+    auto species = one_species();
+    auto table = neutral_table();
+    auto config = default_genetics();
+
+    EnvironmentWorld env{51, EnvironmentConfig{}};
+    MovementSystem movement{51, 0};
+    EnvironmentSystem environment{env, species, 0};
+    AgingSystem aging;
+    BreedingSystem breeding{table, species, config, 51, 0};
+
+    Scheduler scheduler{2};
+    scheduler.add(movement);
+    scheduler.add(environment);
+    scheduler.add(aging);
+    scheduler.add(breeding);
+    scheduler.plan();
+
+    CHECK_EQ(scheduler.batch_count(), std::size_t{3});
+}
+
+TEST(movement_and_aging_do_not_conflict_so_a_batch_can_run_them_in_parallel)
+{
+    // 上一条断言「四个 system 三批」，但 Scheduler 只暴露 batch_count，
+    // 不暴露每批的成员，因此那条断言本身证明不了并行真的发生——把
+    // MovementSystem 从装配里拿掉，它照样绿。这条直接钉住它的前提：
+    // MovementSystem 与 AgingSystem 的访问集不相交，两者可以被排进同一批。
+    //
+    // 这是 World 层唯一的并发点，也是唯一一处「两个 system 同时遍历同一张
+    // 槽位表」的地方，因此它安全与否值得单独一条而不是 piggyback 在
+    // 批次条数上。安全性的根据：两者都只在 execute 里就地改写、不做任何
+    // 结构变更，而 World::get_if 全程只读——slot_of 读槽位表、find 只扫
+    // key_、column_at 直接返回 columns_[i]、chunk_data 返回
+    // chunks_[chunk].data()，四步都不分配也不改结构。
+    MovementSystem movement{51, 0};
+    AgingSystem aging;
+
+    Scheduler scheduler{2};
+    scheduler.add(movement);
+    scheduler.add(aging);
+    scheduler.plan();
+
+    CHECK_EQ(scheduler.batch_count(), std::size_t{1});
 }
 
 TEST(environment_and_aging_systems_are_separated_by_the_scheduler)

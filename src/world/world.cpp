@@ -13,6 +13,7 @@ World::World(const gamev2::genetics::LocusTable& table,
       cmd_{},
       scheduler_{worker_count},
       env_{root_seed, environment_config},
+      movement_{root_seed, 0},
       environment_{env_, species_, 0},
       aging_{},
       // table 不落成成员：构造函数的 const 引用形参绑的就是调用方的对象，
@@ -23,8 +24,9 @@ World::World(const gamev2::genetics::LocusTable& table,
       statistics_{species_}
 {
     // 注册顺序不参与调度顺序：plan() 先按 System::order 稳定排序再贪心分层
-    // （EnvironmentSystem 与 BreedingSystem 各带 order 静态常量）。这里只
-    // 决定同 order 的 system 谁先占住靠前的批次。
+    // （MovementSystem 为 -1，EnvironmentSystem 与 AgingSystem 为 0，
+    // BreedingSystem 为 1）。这里只决定同 order 的 system 谁先占住靠前的批次。
+    scheduler_.add(movement_);
     scheduler_.add(environment_);
     scheduler_.add(aging_);
     scheduler_.add(breeding_);
@@ -38,8 +40,9 @@ World::World(const gamev2::genetics::LocusTable& table,
 
 SeasonReport World::run_season()
 {
-    // 两处 season_index_ 都在各自 execute 的开头消费一次，因此推进必须
+    // 三处 season_index_ 都在各自 execute 的开头消费一次，因此推进必须
     // 整体发生在 scheduler_.run 之前。
+    movement_.advance_season(season_);
     environment_.advance_season(season_);
     breeding_.advance_season(season_);
 
