@@ -56,9 +56,9 @@ LocusTable neutral_table()
         //
         // 取一个小的非零值：突变稀疏，但不归零。删掉 World::run_season 里的
         // breeding_.advance_season(season_); 会**改变行为**——第 1 季起繁殖
-        // 抽样退回季 0 的种子。真正分叉的观测量是 heterozygosity：census 与
-        // population 在两种构建下逐季相同，而本套件所有测试仍全绿。那是
-        // 覆盖缺口，已记在设计文档 §8。
+        // 抽样退回季 0 的种子。真正分叉的观测量是子代基因组（census 与
+        // population 在两种构建下逐季相同），由
+        // season_number_reaches_the_breeding_random_stream 守住。
         t.loci[i].switch_rate = 0.05f;
         t.loci[i].alleles[1].dom_rank = 1;
     }
@@ -170,8 +170,8 @@ struct Fixture
     SpeciesId sid{};
     gamev2::world::World world;
 
-    explicit Fixture(const std::size_t workers = 1)
-        : world{table, genetics, config, 31, workers}
+    Fixture()
+        : world{table, genetics, config, 31}
     {
         // register_species 返回 std::expected 而非指针：不查就吞掉失败，
         // 而这条路径是全部测试造世界的唯一入口。
@@ -485,50 +485,6 @@ TEST(equal_seeds_produce_identical_seasons)
     }
 }
 
-/// worker 数不改变结果。
-///
-/// worker_count 只流进 Scheduler 自己的线程池（src/world/world.cpp 的
-/// `scheduler_{worker_count}`）；世界里的实体遍历一律走
-/// World::for_each_entity，而它按 slots_ 的下标升序在调用线程上单线程推进
-/// （include/gamev2/ecs/world.hpp），没有任何一处把工作按线程数切分。
-///
-/// 但真正让本测试今天恒绿的不是上面这两条，而是**并行在这个装配下永不发生**。
-/// Scheduler::run 只在批内多于一个 system 时才向线程池派发
-/// （src/ecs/scheduler.cpp），而 World 排不出这样的批：EnvironmentSystem 带
-/// mutates_structure 而独占一批（environment_systems.hpp），AgingSystem 与
-/// BreedingSystem 同写 Vitality 而被 WriteSet 强制分层（genetics_systems.hpp），
-/// PopulationStatisticsSystem 则根本不在调度器里（world.cpp）。结果是三个单
-/// system 批，已用 Scheduler::batch_count() 实测确认为 3。
-///
-/// 因此 worker_count 在本模块里是**结构性**惰性的，本测试守的是一条**尚未被
-/// 违反过**的性质：它今天的绿不代表「跑过多线程也一致」，只代表「压根没跑过
-/// 多线程」。留着它是给未来的护栏——一旦有人改访问集让两个 system 同批并行，
-/// 惰性即失效，那时这条测试才第一次真正开始起作用。
-TEST(worker_count_does_not_change_the_result)
-{
-    Fixture single{1};
-    Fixture parallel{4};
-    single.seed(32);
-    parallel.seed(32);
-
-    const auto a = single.world.run_seasons(3);
-    const auto b = parallel.world.run_seasons(3);
-
-    CHECK_EQ(a.size(), b.size());
-    for (std::size_t i = 0; i < a.size() && i < b.size(); ++i)
-    {
-        CHECK_EQ(a[i].population, b[i].population);
-        // 同上一条：这条 CHECK 是防空转，不是第三条物理论证。
-        CHECK_EQ(a[i].species.size(), b[i].species.size());
-        for (std::size_t s = 0;
-             s < a[i].species.size() && s < b[i].species.size(); ++s)
-        {
-            CHECK_EQ(a[i].species[s].heterozygosity,
-                     b[i].species[s].heterozygosity);
-        }
-    }
-}
-
 /// 跑三季，种群规模不得超过所选各格承载力之和。
 ///
 /// 被钉住的是 build_sites 的出生预算公式：它取逐格 `max(0, capacity -
@@ -591,6 +547,80 @@ TEST(population_never_exceeds_total_capacity)
         const auto report = f.world.run_season();
         CHECK(report.population <= limit);
     }
+}
+
+/// 季号必须真的进入繁殖随机流，而不只是气候场。
+///
+/// 做法是把同一批初始个体放进两个处于不同季号的世界各结算一季，比对两边
+/// 的子代基因组：
+///
+/// - A 先 seed 再跑一季，初始个体在季 0 结算。
+/// - B 先在空世界上跑一季（无实体、无站点、不消耗任何随机流，只把季号推到
+///   1），再 seed 逐位相同的个体，于是它们在季 1 结算。
+///
+/// 结算时刻两边仍有三处差异，必须逐条掐掉，否则「基因组不同」就分不清是季号
+/// 还是别的东西在起作用：
+///
+/// - **站点结构**。build_sites 只读 occupants 与 capacity，而 capacity 在
+///   EnvironmentWorld 构造时按 base_fertility 定死、不随季节变（src/environment/
+///   resource.cpp），occupants 只由个体位置决定。两边的布局逐位相同 ⇒ 格集合
+///   与每格 progeny 全同 ⇒ make_offspring 的调用次数全同。下面的 CHECK_EQ 顺带
+///   把这层前提钉住：子代数相等正是「站点结构相同」的外部证据。
+/// - **摄食存量**。两边的 stock 历史不同（A 的季 0 用的是初始存量，B 的季 1
+///   之前空跑了一季只 regrow 不消耗），于是 feeding 不同。但 Metabolism = 0
+///   让 burn <= 0，energy_survival 直接返回 1（src/genetics/survival.cpp），
+///   feeding 进不了存活率，也就不影响谁活下来、谁进父池。
+/// - **气候**。两边的季节相位不同，出生格的 Environment 快照因此不同。它只
+///   决定子代身上那个组件与子代自己的 thermal 存活，不参与 make_offspring
+///   的抽签。
+///
+/// 剩下唯一能改变子代基因组的就只有 RandomStreams{root_seed_, season_index_}。
+/// 删掉 World::run_season 里的 breeding_.advance_season(season_) 之后两边都
+/// 退回季 0 的流，子代基因组逐位相同，本测试立刻变红。
+TEST(season_number_reaches_the_breeding_random_stream)
+{
+    Fixture at_zero;
+    Fixture at_one;
+    at_zero.seed(16);
+    (void)at_one.world.run_seasons(1);
+    at_one.seed(16);
+
+    (void)at_zero.world.run_seasons(1);
+    (void)at_one.world.run_seasons(1);
+
+    // age_seasons 是亲子代的分割线，与 report_counts_the_dead_as_gone 同一把
+    // 尺子：亲代被 AgingSystem 递增过，子代挂的是默认构造的 Vitality。
+    const auto newborn_genomes = [](Fixture& f)
+    {
+        std::vector<Genome> genomes;
+        f.world.entities().for_each_entity(
+            [&f, &genomes](const EntityId e)
+            {
+                if (f.world.entities().get_if<Vitality>(e)->age_seasons == 0)
+                {
+                    genomes.push_back(*f.world.entities().get_if<Genome>(e));
+                }
+            });
+        return genomes;
+    };
+
+    const auto zero = newborn_genomes(at_zero);
+    const auto one = newborn_genomes(at_one);
+
+    // 夹具确实生出了子代，否则「两边逐位不同」会因为两边都是空而恒假成立。
+    CHECK(!zero.empty());
+    CHECK(!one.empty());
+    CHECK_EQ(zero.size(), one.size());
+
+    bool differs = false;
+    for (std::size_t i = 0; i < zero.size() && i < one.size(); ++i)
+    {
+        if (!(zero[i] == one[i]))
+        {
+            differs = true;
+        }
+    }
+    CHECK(differs);
 }
 
 /// 缺 Position 的幽灵个体既不被环境杀死，也永远不进父池——设计文档 §5

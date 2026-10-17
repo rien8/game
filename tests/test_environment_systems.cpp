@@ -480,11 +480,48 @@ TEST(environment_and_breeding_systems_are_separated_by_the_scheduler)
 TEST(adapt_systems_declare_their_execution_order)
 {
     // 编译期钉住跨 system 的先后声明。批次归属无法从公开接口观测
-    // （Scheduler 只暴露 batch_count），因此这里至少保证声明本身没被删。
-    // 「order 真的驱动分层」由 test_scheduler.cpp 的执行序测试覆盖。
+    // （Scheduler 只暴露 batch_count，不暴露哪个 system 在哪一批），
+    // 因此这里至少保证声明本身没被删。「order 真的驱动分层」由
+    // test_scheduler.cpp 的执行序测试覆盖，「三个 adapt system 排成三批」
+    // 由下面那条覆盖。
     static_assert(AgingSystem::order < BreedingSystem::order);
     static_assert(EnvironmentSystem::order < BreedingSystem::order);
     static_assert(EnvironmentSystem::mutates_structure);
+}
+
+TEST(adapt_systems_plan_into_three_singleton_batches)
+{
+    // 世界模块装配进调度器的正是这三个 system（PopulationStatisticsSystem
+    // 刻意不进，见 doc/2026-10-16-world-design.md 第 2 节），而它们必须排成
+    // 三个**单 system** 批：
+    //
+    // - EnvironmentSystem 带 mutates_structure，因此独占一批；
+    // - AgingSystem 与 BreedingSystem 同写 Vitality，WriteSet 强制分层；
+    // - BreedingSystem 的 order = 1 让它落进更晚的那一批。
+    //
+    // 「单 system」这一半才是关键：Scheduler::run 只在批内多于一个 system 时
+    // 才向线程池派发，所以三个单 system 批意味着并行在这个装配下永不发生。
+    //
+    // 这条断言替掉了原先挂在 world_tests 上的 worker_count 用例。那条用例
+    // 比较两个不同 worker 数的世界各跑三季、断言结果一致，但正因为并行在这
+    // 个装配下永不发生，它恒绿、没有任何鉴别力。值得守的是「并行不发生」这个
+    // 结构前提，而它只能从 Scheduler 的公开接口观测——放在这里才可能变红。
+    auto species = one_species();
+    auto table = neutral_table();
+    auto config = default_genetics();
+
+    EnvironmentWorld env{51, EnvironmentConfig{}};
+    EnvironmentSystem environment{env, species, 0};
+    AgingSystem aging;
+    BreedingSystem breeding{table, species, config, 51, 0};
+
+    Scheduler scheduler{2};
+    scheduler.add(environment);
+    scheduler.add(aging);
+    scheduler.add(breeding);
+    scheduler.plan();
+
+    CHECK_EQ(scheduler.batch_count(), std::size_t{3});
 }
 
 TEST(environment_and_aging_systems_are_separated_by_the_scheduler)

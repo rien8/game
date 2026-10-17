@@ -277,7 +277,10 @@ private:
 3. **`run_season` 不可重入、不可多线程并发调用。** `ecs::World` 本身不是
    线程安全的（并发派发只发生在 `scheduler.run` 内部，由访问集保证同批
    system 之间不冲突），本模块没有也不打算让整季的编排并行。
-4. **`worker_count` 只影响并发批次数，不影响结果。** 由测试 9 守住。
+4. **`worker_count` 只影响并发批次数，不影响结果。** 本套件排不出多 system
+   同批的批次，因此这条是**结构性**成立的，由 ECS 侧的
+   `adapt_systems_plan_into_three_singleton_batches` 断言守住，而不是由本套件
+   的运行结果守住（原因见 §8 末条）。
 5. **`season` 从 0 起。** 第一次 `run_season()` 返回的报告里
    `season == 0`，与 `EnvironmentSystem` / `BreedingSystem` 构造时接到的
    季号一致。
@@ -311,8 +314,9 @@ private:
 计算，`for_each_entity` 走槽位下标序，与线程数无关。`AgingSystem` 与
 `EnvironmentSystem` 之间那对「访问集不相交」的并发风险已由
 `EnvironmentSystem::mutates_structure` 独占批次挡住（环境设计文档 §8.2）。
-因此 `worker_count = 1` 与 `worker_count = 4` 应当逐位相同——这是**新断言**，
-此前没有测试覆盖过线程数对结果的影响。
+因此 `worker_count = 1` 与 `worker_count = 4` 应当逐位相同。这条**没有**在本套件
+里用「跑两个不同 worker 数的世界」的方式守住：那个形状恒绿（并行压根不发生），
+见 §8 末条。改为在 ECS 侧断言 `batch_count() == 3`。
 
 ---
 
@@ -331,9 +335,9 @@ private:
 | 6 | `season_index_actually_moves_the_world` | 季号真的进了气候场：跨图采 8 格，季 0 与季 1 的气温至少有一格不同 | 中高。对「振幅或相位整体不变」这类真失效敏感；对舍入不敏感（本测试比较的两季上季节项 4.24 °C 比 ulp 9.5e-7 大六个量级） |
 | 7 | `run_seasons_equals_repeated_run_season` | `run_seasons(5)` 的五个报告与五次 `run_season()` 逐项相同 | 只验等价性。两个世界来自同一个二进制，任何变异同时作用在两边、轨迹一起变，原理上免疫「两边同时坏」 |
 | 8 | `equal_seeds_produce_identical_seasons` | 同 `root_seed` 的两个世界跑四季，逐位相同 | 与第 7 条同类：同一种推进方式在两个实例上的复核，同样不免疫「两侧同时坏」 |
-| 9 | `worker_count_does_not_change_the_result` | worker 1 与 worker 4 跑三季结果逐位相同 | **今天为零。** 并行在该装配下永不发生（实测 `Scheduler::batch_count() == 3`，三个单 system 批），它压根没跑过多线程。留着是给未来的护栏 |
-| 10 | `population_never_exceeds_total_capacity` | 跨模块不变量：铺 256 格（步长 16）、每格放 `floor(cap × 0.85)` 个体，`population ≤ Σcapacity + kCells/2 + 1`，连跑三季逐季断言 | **高。** 上限只对这 256 格求和。铺得不够满时改由 `parent_ceiling` 决定出生预算，断言恒真——把它误当成 capacity 的 mutant 则必然越界，实测峰值 6374 对上限 6506 |
-| 11 | `creatures_without_position_never_die_and_never_breed` | 幽灵个体的数量在三季内恒定，且两侧 `population` 的差恰好是幽灵数 | **高。** 差分把「幽灵自己那 5 条」与「它们对世界的影响」分开；给幽灵补上 `Position` 的 mutant 三季全红 |
+| 9 | `season_number_reaches_the_breeding_random_stream` | 同一批初始个体在季 0 与季 1 各结算一季，子代基因组逐位不同 | **高。** 站点结构、摄食存量、气候三处非季号差异已在该测试注释里逐条掐掉，`CHECK_EQ(子代数)` 钉住站点结构相同。删掉 `breeding_.advance_season` 即变红 |
+| 9 | `population_never_exceeds_total_capacity` | 跨模块不变量：铺 256 格（步长 16）、每格放 `floor(cap × 0.85)` 个体，`population ≤ Σcapacity + kCells/2 + 1`，连跑三季逐季断言 | **高。** 上限只对这 256 格求和。铺得不够满时改由 `parent_ceiling` 决定出生预算，断言恒真——把它误当成 capacity 的 mutant 则必然越界，实测峰值 6374 对上限 6506 |
+| 10 | `creatures_without_position_never_die_and_never_breed` | 幽灵个体的数量在三季内恒定，且两侧 `population` 的差恰好是幽灵数 | **高。** 差分把「幽灵自己那 5 条」与「它们对世界的影响」分开；给幽灵补上 `Position` 的 mutant 三季全红 |
 
 逐条说明要害：
 
@@ -387,13 +391,22 @@ ecs）。ASan 的 `foreach` 遍历的是具名列表，必须把 `WORLD_SOURCES`
   `mutates_structure` 独占一批；`AgingSystem` 与 `BreedingSystem` 同写
   `Vitality` 被强制分层；`PopulationStatisticsSystem` 根本不在调度器里
   （决策 3 要求它的 census 落在 flush 之后）。因此线程池没有机会并行派发
-  任何东西。后果：**`worker_count_does_not_change_the_result` 今天守的是一条
-  尚未被违反的性质**，它没有鉴别力可言——测试本身没错，错的是它看起来比实际
-  更有力。日后若出现多 system 同批的 system，这条测试才开始真正起作用。
-- **别把 `heterozygosity` 当成「每季都不同」的守卫。** 它确实是「删掉
-  `breeding_.advance_season` 之后会分叉」的观测量（census / population 不分叉，
-  出生被承载力上限顶住），但**分叉不是逐季全中**——实测季 3 两种构建恰好相同。
-  它只能被表述成「一个会分叉的观测量」。
+  任何东西。后果：`worker_count_does_not_change_the_result` 原本是个
+  **恒绿**的用例——它比较两个不同 worker 数的世界，而并行压根不发生，两边
+  必然逐位相同。这条已删除，取而代之的是 ECS 侧
+  `adapt_systems_plan_into_three_singleton_batches`：它直接断言同一个三 system
+  装配排成 3 批，因而**可能变红**（实测把 `AgingSystem::WriteSet` 清空使其与
+  `BreedingSystem` 不再冲突，该断言即失败）。值得守的是「并行不发生」这个结构
+  前提，而不是一个恒真的运行结果。
+- **守卫「删掉 `breeding_.advance_season`」的观测量是子代基因组，不是
+  `heterozygosity`。** 后者是本套件里最顺手的统计量，但对这条约束没有鉴别力：
+  测试 7 与测试 8 比的都是「两条轨迹是否逐位相同」，而任何变异都同时作用在
+  两边、轨迹一起变，于是两边照样相同——实测删掉该行后这两条仍然全绿。
+  真正能把季号变成唯一自由变量的是测试 9 的形状：两个世界都是**未变异**的，
+  只是同一批初始个体分别落在季 0 与季 1 结算，于是差异只能来自 `season_index_`。
+  顺带记一笔 `heterozygosity` 在本套件里剩下的正当职责：它只承担「同一条轨迹的
+  逐位复核」。任何形如「它每季都该变」、或拿它当某种漂移探针的断言，都不能
+  由它支撑。
 - **`EnvironmentWorld` 补了 `climate()` / `resources()` 的 const 重载。**
   本模块的只读访问器 `World::environment()` 返回 `const EnvironmentWorld&`，
   而原访问器只有非常量版本，导致测试里不得不 `const_cast`——那会把「这个访问器
@@ -410,15 +423,18 @@ ecs）。ASan 的 `foreach` 遍历的是具名列表，必须把 `WORLD_SOURCES`
   `temperature_amplitude = 6.0` 叠上 ±8 的基准温度，偏移量级到 ±14 会让夹具
   里的个体几乎必死，测试没法写。代价是多季测试里种群的下降由「出生格温度」
   驱动而非「当季气候」，读数据时须记住这一点。
-- **`AgingSystem` 与 `BreedingSystem` 会对同一个死者各发一次 `cmd.destroy`。**
-  两者入队的是不同缓冲，`Scheduler::run` 按注册顺序合并后一次 flush：第一条
-  destroy 生效，第二条撞上 `CommandBuffer::flush` 的「目标已失效则拒绝」判据，
-  报出一条 **error 级** 的 `ecs.entity_invalid` 假诊断。实体恰好被销毁一次，
-  行为正确，错的只是诊断噪音——但它是 error 级，会淹没测试输出。
-  既有测试从未让这两个 system 在同一个世界上真跑过，是本模块首次把它们装配
-  到一起才暴露的。真正的修法要动死亡归属（两个 system 独立判死），属
-  `AgingSystem` 的契约变更，另开一轮。调整注册顺序只是让被拒的那一条换成
-  另一条，不是修法。
+- **`AgingSystem` 与 `BreedingSystem` 会对同一个死者各发一次 `cmd.destroy`——已修。**
+  两者入队的是不同缓冲，一次 flush 里第一条 destroy 生效，第二条撞上
+  `CommandBuffer::flush` 的「目标已失效则拒绝」判据。原先这会报出一条
+  **error 级** 的 `ecs.entity_invalid` 假诊断：实体恰好被销毁一次，行为正确，
+  错的只是诊断噪音——但它是 error 级，实测一轮 world_tests 能刷出 6076 条，
+  足以淹没诊断通道里真正的问题。
+  修法落在队列层而不是死亡归属：`destroy` 对已失效的目标改为幂等静默，与
+  `World::destroy` 的判法一致（后者对已失效句柄本就直接返回）。这条对**任何**
+  两个独立判死的 system 都成立，不是给这一对打的补丁。`add` / `remove` 不享受
+  豁免——往一个已经不存在的实体上挂组件一定是 bug。
+  命令合并同时改成按**批次**顺序（原为注册顺序），使命令序列与
+  `System::order` 决定的执行次序一致。
 - 个体移动接入后，`Position` 每季的更新时机：必须在 `EnvironmentSystem`
   之前（摄食要用当季坐标），且在 `BreedingSystem` 之前（空间分桶要用
   当季坐标）。届时多半要再加一个 system，届时它的 `order` 排在 0。
