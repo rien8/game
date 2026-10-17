@@ -21,6 +21,13 @@ namespace gamev2::ecs {
 ///
 /// 命令按入队顺序执行。flush 前目标实体若已失效，该命令被拒绝并记诊断，
 /// 因此 destroy 之后 add 的语义是可预测的。
+///
+/// **destroy 是唯一的例外**：目标已失效时它静默跳过。这不是放松而是与
+/// World 对齐——World::destroy 本身对已失效的句柄就直接返回、不作声。两个
+/// system 各自独立判死同一个体（年龄与存活抽签都判它出局）是合法形状，
+/// 两条 destroy 进同一个队列时后一条必然撞上「已失效」；若记成 error，一条
+/// 正常运行的季循环就能刷出几千条假诊断，把真正的错误淹没。add / remove
+/// 没有这个豁免：往一个已经不存在的实体上挂组件一定是 bug。
 class CommandBuffer
 {
 public:
@@ -77,6 +84,8 @@ private:
         /// add(EntityId{}) / destroy(EntityId{}) 会跟着跳过判据，内部
         /// 静默失败。
         std::optional<EntityId> target;
+        /// 仅 destroy 置位：目标已失效时跳过而不记诊断（理由见类文档）。
+        bool idempotent_if_dead = false;
         std::function<void(World&)> apply;
     };
 
@@ -92,6 +101,7 @@ void CommandBuffer::create(EntityId& out, Ts&&... components)
     auto tuple = std::make_tuple(std::forward<Ts>(components)...);
     commands_.push_back(Command{
         std::nullopt,
+        false,
         [&out, t = std::move(tuple)](World& w) mutable
         {
             out = w.create();
@@ -109,7 +119,7 @@ void CommandBuffer::create(EntityId& out, Ts&&... components)
 
 inline void CommandBuffer::destroy(EntityId e)
 {
-    commands_.push_back(Command{e, [e](World& w) { w.destroy(e); }});
+    commands_.push_back(Command{e, true, [e](World& w) { w.destroy(e); }});
 }
 
 template<typename T, typename... Args>
@@ -122,7 +132,7 @@ void CommandBuffer::add(EntityId e, Args&&... args)
                   "组件类型无法用给定参数构造");
     auto tuple = std::make_tuple(std::forward<Args>(args)...);
     commands_.push_back(Command{
-        e, [e, t = std::move(tuple)](World& w) mutable
+        e, false, [e, t = std::move(tuple)](World& w) mutable
         {
             std::apply(
                 [&w, e](auto&&... a)
@@ -138,7 +148,7 @@ template<typename T>
 void CommandBuffer::remove(EntityId e)
 {
     commands_.push_back(Command{
-        e, [e](World& w) { (void)w.template remove<T>(e); }});
+        e, false, [e](World& w) { (void)w.template remove<T>(e); }});
 }
 
 inline void CommandBuffer::append(CommandBuffer&& other)

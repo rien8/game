@@ -242,9 +242,13 @@ TEST(command_buffer_create_reports_no_diagnostic)
 
 TEST(command_buffer_rejects_commands_aimed_at_empty_handle)
 {
-    // 误传 EntityId{} 给 add / destroy / remove 是一个已失效的目标，而不是
-    // 「无目标」：三者都必须照常报 ecs.entity_invalid。这条判据在 create 落地
-    // 之前一直成立，落地之后一度随「空 target 当 create 标记」一起失效。
+    // 误传 EntityId{} 给 add / remove 是一个已失效的目标，而不是「无目标」：
+    // 两者都必须照常报 ecs.entity_invalid。这条判据在 create 落地之前一直
+    // 成立，落地之后一度随「空 target 当 create 标记」一起失效。往一个已经
+    // 不存在的实体上挂组件一定是 bug，静默丢掉就把 bug 藏了。
+    //
+    // destroy 不在这条判据里：它对已失效的目标幂等，见
+    // command_buffer_destroy_of_a_dead_entity_is_silent。
     World world;
     std::vector<std::string> codes;
     world.set_diagnostic_handler(
@@ -253,15 +257,38 @@ TEST(command_buffer_rejects_commands_aimed_at_empty_handle)
     CommandBuffer cmd;
     cmd.add<Position>(gamev2::ecs::EntityId{}, Position{1});
     cmd.remove<Position>(gamev2::ecs::EntityId{});
-    cmd.destroy(gamev2::ecs::EntityId{});
     cmd.flush(world);
 
-    CHECK_EQ(codes.size(), std::size_t{3});
+    CHECK_EQ(codes.size(), std::size_t{2});
     for (const auto& code : codes)
     {
         CHECK(code == "ecs.entity_invalid");
     }
     CHECK_EQ(world.entity_count(), std::size_t{0});
+}
+
+/// 两个 system 各自独立判死同一个体时，两条 destroy 会进同一个队列，后一条
+/// 必然撞上「目标已失效」。那不是错误，只是重复，因此必须静默——否则一条正常
+/// 运行的季循环就能刷出几千条 error 级假诊断。
+///
+/// 实体只被销毁一次这一点由 World::destroy 保证（它对已失效句柄直接返回）。
+TEST(command_buffer_destroy_of_a_dead_entity_is_silent)
+{
+    World world;
+    std::vector<std::string> codes;
+    world.set_diagnostic_handler(
+        [&codes](const Diagnostic& d) { codes.emplace_back(d.code); });
+
+    const auto e = world.create();
+    CommandBuffer cmd;
+    cmd.destroy(e);
+    cmd.destroy(e);  // 同一个死者，第二个 system 也判它出局
+    cmd.destroy(gamev2::ecs::EntityId{});  // 以及一个从未有效的句柄
+    cmd.flush(world);
+
+    CHECK(codes.empty());
+    CHECK_EQ(world.entity_count(), std::size_t{0});
+    CHECK(!world.is_alive(e));
 }
 
 TEST(command_buffer_many_commands)
