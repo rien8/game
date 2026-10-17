@@ -1013,3 +1013,134 @@ TEST(empty_feedings_matches_explicit_all_ones)
     CHECK_EQ(without.offspring.size(), with.offspring.size());
     CHECK_EQ(without.offspring.size(), std::size_t{2});
 }
+
+/// 子代近交系数 = 亲代池的 Σw²，w 为归一化适应力。
+///
+/// 这条锁住的是近交衰退的数据来源本身。它**完全不看基因组**：等位基因频率
+/// 那一路（`1 − H_obs/H_exp`）在有生态结构的种群上量的是 Hardy–Weinberg 偏离，
+/// 实测全群读数 +0.07、逐格读数 −0.21，两者都不是近交；而池子的大小与权重
+/// 集中度是这个模型里近交的真实来源。
+TEST(offspring_inbreeding_is_the_parent_pool_effective_size)
+{
+    const std::vector<Genome> genomes{uniform_genome(0), uniform_genome(1),
+                                      uniform_genome(2), uniform_genome(3)};
+    const std::vector<Phenotype> phenotypes{robust_phenotype(),
+                                            robust_phenotype(),
+                                            robust_phenotype(),
+                                            robust_phenotype()};
+    const std::vector<EnvironmentSnapshot> envs(4, EnvironmentSnapshot{});
+    const std::vector<float> threats(4, 0.0f);
+    const std::vector<std::uint32_t> species_ids(4, 1);
+
+    SpeciesRegistry registry;
+    (void)registry.register_species(all_loci());
+
+    // robust_phenotype 在全默认配置下 survival_rate 恰为 1，四个亲代的季节
+    // 适应力因此全为 1，权重均匀——Σw² 就退化成 1/N，于是可以直接对出池子
+    // 的大小，而不必去推 fitness() 的具体取值。
+    const auto inbreeding_of = [&](const std::size_t pool_size)
+    {
+        std::vector<Parent> parents;
+        for (std::size_t i = 0; i < pool_size; ++i)
+        {
+            parents.push_back(Parent{i, &genomes[i], 1.0f});
+        }
+        const std::vector<ParentPool> sites{
+            ParentPool{parents, SpeciesId{1}, std::nullopt, 4}};
+        auto rng = RandomStreams{97, 0};
+        const auto out = settle(
+            SeasonInput{genomes, phenotypes, envs, threats, species_ids,
+                        sites},
+            neutral_table(), registry, GeneticsConfig{}, rng);
+        return out.offspring_inbreeding;
+    };
+
+    // 池子越小近交越重：2 个亲代 Σw² = 1/2，4 个 = 1/4。
+    const auto pair = inbreeding_of(2);
+    const auto quad = inbreeding_of(4);
+    CHECK(pair == 0.5f);
+    CHECK(quad == 0.25f);
+    CHECK(pair > quad);
+}
+
+/// 同样大的池子，权重集中时近交更重——这一半只有让适应力不等才能测到。
+///
+/// 上面那条四个亲代适应力全相等，于是 Σw² 恰好退化成 1/N；把「按适应力
+/// 加权」整个去掉（恒返回 1/N）它照样全绿。这条用 Fecundity 归零的亲代把
+/// 权重吃成一个：它的 survival_rate 仍是 1（Metabolism 归零走满分支），
+/// 而 season_fitness = Fecundity/max = 0，于是三个亲代的权重是 (1, 0, 0)，
+/// Σw² = 1，与 1/N = 1/3 差得开。
+TEST(offspring_inbreeding_follows_the_fitness_concentration)
+{
+    const std::vector<Genome> genomes{uniform_genome(0), uniform_genome(1),
+                                      uniform_genome(2)};
+    const std::vector<Phenotype> phenotypes{robust_phenotype(),
+                                            sterile_phenotype(),
+                                            sterile_phenotype()};
+    const std::vector<EnvironmentSnapshot> envs(3, EnvironmentSnapshot{});
+    const std::vector<float> threats(3, 0.0f);
+    const std::vector<std::uint32_t> species_ids(3, 1);
+
+    SpeciesRegistry registry;
+    (void)registry.register_species(all_loci());
+
+    std::vector<Parent> parents;
+    for (std::size_t i = 0; i < genomes.size(); ++i)
+    {
+        parents.push_back(Parent{i, &genomes[i], 1.0f});
+    }
+    const std::vector<ParentPool> sites{
+        ParentPool{parents, SpeciesId{1}, std::nullopt, 4}};
+    auto rng = RandomStreams{97, 0};
+    const auto out = settle(
+        SeasonInput{genomes, phenotypes, envs, threats, species_ids, sites},
+        neutral_table(), registry, GeneticsConfig{}, rng);
+
+    // 权重全压在 0 号身上 ⇒ Σw² = 1，近交拉满。
+    CHECK(out.offspring_inbreeding == 1.0f);
+}
+
+/// 亲代自身的近交按一半传给子代；没有子代产出时保留那减半值。
+TEST(offspring_inbreeding_carries_half_of_the_parents_own)
+{
+    const std::vector<Genome> genomes{uniform_genome(0), uniform_genome(1),
+                                      uniform_genome(2), uniform_genome(3)};
+    const std::vector<Phenotype> phenotypes{robust_phenotype(),
+                                            robust_phenotype(),
+                                            robust_phenotype(),
+                                            robust_phenotype()};
+    const std::vector<EnvironmentSnapshot> envs(4, EnvironmentSnapshot{});
+    const std::vector<float> threats(4, 0.0f);
+    const std::vector<std::uint32_t> species_ids(4, 1);
+
+    SpeciesRegistry registry;
+    (void)registry.register_species(all_loci());
+
+    std::vector<Parent> parents;
+    for (std::size_t i = 0; i < genomes.size(); ++i)
+    {
+        parents.push_back(Parent{i, &genomes[i], 1.0f});
+    }
+
+    // 4 个等权亲代给出 0.25 的池增量，父代自带 0.5 时子代应是 0.25 + 0.25。
+    const auto sites = std::vector<ParentPool>{
+        ParentPool{parents, SpeciesId{1}, std::nullopt, 4}};
+    auto rng = RandomStreams{97, 0};
+    const auto inherited = settle(
+        SeasonInput{genomes, phenotypes, envs, threats, species_ids, sites,
+                    false, std::span<const float>{}, 0.5f},
+        neutral_table(), registry, GeneticsConfig{}, rng);
+    CHECK(inherited.offspring_inbreeding == 0.5f);
+
+    // 一个子代都没产出：progeny 归 0 而池空 → make_offspring 失败，读数应当
+    // 是「父代近交减半」而不是清零——那批亲代还活着，它们的近交仍在基因里。
+    const auto barren = std::vector<ParentPool>{
+        ParentPool{{}, SpeciesId{1}, std::nullopt, 4}};
+    auto rng2 = RandomStreams{97, 0};
+    const auto none = settle(
+        SeasonInput{genomes, phenotypes, envs, threats, species_ids, barren,
+                    false, std::span<const float>{}, 0.4f},
+        neutral_table(), registry, GeneticsConfig{}, rng2);
+    CHECK(none.offspring.empty());
+    CHECK(none.offspring_inbreeding == 0.2f);
+}

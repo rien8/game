@@ -188,3 +188,69 @@ TEST(escape_survival_cannot_exceed_one)
                                  GeneticsConfig{});
     CHECK(r <= 1.0f);
 }
+
+/// 近交衰退：存活率随 F 线性下降，且 load 为 0 时完全不接入。
+///
+/// 能量项、热项、逃脱项都用「各项都饱和到 1」的表型搭好，于是乘积里剩下的
+/// 唯一变量就是近交项——这条断言因此不会被其余三项的取值带偏。
+///
+/// 默认值那半边同样重要：inbreeding_load 默认 0 是整个接入的兼容前提，
+/// 它一错，全部既有测试的存活率都会变，而那些测试全都不知道这一项存在。
+TEST(inbreeding_load_scales_the_population_level_penalty)
+{
+    const auto p = make_phenotype(1.0f, 1.0f, 0.01f, 1.0f, 1.0f, 1.0f);
+    const auto env = EnvironmentSnapshot{};
+
+    auto config = GeneticsConfig{};
+    const auto baseline =
+        survival_rate(SurvivalInput{p, env, 1.0f, 0.0f, 0.0f}, config);
+    CHECK(baseline == 1.0f);
+
+    config.inbreeding_load = 0.5f;
+    // load 的量纲就是斜率：F 每上升 1，存活率按它下降。
+    const auto half =
+        survival_rate(SurvivalInput{p, env, 1.0f, 0.0f, 1.0f}, config);
+    CHECK(half == baseline * 0.5f);
+
+    // load 为 0 而 F 非零：F 本身不压制任何东西，系数才是开关。
+    auto off = GeneticsConfig{};
+    off.inbreeding_load = 0.0f;
+    CHECK(survival_rate(SurvivalInput{p, env, 1.0f, 0.0f, 1.0f}, off)
+          == baseline);
+}
+
+TEST(inbreeding_penalty_cannot_drive_survival_below_zero)
+{
+    const auto p = make_phenotype(1.0f, 1.0f, 0.01f, 1.0f, 1.0f, 1.0f);
+    const auto env = EnvironmentSnapshot{};
+
+    auto config = GeneticsConfig{};
+    // load 2 配 F 1 会算出 -1；未截断时它乘进乘积会让存活率变负，
+    // 而存活率随后要当概率用（`uniform_unit(rng) < rate`），负值会静默
+    // 变成「必定存活」——一个正号就足以让整条近交衰退失效。
+    config.inbreeding_load = 2.0f;
+    const auto r =
+        survival_rate(SurvivalInput{p, env, 1.0f, 0.0f, 1.0f}, config);
+    CHECK(r == 0.0f);
+}
+
+/// F 的输入必须先夹到 [0, 1]：F̂ 在有限样本下系统性偏负，不夹的话最后
+/// 一个幸存者反而获得满额存活率——种群塌缩到 1 之后就永远打不死。
+///
+/// n = 1 时 summarize 给出的 f_coefficient 恰好是 −1（H_obs = 0、H_exp = 1），
+/// 而 `clamp(1 − load × (−1), 0, 1)` 正是 1.0。负 F 的正确读法是「测不出
+/// 近交」，因此不该施加惩罚。
+TEST(negative_inbreeding_is_read_as_no_inbreeding)
+{
+    const auto p = make_phenotype(1.0f, 1.0f, 0.01f, 1.0f, 1.0f, 1.0f);
+    const auto env = EnvironmentSnapshot{};
+
+    auto config = GeneticsConfig{};
+    config.inbreeding_load = 4.0f;
+    // 与 inbreeding = 0 同值：夹取把负值折成「没有近交」。
+    CHECK(survival_rate(SurvivalInput{p, env, 1.0f, 0.0f, -1.0f}, config)
+          == survival_rate(SurvivalInput{p, env, 1.0f, 0.0f, 0.0f}, config));
+    // 上界同样要夹：F > 1 不该把 load 放大成更狠的惩罚。
+    CHECK(survival_rate(SurvivalInput{p, env, 1.0f, 0.0f, 3.0f}, config)
+          == survival_rate(SurvivalInput{p, env, 1.0f, 0.0f, 1.0f}, config));
+}

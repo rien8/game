@@ -25,6 +25,20 @@ struct SurvivalInput
     float feeding = 1.0f;
     /// 捕食威胁等级，0..1。无天敌时传 0。
     float threat_level = 0.0f;
+    /// 种群当前携带的近交系数，0..1。
+    ///
+    /// **它不是 genetics::summarize 的 f_coefficient。** 那一路读数走
+    /// `1 − H_obs/H_exp`，在有生态结构的种群上量的是 Hardy–Weinberg 偏离，
+    /// 而这张地图上 4096 个格子气候不同、选择方向不同，全群合并根本不在
+    /// HWE 上：实测全群读数约 +0.07，逐格读数约 −0.21，两者都不是近交。
+    /// 本项由 genetics::settle 从亲代池直接算出（见
+    /// SeasonOutput::offspring_inbreeding），只看池子有多小、适应力有多集中。
+    ///
+    /// 它仍然是**整群一个数**，不是逐个体的——理想种群模型下同池的每个子代
+    /// 取到同一个近交系数。
+    ///
+    /// `config.inbreeding_load` 为 0（默认）时这一项恒为 1.0，等于不接入。
+    float inbreeding = 0.0f;
 };
 
 /// 各项生理约束存活率之积。

@@ -21,6 +21,35 @@ namespace {
     return pool.environment.value_or(environment::EnvironmentSnapshot{});
 }
 
+/// 亲代池的近交增量 Σ wᵢ²，w 为归一化适应力。空池或全零权重时返回 0。
+///
+/// 抽亲代是按适应度加权、有放回的（见 make_offspring），因此同一次抽签取到
+/// 同一个亲代两次的概率正是 Σwᵢ——子代的近交系数与之成正比。权重全零时
+/// 退回等权：那批亲代谁也不比谁强，等权就是唯一讲得通的读法。
+[[nodiscard]] double pool_kinship(const std::vector<Parent>& pool) noexcept
+{
+    if (pool.empty())
+    {
+        return 0.0;
+    }
+    double total = 0.0;
+    for (const auto& p : pool)
+    {
+        total += static_cast<double>(std::max(0.0f, p.fitness));
+    }
+    if (total <= 0.0)
+    {
+        return 1.0 / static_cast<double>(pool.size());
+    }
+    double sum_squares = 0.0;
+    for (const auto& p : pool)
+    {
+        const auto w = static_cast<double>(std::max(0.0f, p.fitness)) / total;
+        sum_squares += w * w;
+    }
+    return sum_squares;
+}
+
 }  // namespace
 
 SeasonOutput settle(const SeasonInput& input, const LocusTable& table,
@@ -63,7 +92,7 @@ SeasonOutput settle(const SeasonInput& input, const LocusTable& table,
             // 空 span 是「未接入环境层」的降级路径，逐个回落理论摄食上限。
             input.feedings.size() == input.genomes.size() ? input.feedings[i]
                                                            : 1.0f,
-            input.threats[i]};
+            input.threats[i], input.inbreeding};
         const float rate = survival_rate(s, config);
         if (uniform_unit(survival_rng) < rate)
         {
@@ -86,6 +115,9 @@ SeasonOutput settle(const SeasonInput& input, const LocusTable& table,
     // 物种级的繁殖力）。settle 只负责把本季死亡的亲代剔掉，再按这个数
     // 重复交配。
     std::vector<Parent> living;
+    // 子代近交系数的累加器，见 SeasonOutput::offspring_inbreeding。
+    double inbreeding_accum = 0.0;
+    std::size_t inbreeding_count = 0;
     for (const auto& site : input.sites)
     {
         living.clear();
@@ -104,6 +136,18 @@ SeasonOutput settle(const SeasonInput& input, const LocusTable& table,
         }
         const ParentPool live{living, site.species, site.environment};
         const environment::EnvironmentSnapshot env = site_environment(site);
+
+        // 本池给出的近交增量 = Σ wᵢ²，w 是亲代适应力的归一化值。它是
+        // Crow–Denniston 有效亲代数 N_eff = 1/Σw² 的倒数：池里权重越均匀、
+        // 亲代越多，增量越接近 0；权重被一两个个体吃掉（或者池本来就小），
+        // 增量就趋近 1。
+        //
+        // 它完全不看基因组，因此既不会被地图结构污染——4096 个格子气候不同、
+        // 选择方向不同，全群合并根本不在 Hardy–Weinberg 上，`1 − H_obs/H_exp`
+        // 那一路读数里混的是格间分化而不是近交——也不会被小样本噪声压倒，
+        // 每格平均 2.4 个体时逐格 F̂ 稳定偏在 −0.2 上下，纯是离散性。
+        const double per_child = pool_kinship(living) + input.inbreeding * 0.5;
+
         // 0 按 1 处理：留 0 的调用方得到的是「每个 site 一个子代」的旧行为，
         // 而 0 本身在生态上说不通（既没灭绝也没繁殖）。
         const std::uint32_t count = site.progeny == 0 ? 1 : site.progeny;
@@ -121,8 +165,17 @@ SeasonOutput settle(const SeasonInput& input, const LocusTable& table,
             out.offspring_phenotypes.push_back(
                 phenotype_of(*child, table, species.mask(site.species), env,
                              config));
+            inbreeding_accum += per_child;
+            ++inbreeding_count;
         }
     }
+    // 一个子代都没产出时保留「亲代近交减半」而不是清零：那批亲代还活着，
+    // 它们身上的近交仍在种群基因里。
+    out.offspring_inbreeding =
+        inbreeding_count > 0
+            ? static_cast<float>(inbreeding_accum
+                                 / static_cast<double>(inbreeding_count))
+            : input.inbreeding * 0.5f;
 
     // 第 5 步：按物种分组统计。开关关着时 out.stats 留空，调用方需要统计
     // 就去跑 PopulationStatisticsSystem。

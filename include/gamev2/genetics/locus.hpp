@@ -80,6 +80,11 @@ struct GeneticsConfig
     float thermal_base_width = 1.0f;
     float thermal_resilience_gain = 1.0f;
     float escape_responsiveness = 1.0f;
+    /// 近交衰退的强度：存活率随 SurvivalInput::inbreeding 线性下降的斜率。
+    ///
+    /// 0 表示不接入（默认），此时该项恒为 1.0，整季行为与引入之前逐位相同。
+    /// 系数就是量纲：F 每上升 1，存活率按它下降。≥ 1 时 F = 1 会压到 0。
+    float inbreeding_load = 0.0f;
     std::uint8_t max_overdominant_loci = 8;
 };
 

@@ -55,12 +55,40 @@ float escape_survival(const SurvivalInput& in,
     return std::clamp(headroom * config.escape_responsiveness, 0.0f, 1.0f);
 }
 
+/// 近交衰退：存活率随种群近交系数线性衰减，load 为 0 时恒为 1（默认关闭）。
+///
+/// 它与其余三项的差别值得记一笔：那三项都是**逐个体**的体质约束——喂多少、
+/// 多热、多危险，都由这个个体自己的基因与环境决定；而近交系数是整群一个数
+/// （见 SurvivalInput::inbreeding 的说明），同一季里每个个体拿到的都一样。
+/// 因此这一项表达的是「群体的近交程度整体压低存活」，不是「近亲交配的子代
+/// 更弱」——后者要谱系才写得出来。
+///
+/// 线性而非其他形式，是为了让 load 的量纲清楚：它就是 F 每上升 1 时存活率
+/// 下降的比例。load ≥ 1 时 F 达到 1 会把存活率压到 0。
+float inbreeding_survival(const SurvivalInput& in,
+                          const GeneticsConfig& config) noexcept
+{
+    if (config.inbreeding_load <= 0.0f)
+    {
+        return 1.0f;
+    }
+    // 输入先夹到 [0, 1]。Σw² 天然落在 [1/N, 1] 上，但调用方给别的来源
+    // （含 genetics::summarize 那一路的 f_coefficient，它在有限样本下系统性
+    // 偏负，n = 1 时恰好是 −1）时可能越界。不夹的话负值会被当成「比零更
+    // 健康」：最后一个幸存者拿到 `1 − load × (−1)`，被 clamp 成 1，也就是
+    // 打不死——而那正是近交衰退最该管住的终局。
+    // 负值的正确读法是「测不出近交」，因此不施加惩罚。
+    const float f = std::clamp(in.inbreeding, 0.0f, 1.0f);
+    return std::clamp(1.0f - config.inbreeding_load * f, 0.0f, 1.0f);
+}
+
 }  // namespace
 
 float survival_rate(const SurvivalInput& input, const GeneticsConfig& config)
 {
     return energy_survival(input) * thermal_survival(input, config)
-           * escape_survival(input, config);
+           * escape_survival(input, config)
+           * inbreeding_survival(input, config);
 }
 
 float fitness(float survival, const Phenotype& phenotype,

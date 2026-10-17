@@ -52,6 +52,14 @@ struct SeasonInput
     /// 放在末尾而非与 threats 并列，是为了不动既有调用方的位置参数顺序
     /// —— 语义分组上的不便，不值二十几处与本次改动无关的测试编辑。
     std::span<const float> feedings{};
+    /// 种群当前携带的近交系数，透传给 SurvivalInput::inbreeding。默认 0，
+    /// 此时配合 config.inbreeding_load = 0 等于不接入。
+    ///
+    /// **它由上一季的 SeasonOutput::offspring_inbreeding 原样带回**，而不是
+    /// 从等位基因频率反推。后者在有生态结构的种群上会失效：4096 个格子气候
+    /// 不同、选择方向不同，`1 − H_obs/H_exp` 量到的是格间分化而不是近交
+    /// （实测全群读数 +0.07 而逐格读数 −0.21，两者都不是近交）。
+    float inbreeding = 0.0f;
 };
 
 /// 子代先在 staging 里积累，整季结算完成后一次性返回。
@@ -72,6 +80,17 @@ struct SeasonOutput
     /// 的输出，与抽签结果无关：抽输了的个体照样带权重，只是不进亲代池。
     /// outlived 判死的个体保持 0。
     std::vector<float> season_fitness;
+    /// 本季子代群体的平均近交系数：逐个 site 取 Σw² 的有效亲代倒数，再加上
+    /// SeasonInput::inbreeding 的一半（亲代自身的近交只占子代基因的一半），
+    /// 按实际产出的子代数加权。
+    ///
+    /// **它是理想种群模型下的量，不是从等位基因频率反推的。** 亲代池有多小、
+    /// 适应力有多集中，它就多大；它既不会被地图的生态结构污染，也不会被
+    /// 小样本的离散性压倒。调用方应把它原样传给下一季的 SeasonInput。
+    ///
+    /// 一个子代都没产出时它等于 SeasonInput::inbreeding 的一半：亲代还活着，
+    /// 它们身上的近交仍在种群基因里。
+    float offspring_inbreeding = 0.0f;
     /// 与 SpeciesRegistry 的注册顺序同序，覆盖全部已注册物种。
     /// 仅在 SeasonInput::want_statistics 为真时填充。
     std::vector<SpeciesStatistics> stats;
