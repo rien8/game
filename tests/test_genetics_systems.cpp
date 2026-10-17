@@ -804,3 +804,72 @@ TEST(adapt_breeding_ignores_feeding_when_environment_is_not_wired)
     }
     CHECK_EQ(a.size(), b.size());
 }
+
+TEST(breeding_advance_season_replaces_the_season_index)
+{
+    Harness ha;
+    Harness hb;
+    World wa;
+    World wb;
+    std::vector<EntityId> founders_a;
+    std::vector<EntityId> founders_b;
+    // 夹具：两个世界各自跑一遍完全相同的布置。不能用 EntityId 判断某个
+    // 实体属于哪个世界——两个 World 都从空开始，句柄逐个相同，e == fa 对
+    // 两边都成立。因此 dress 对 wa / wb 各以同一个 i 顺序调用一次，两边
+    // 得到逐位相同的 Genome 与 Phenotype。
+    const auto dress = [](World& w, const EntityId e, const int i)
+    {
+        // 表型必须给出真的繁殖力与真的抽签：默认全零的 CreaturePhenotype
+        // 让 fecundity 为 0、一个子代都生不出来，这条用例就在比对两个空
+        // vector 而恒真。Speed 0.9 把 survival_rate 压到 0.9，于是存活
+        // 集合真由抽签决定，而抽签流正是季号唯一的作用点。
+        auto* p = w.get_if<CreaturePhenotype>(e);
+        set_trait(*p, TraitKind::Speed, 0.9f);
+        set_trait(*p, TraitKind::Lifespan, 5.0f);
+        set_trait(*p, TraitKind::Fecundity, 0.5f);
+        // 每个个体的三段等位互不相同：i ∈ [0, 6) 落在 a[0] / a[1] / b[0]
+        // 三个二进制位上，i 递增时至少有一段翻转。子代由抽中的两个亲代重组
+        // 而来，亲代集合一变子代逐位就变；全体 Genome{} 相同时选谁都一样，
+        // 抽签结果这条链在测试里根本不存在，这条用例就成了恒真。
+        auto* g = w.get_if<Genome>(e);
+        g->a[0].allele = static_cast<AlleleId>(i % 2);
+        g->a[1].allele = static_cast<AlleleId>((i / 2) % 2);
+        g->b[0].allele = static_cast<AlleleId>((i / 4) % 2);
+    };
+
+    for (int i = 0; i < 6; ++i)
+    {
+        const EntityId fa = ha.spawn(wa);
+        founders_a.push_back(fa);
+        dress(wa, fa, i);
+        const EntityId fb = hb.spawn(wb);
+        founders_b.push_back(fb);
+        dress(wb, fb, i);
+    }
+
+    CommandBuffer cmd_a;
+    CommandBuffer cmd_b;
+
+    // 两个 system 的 root_seed 相同，唯一变量是季号；推进到同一季之后
+    // 抽签流必须逐位重合一。若 advance_season 没写进真正被消费的那个
+    // 成员，pushed 仍停在季 0，两边的子代就分岔了。
+    BreedingSystem direct{ha.table, ha.species, ha.config, 99, 5};
+    direct.execute(wa, cmd_a);
+    cmd_a.flush(wa);
+
+    BreedingSystem pushed{hb.table, hb.species, hb.config, 99, 0};
+    pushed.advance_season(5);
+    pushed.execute(wb, cmd_b);
+    cmd_b.flush(wb);
+
+    CHECK_EQ(wa.entity_count(), wb.entity_count());
+    const auto ga = offspring_genomes(wa, founders_a);
+    const auto gb = offspring_genomes(wb, founders_b);
+    // 夹具确实生出了子代，否则下面那个循环一次都不跑，整条用例是空的。
+    CHECK(!gb.empty());
+    CHECK_EQ(ga.size(), gb.size());
+    for (std::size_t i = 0; i < ga.size() && i < gb.size(); ++i)
+    {
+        CHECK(ga[i] == gb[i]);
+    }
+}

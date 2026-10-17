@@ -36,6 +36,15 @@ public:
     [[nodiscard]] const gamev2::environment::EnvironmentConfig& config()
         const noexcept;
 
+    /// World::environment() 只给 const 引用，所以「只读暴露气候场与资源场」
+    /// 这条承诺需要真的能只读。底层 ClimateField / ResourceField 本就全有 const
+    /// 成员，这里补的只是同一件事的 const 通道，非常量重载仍是 EnvironmentSystem
+    /// 推进气候与资源时走的路径。
+    [[nodiscard]] const gamev2::environment::ClimateField& climate()
+        const noexcept;
+    [[nodiscard]] const gamev2::environment::ResourceField& resources()
+        const noexcept;
+
 private:
     gamev2::environment::EnvironmentConfig config_;
     gamev2::environment::ClimateField climate_;
@@ -83,6 +92,15 @@ public:
     using WriteSet = std::tuple<Feeding>;
 
     void execute(World& world, CommandBuffer& cmd) override;
+
+    /// 改写本 system 消费的季号。每季开始前调用一次。
+    ///
+    /// \pre 调用必须发生在 execute 之前：本类在 execute 的第一行就把
+    ///       season_index_ 交给 climate().advance()，之后改它不会有效果。
+    void advance_season(std::uint32_t season_index) noexcept
+    {
+        season_index_ = season_index;
+    }
 
     /// 传给 BreedingSystem 的站点表。环境层只说「哪个格、哪个物种、
     /// 该产几个」，空间分桶与 Parent::index 的翻译留在 adapt 层。

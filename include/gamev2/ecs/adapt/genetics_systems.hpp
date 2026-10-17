@@ -118,6 +118,16 @@ public:
     {
     }
 
+    /// 改写本 season 抽签所用的季号。每季开始前调用一次。
+    ///
+    /// \pre 调用必须发生在 execute 之前：execute 只在收集完所有个体之后
+    ///       构造一次 RandomStreams{root_seed_, season_index_}，之后就再也不读
+    ///       season_index_，因此 execute 期间改它完全无效。
+    void advance_season(std::uint32_t season_index) noexcept
+    {
+        season_index_ = static_cast<std::uint64_t>(season_index);
+    }
+
     /// 只读并拷贝出组件；Vitality 只被就地改写，结构变更全走队列。
     ///
     /// `const Feeding` 是一条真的读：收集遍历逐个体取出它，取到的是喂给

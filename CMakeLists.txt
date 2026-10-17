@@ -111,6 +111,20 @@ set(ENVIRONMENT_TEST_SOURCES
 add_executable(environment_tests ${ENVIRONMENT_TEST_SOURCES})
 target_link_libraries(environment_tests PRIVATE environment)
 
+set(WORLD_SOURCES
+    src/world/world.cpp
+)
+add_library(world STATIC ${WORLD_SOURCES})
+target_include_directories(world PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(world PUBLIC environment)
+
+set(WORLD_TEST_SOURCES
+    tests/main.cpp
+    tests/test_world_module.cpp
+)
+add_executable(world_tests ${WORLD_TEST_SOURCES})
+target_link_libraries(world_tests PRIVATE world)
+
 # Opt-in sanitizer build. Off by default so the pinned build stays untouched;
 # the `active_` invariant in ThreadPool is a lifetime race that no ordinary
 # assertion can observe, and reproducing it needs a UAF detector.
@@ -131,7 +145,8 @@ if(GAMEV2_ENABLE_ASAN)
     set(ECS_ASAN_SOURCES)
     foreach(f IN LISTS ECS_SOURCES ECS_TEST_SOURCES
                   GENETICS_SOURCES GENETICS_TEST_SOURCES
-                  ENVIRONMENT_SOURCES ENVIRONMENT_TEST_SOURCES)
+                  ENVIRONMENT_SOURCES ENVIRONMENT_TEST_SOURCES
+                  WORLD_SOURCES WORLD_TEST_SOURCES)
         list(APPEND ECS_ASAN_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/${f}")
     endforeach()
     # 每个可执行目标都自带 tests/main.cpp（它定义了 main 与 test::run_all），

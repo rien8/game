@@ -34,6 +34,18 @@ const EnvironmentConfig& EnvironmentWorld::config() const noexcept
     return config_;
 }
 
+const gamev2::environment::ClimateField& EnvironmentWorld::climate()
+    const noexcept
+{
+    return climate_;
+}
+
+const gamev2::environment::ResourceField& EnvironmentWorld::resources()
+    const noexcept
+{
+    return resources_;
+}
+
 void EnvironmentSystem::execute(World& world, CommandBuffer& /*cmd*/)
 {
     env_.climate().advance(season_index_);

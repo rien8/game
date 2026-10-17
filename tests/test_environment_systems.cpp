@@ -32,6 +32,7 @@ using gamev2::ecs::adapt::Position;
 using gamev2::ecs::adapt::SpeciesTag;
 using gamev2::environment::CellIndex;
 using gamev2::environment::EnvironmentConfig;
+using gamev2::environment::kCellCount;
 using gamev2::environment::kGridSide;
 using gamev2::genetics::GeneticsConfig;
 using gamev2::genetics::LocusKind;
@@ -558,4 +559,37 @@ TEST(environment_and_statistics_systems_are_separated_by_the_scheduler)
     reversed.plan();
 
     CHECK(reversed.batch_count() >= 2);
+}
+
+TEST(advance_season_replaces_the_season_index)
+{
+    EnvironmentConfig config{};
+    EnvironmentWorld a{64, config};
+    EnvironmentWorld b{64, config};
+    auto species = one_species();
+
+    World wa;
+    World wb;
+    seed_one_per_cell(wa, 64);
+    seed_one_per_cell(wb, 64);
+
+    // 直接构造到季 3，与「构造到季 0 再推进到季 3」必须得到同一份气候。
+    // 两者不一致就说明 advance_season 没写进真正被消费的那个成员。
+    EnvironmentSystem direct{b, species, 3};
+    EnvironmentSystem pushed{a, species, 0};
+    pushed.advance_season(3);
+
+    CommandBuffer cmd_a;
+    CommandBuffer cmd_b;
+    direct.execute(wa, cmd_a);
+    cmd_a.flush(wa);
+    pushed.execute(wb, cmd_b);
+    cmd_b.flush(wb);
+
+    for (std::size_t c = 0; c < kCellCount; ++c)
+    {
+        const CellIndex cell{static_cast<std::uint16_t>(c)};
+        CHECK_EQ(a.climate().at(cell).temperature,
+                 b.climate().at(cell).temperature);
+    }
 }

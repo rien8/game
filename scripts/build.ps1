@@ -13,7 +13,7 @@
 #   pwsh -File scripts/build.ps1 -Clean           # wipe build/ first
 #   pwsh -File scripts/build.ps1 -BuildType Release
 #   pwsh -File scripts/build.ps1 -Asan            # GAMEV2_ENABLE_ASAN=ON
-#   pwsh -File scripts/build.ps1 -Test            # build, then run all 3 suites
+#   pwsh -File scripts/build.ps1 -Test            # build, then run all 4 suites
 #   pwsh -File scripts/build.ps1 -Test -Asan      # ASan build + run suites
 
 [CmdletBinding()]
@@ -72,7 +72,7 @@ if ($LASTEXITCODE -ne 0) { throw "cmake build failed with exit code $LASTEXITCOD
 if (-not $Test) { return }
 
 # Every executable in the tree is a test suite; there is no separate run target.
-$suites = @('ecs_tests', 'genetics_tests', 'environment_tests')
+$suites = @('ecs_tests', 'genetics_tests', 'environment_tests', 'world_tests')
 Write-Host '=== test ==='
 $failed = @()
 foreach ($suite in $suites) {
