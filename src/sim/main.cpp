@@ -5,7 +5,7 @@
 /// world（见 doc/2026-10-16-world-design.md §1.2 的非目标）：那一层只做编排，
 /// 至于怎么造 Genome 与 Phenotype 是调用方的知识。
 ///
-/// 用法：sim [evolve|persist|fragile] [季数] [种子]
+/// 用法：sim [evolve|persist|fragile|intervene] [季数] [种子]
 ///
 /// `evolve` 与 `persist` 只差 Lifespan 的基准（8 对 80），因此它们问的是
 /// 不同的问题：前者世代换得快、看得见漂变与多样性磨损，后者长寿命、看得见
@@ -14,6 +14,21 @@
 ///
 /// `fragile` 与 `evolve` 只差近交衰退强度（0 对 0.7），在当前地形上第 25 季
 /// 灭绝（`inbreeding_load` 的注释解释了它为什么不再是临界点）。
+///
+/// `intervene` 与 `evolve` 的遗传与环境配置逐项相同，差别只有一处：跑到
+/// 第 30 季时用 `queue_terrain_edit` 在地图正中灌一条 2 格宽的水道，把主大陆
+/// 切成两半，再跑完剩下的季数并按水道两侧分别报物种数与 census。它演示的
+/// 是阶段 4 的干预队列 —— 刀是玩家落的，但要等下一季开季才生效。
+///
+/// **实测（种子 20261016，`sim intervene 60`）：** 第 30 季落刀，队列实际入队
+/// 27 格 —— 2 列共 128 格，其余 101 格本来就是水，`queue_terrain_edit` 因此
+/// 不收它们。末季 2224 个体、9 个物种、覆盖率 75.0%；切开之后西侧
+/// （x < 32）6 个物种 908 个体，东侧 4 个物种 1316 个体，两侧不共有的
+/// 物种占 8/9。
+///
+/// **物种 1 横跨两侧不是钳回穿帮**：那张图上有 12 块陆块，而物种 1 在落刀
+/// 之前就同时占据水道两侧的不同陆块（跨陆块的基因流结构上不可能发生，落刀
+/// 只是让这条不变量在一块大陆的内部也成立）。
 #include "gamev2/world/world.hpp"
 
 #include "gamev2/ecs/adapt/components.hpp"
@@ -68,6 +83,13 @@ using gamev2::genetics::trait_index;
 constexpr std::uint32_t kDefaultSeasons = 200;
 constexpr std::uint64_t kDefaultSeed = 20261016;
 
+/// `intervene` 在这一季落刀：已经完整结算的季数。此前世界按 evolve 跑，
+/// 两侧的群体已有可辨的分化，切开之后读数才有东西可说。
+constexpr std::uint32_t kInterveneSeason = 30;
+/// 水道占的列。切在正中，因此两侧各有 31 列与 30 列，面积接近而规格不等。
+constexpr std::uint16_t kGapFirst = 32;
+constexpr std::uint16_t kGapWidth = 2;
+
 /// 两套具名配置。**它们只差一个量**——Lifespan 的基准——因为预设的价值在于
 /// 对照：一次只动一个变量，差出来的数字才可归因。其余参数（thermal_base_width
 /// 在 18、其余全部）两边一致。
@@ -111,7 +133,8 @@ enum class Preset
 {
     Evolve,
     Persist,
-    Fragile
+    Fragile,
+    Intervene
 };
 
 [[nodiscard]] constexpr float lifespan_base(const Preset p) noexcept
@@ -135,6 +158,8 @@ enum class Preset
         return "persist";
     case Preset::Fragile:
         return "fragile";
+    case Preset::Intervene:
+        return "intervene";
     }
     return "evolve";
 }
@@ -463,6 +488,11 @@ bool parse_preset(const char* text, Preset& out) noexcept
         out = Preset::Fragile;
         return true;
     }
+    if (view == "intervene")
+    {
+        out = Preset::Intervene;
+        return true;
+    }
     return false;
 }
 
@@ -477,7 +507,8 @@ int main(const int argc, char** argv)
         if (!parse_preset(argv[1], preset))
         {
             std::println(stderr, "未知预设 '{}'。", argv[1]);
-            std::println(stderr, "用法：sim [evolve|persist|fragile] [季数] [种子]");
+            std::println(stderr,
+                         "用法：sim [evolve|persist|fragile|intervene] [季数] [种子]");
             return 1;
         }
         next = 2;
@@ -532,6 +563,11 @@ int main(const int argc, char** argv)
                  "season", "pop", "born", "died", "H_obs(sp1)", "F(sp1)",
                  "Ne(sp1)");
 
+    // 干预演示只跑 intervene 那一套。刀走 queue_terrain_edit 而不是直接
+    // flood：队列正是要演示的东西 —— 它在下一季开季才落地，因此这一季的
+    // 读数与「立刻改地形」不同。
+    const bool intervene = preset == Preset::Intervene;
+
     std::size_t previous = initial;
     std::size_t low_pop = 0;
     std::size_t high_pop = 0;
@@ -574,6 +610,25 @@ int main(const int argc, char** argv)
             high_season = report.season;
         }
         previous = report.population;
+
+        if (intervene && report.season + 1 == kInterveneSeason)
+        {
+            std::vector<CellIndex> canal;
+            for (std::uint16_t x = kGapFirst; x < kGapFirst + kGapWidth; ++x)
+            {
+                for (std::uint16_t y = 0; y < kGridSide; ++y)
+                {
+                    canal.push_back(
+                        CellIndex{static_cast<std::uint16_t>(y * kGridSide + x)});
+                }
+            }
+            // 已经是水的格不入队，所以返回值是「这一刀真的淹掉了多少格」。
+            const auto flooded = world.queue_terrain_edit(canal, false);
+            std::println(
+                "\n第 {} 季落刀：正中 {} 列的水道排进队列（{} 格），"
+                "下一季开季才生效。",
+                report.season + 1, kGapWidth, flooded);
+        }
     }
 
     // 物种逐项列出。阶段 3 之后物种数不再恒为 1，这是本阶段最直观的观测量。
@@ -603,6 +658,72 @@ int main(const int argc, char** argv)
                          k + 1, s.census, s.heterozygosity, s.f_coefficient);
         }
     }
+    if (intervene)
+    {
+        // 按水道两侧分别报物种数与 census。全图口径的物种数在这里没有信息
+        // 量：切开之后**两侧的基因流在结构上不可能发生**（跨陆块移动被水
+        // 隔断，繁殖侧同样封闭），所以「几个物种」必须分侧数才有意义。
+        //
+        // 落在水道两列上的个体一个也没有 —— 落刀那一季它们要么被钳回自己
+        // 那侧，要么在自己那块地被淹光时销毁，因此按 x < 32 归西侧不会串。
+        const auto side = [&world](const bool east)
+        {
+            std::vector<std::pair<SpeciesId, std::size_t>> by_species;
+            std::size_t total = 0;
+            world.entities().for_each_entity(
+                [&world, &by_species, &total, east](const EntityId e)
+                {
+                    const auto* pos = world.entities().get_if<Position>(e);
+                    const auto* tag = world.entities().get_if<SpeciesTag>(e);
+                    if (pos == nullptr || tag == nullptr)
+                    {
+                        return;
+                    }
+                    const auto x = static_cast<std::size_t>(pos->x);
+                    if ((x >= kGapFirst) != east)
+                    {
+                        return;
+                    }
+                    ++total;
+                    const auto it = std::ranges::find_if(
+                        by_species,
+                        [&tag](const auto& p)
+                        {
+                            return p.first.value == tag->species.value;
+                        });
+                    if (it == by_species.end())
+                    {
+                        by_species.emplace_back(tag->species, std::size_t{1});
+                    }
+                    else
+                    {
+                        ++it->second;
+                    }
+                });
+            std::ranges::sort(by_species,
+                              [](const auto& a, const auto& b)
+                              {
+                                  return a.first.value < b.first.value;
+                              });
+            return std::make_pair(total, by_species);
+        };
+
+        const auto [west_pop, west] = side(false);
+        const auto [east_pop, east] = side(true);
+        std::println(
+            "\n水道两侧（x < {} 与 x >= {}）：西侧 {} 个物种 {} 个体，"
+            "东侧 {} 个物种 {} 个体。",
+            kGapFirst, kGapFirst, west.size(), west_pop, east.size(), east_pop);
+        for (const auto& [id, n] : west)
+        {
+            std::println("  西侧 物种 {}  census {}", id.value, n);
+        }
+        for (const auto& [id, n] : east)
+        {
+            std::println("  东侧 物种 {}  census {}", id.value, n);
+        }
+    }
+
     if (previous == 0)
     {
         std::println("\n第 {} 季种群归零。", low_season);
