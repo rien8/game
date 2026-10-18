@@ -27,6 +27,7 @@ World::World(const gamev2::genetics::LocusTable& table,
       breeding_{table, species_, genetics_config_, root_seed, 0,
                 &environment_.targets(),
                 environment_config.mating_radius_cells},
+      speciation_{species_, env_},
       statistics_{species_}
 {
     // 调度器现在只装 MovementSystem 与 AgingSystem。两者访问集不相交
@@ -47,6 +48,10 @@ World::World(const gamev2::genetics::LocusTable& table,
     // SpeciesTag），注册进去既省不下任何并行，又只能在 cmd.flush 之前
     // 跑到——而 BreedingSystem 的死亡销毁与子代创建都在 flush 才生效，
     // 于是 census 会含本季将死者、不含刚出生的子代。
+    //
+    // speciation_ 同样不进，理由更硬：它读的是**刚 flush 出来的**实体表，
+    // 而调度器的批次边界在 flush 之前，因此没有任何一种注册方式能让它
+    // 排在换代之后、统计之前。
 }
 
 void World::step_once()
@@ -97,17 +102,24 @@ SeasonReport World::season_report()
     // run 内部——breeding 直接 execute 入的是 cmd_，需要 World 自己冲。
     cmd_.flush(entities_);
 
+    // 裂变排在换代之后、统计之前：它消费的就是这张刚 flush 出来的表，
+    // 而排在统计之后会让季末报告把刚裂出来的物种连同它的全部个体漏掉。
+    speciation_.execute(entities_, cmd_);
+    cmd_.flush(entities_);
+    born_ = speciation_.born();
+    lost_ = speciation_.lost();
+
     // 统计落在换代之后，因此 census 含刚出生的子代、不含本季将死者。
     statistics_.execute(entities_, cmd_);
 
-    SeasonReport report{season_, 0, statistics_.statistics()};
-    for (const auto& s : report.species)
+    last_ = SeasonReport{season_, 0, statistics_.statistics()};
+    for (const auto& s : last_.species)
     {
-        report.population += s.census;
+        last_.population += s.census;
     }
     ++season_;
     tick_ = 0;
-    return report;
+    return last_;
 }
 
 SeasonReport World::run_season()

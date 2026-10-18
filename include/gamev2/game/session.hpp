@@ -7,11 +7,14 @@
 /// 模块说明在 doc/2026-10-17-game-design.md §4.4。
 #pragma once
 
+#include "gamev2/environment/climate.hpp"
 #include "gamev2/genetics/locus.hpp"
+#include "gamev2/genetics/species.hpp"
 #include "gamev2/world/world.hpp"
 
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 namespace gamev2::game {
 
@@ -22,12 +25,42 @@ struct GameConfig
     /// 胜利所需的并存物种数下限。
     std::size_t target_species = 3;
     /// 达到 target_species 后还需持续的季数。
-    std::uint32_t target_seasons = 20;
+    ///
+    /// 取 50 而不是 20：实测裂变**会级联** —— 一旦拆开，每个新物种的
+    /// 「其余全部」变小，剩下的小陆块相对自己物种的 divergence 立刻变大，
+    /// 于是继续裂。`evolve` 在 min_founder = 40 下第 10 季就有 6 个物种，
+    /// target_seasons = 20 会让胜利落在第 40 季，200 季的局有 80% 用不上。
+    /// 把节奏调在胜利条件上而不是裂变门槛上，两件事各归各的位置 ——
+    /// min_founder 管「不许裂出错物种」，target_seasons 管「这局玩多久」。
+    std::uint32_t target_seasons = 50;
     /// census 低于此值不算「存活」，因此不计入并存物种数。
-    std::size_t min_viable = 20;
+    ///
+    /// 取 60 而不是 20：裂变门槛 40 之下，那 11 块有主陆块里 60~178 个体
+    /// 的全都够格，于是小岛一开局就各自成种，胜利条件几乎立刻满足。
+    /// 60 把「一块只有几十个个体的陆块」排除在并存之外，胜利因此落在
+    /// 第 ~90 季（实测）。
+    std::size_t min_viable = 60;
 };
 
-/// 抄经人读的那一卷。SeasonReport 之上只多一样东西：是否已经抄完。
+/// 本局裂出来的物种。谱系是抄经人唯一能读懂的因果链：不带母物种，玩家看到
+/// 「物种 4 出现了」只会当成噪声。`anchor` 让他知道新物种落在哪一块地。
+struct BornSpecies
+{
+    gamev2::genetics::SpeciesId id;
+    gamev2::genetics::SpeciesId parent;
+    std::size_t founders;
+    gamev2::environment::CellIndex anchor;
+};
+
+/// 本局 census 归零的物种。`last_census` 是它**归零那一季之前**的规模。
+struct LostSpecies
+{
+    gamev2::genetics::SpeciesId id;
+    std::uint32_t last_census;
+};
+
+/// 抄经人读的那一卷。SeasonReport 之上只多两样东西：是否已经抄完，
+/// 以及这一季谁诞生、谁灭绝。
 struct Scroll
 {
     /// 已完整结算的季数。
@@ -43,6 +76,10 @@ struct Scroll
     bool victory = false;
     /// 距离胜利还差几季。已达标且尚未走满 target_seasons 时逐季递减。
     std::uint32_t seasons_to_victory = 0;
+    /// 本局新出现的物种。玩家靠这个知道自己的干预有没有生效。
+    std::vector<BornSpecies> born;
+    /// 本局 census 归零的物种。玩家靠这个知道哪一支灭了。
+    std::vector<LostSpecies> lost;
 };
 
 class GameSession
@@ -90,6 +127,10 @@ public:
 private:
     /// 只读地重算并存物种数与胜利进度。不改世界。
     void refresh_scroll() noexcept;
+
+    /// 上一季的报告。**只为取「刚灭绝那支的归零前规模」而存在** —— 本季
+    /// 报告里它的 census 已经是 0，拿不到灭绝前的数字。
+    gamev2::world::SeasonReport previous_;
 
     GameConfig config_;
     gamev2::genetics::LocusTable table_;

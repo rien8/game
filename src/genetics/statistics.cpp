@@ -2,6 +2,7 @@
 #include "gamev2/genetics/statistics.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 
 namespace gamev2::genetics {
@@ -116,6 +117,19 @@ SpeciesStatistics summarize(std::span<const Genome> genomes,
                                  / (2.0f * h_loss_sum)
                              : 0.0f;
     return out;
+}
+
+double divergence(const SpeciesStatistics& a,
+                  const SpeciesStatistics& b) noexcept
+{
+    const auto n = std::min(a.loci.size(), b.loci.size());
+    double sum = 0.0;
+    for (std::size_t i = 0; i < n; ++i)
+    {
+        sum += std::fabs(static_cast<double>(a.loci[i].frequency[0])
+                         - static_cast<double>(b.loci[i].frequency[0]));
+    }
+    return sum / 2.0;
 }
 
 }  // namespace gamev2::genetics

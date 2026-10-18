@@ -197,3 +197,50 @@ TEST(effective_population_is_per_locus_not_a_sum)
     // 全 Aa 双等位：每位点 H_exp = 0.5，缺额 0.5，Ne = 1 / (2 × 0.5) = 1。
     CHECK(one.effective_population == 1.0f);
 }
+
+TEST(divergence_is_symmetric_and_bounded)
+{
+    // 设计文档 §9 测试 8。**值域是 [0, 位点数/2]，不是 [0, 0.5]** —— 原稿写
+    // [0, 0.5] 那个错正是 θ=0.06 的来源（§2.3）。`loci` 只含激活位点，因此上界
+    // 用实际长度算而不是写死 150。
+    SpeciesStatistics a{};
+    SpeciesStatistics b{};
+    a.loci.resize(4);
+    b.loci.resize(4);
+
+    CHECK_EQ(divergence(a, a), 0.0);
+
+    // 上界：每格都取一端相反的频率 ⇒ Σ|Δf| = n，除以 2 ⇒ n/2。
+    for (std::size_t i = 0; i < a.loci.size(); ++i)
+    {
+        a.loci[i].frequency[0] = 0.0f;
+        b.loci[i].frequency[0] = 1.0f;
+    }
+    CHECK_EQ(divergence(a, b), 2.0);
+
+    // 对称。
+    CHECK_EQ(divergence(a, b), divergence(b, a));
+
+    // 部分差异：两个位点全反、两个位点相同 ⇒ 2/2 = 1。
+    b.loci[2].frequency[0] = 0.0f;
+    b.loci[3].frequency[0] = 0.0f;
+    CHECK_EQ(divergence(a, b), 1.0);
+}
+
+TEST(divergence_uses_only_the_shared_prefix_of_the_loci)
+{
+    // 掩码不同时两边的 loci 长度可能不同；取公共前缀而不是索引越界。
+    SpeciesStatistics a{};
+    SpeciesStatistics b{};
+    a.loci.resize(3);
+    b.loci.resize(2);
+    for (std::size_t i = 0; i < a.loci.size(); ++i)
+    {
+        a.loci[i].frequency[0] = 0.0f;
+    }
+    for (std::size_t i = 0; i < b.loci.size(); ++i)
+    {
+        b.loci[i].frequency[0] = 1.0f;
+    }
+    CHECK_EQ(divergence(a, b), 1.0);
+}

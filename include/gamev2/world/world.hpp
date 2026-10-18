@@ -9,6 +9,7 @@
 #include "gamev2/ecs/adapt/environment_systems.hpp"
 #include "gamev2/ecs/adapt/genetics_systems.hpp"
 #include "gamev2/ecs/adapt/movement_system.hpp"
+#include "gamev2/ecs/adapt/speciation.hpp"
 #include "gamev2/ecs/command_buffer.hpp"
 #include "gamev2/ecs/scheduler.hpp"
 #include "gamev2/ecs/world.hpp"
@@ -20,6 +21,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 namespace gamev2::world {
@@ -124,6 +126,24 @@ public:
         return env_.config().steps_per_season;
     }
 
+    /// 上一季的裂变与灭绝事件。**只在 `season_report()` 之后有效**：开局两者
+    /// 都是空。
+    [[nodiscard]] std::pair<
+        std::vector<gamev2::ecs::adapt::BornSpecies>,
+        std::vector<gamev2::genetics::SpeciesId>>
+    speciation_report() const noexcept
+    {
+        return {born_, lost_};
+    }
+
+    /// 上一季的季末报告。给需要把报告与 `speciation_report()` 对齐的调用方
+    /// ——`run_season()` 只返回报告本身，而裂变事件得单独取，两者不同源时
+    /// 会静默错一季。
+    [[nodiscard]] SeasonReport last_season() const noexcept
+    {
+        return last_;
+    }
+
     /// 逐季推进 count 次。与调用 count 次 run_season() 逐位等价——
     /// 这条等价性是可测的，也是日后加存档的前提。
     [[nodiscard]] std::vector<SeasonReport> run_seasons(std::uint32_t count);
@@ -158,7 +178,17 @@ private:
     gamev2::ecs::adapt::EnvironmentSystem environment_;
     gamev2::ecs::adapt::AgingSystem aging_;
     gamev2::ecs::adapt::BreedingSystem breeding_;
+    // 声明在 statistics_ 之后是为了让两者的相对位置一眼可见；**实际次序由
+    // season_report 的语句顺序钉死，不由声明顺序** —— 裂变必须排在统计之前，
+    // 否则季末报告会把刚裂出来的物种连同它的全部个体一起漏掉。
+    gamev2::ecs::adapt::SpeciationSystem speciation_;
     gamev2::ecs::adapt::PopulationStatisticsSystem statistics_;
+
+    // 拷贝而非引用：SpeciationSystem 每季 clear() 再重建，而读数要活得比
+    // 下一季久。
+    std::vector<gamev2::ecs::adapt::BornSpecies> born_;
+    std::vector<gamev2::genetics::SpeciesId> lost_;
+    SeasonReport last_;
 };
 
 }  // namespace gamev2::world

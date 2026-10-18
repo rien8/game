@@ -48,4 +48,15 @@ struct SpeciesStatistics
 [[nodiscard]] SpeciesStatistics summarize(std::span<const Genome> genomes,
                                           const SpeciesMask& mask);
 
+/// 两组之间的 Nei 遗传距离（等位基因频率版本）：`Σ_locus |f_a − f_b| / 2`。
+///
+/// \pre 无需成立：任意两组都能比——包括空的，恒得 0.0。
+/// \post 返回值 ∈ [0, min(a.loci.size(), b.loci.size()) / 2]。
+///   **注意这是 [0, 150] 而不是 [0, 0.5]**（300 位点全激活时）。把它当归一化
+///   量读，就是设计文档 §2.3 里 θ 定错两个数量级的直接原因。
+///
+/// 只取公共前缀：两边掩码不同则 loci 长度可能不同。
+[[nodiscard]] double divergence(const SpeciesStatistics& a,
+                                const SpeciesStatistics& b) noexcept;
+
 }  // namespace gamev2::genetics

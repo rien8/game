@@ -72,27 +72,33 @@ constexpr std::uint64_t kDefaultSeed = 20261016;
 /// 对照：一次只动一个变量，差出来的数字才可归因。其余参数（thermal_base_width
 /// 在 18、其余全部）两边一致。
 ///
-/// **本分支（阶段 2：地形 + 移动重写落地）之后的实测读数，种子 20261016，
-/// 跑 200 季取末季。地形由 root_seed 生成，水陆 70/30（决策 15）：**
+/// **本分支（阶段 3：SpeciationSystem 落地）之后的实测读数，种子 20261016，
+/// 跑 200 季取末季。地形由 root_seed 生成，水陆 70/30（决策 15/16）：**
 ///
 /// - 初始个体 2460（只铺可通行格），Σcapacity 2958，可通行格 1230。
-/// - `evolve`：短寿命。population 2418 = Σcapacity 的 82%，覆盖率 76.8%，
-///   born 583 / died 612，H_obs 0.3727，F 0.1906，Ne 0.9。
-///   区间 [1(1562), 194(2522)] —— 第 194 季见顶后缓降，不是崩溃。
-/// - `persist`：长寿命。population 3554，**越过 Σcapacity 达 120%**——超载格里的
-///   长寿命个体不被清空、那部分承载力就永久停产。born 433 / died 466，
-///   H_obs 0.4299，F 0.1109，Ne 1.0。覆盖率 87.6%（1077/1230），最挤一格 20。
-/// - `fragile`：第 **25** 季归零。见下面 inbreeding_load 的注释。
+/// - `evolve`：短寿命。population 2434，Σcapacity 的 82%，**裂成 10 个物种**
+///   （1251 / 566 / 192 / 100 / 89 / 71 / 50 / 42 / 40 / 33），覆盖率 78.0%，
+///   最挤一格 11 个体。born 605 / died 600。
+/// - `persist`：长寿命。population 3526，**越过 Σcapacity 达 119%**——超载格里
+///   的长寿命个体不被清空、那部分承载力就永久停产。10 个物种
+///   （1852 / 806 / 270 / 156 / 111 / 91 / 81 / 70 / 46 / 43），覆盖率 87.6%，
+///   最挤一格 22 个体。
+/// - `fragile`：第 **50** 季归零（`inbreeding_load` 的注释记了 0.55 是怎么
+///   扫出来的，以及为什么 0.7 已越过悬崖）。
 ///
-/// **覆盖率随时间上升后趋平，不是在蚀**（`evolve`）：20 季 69.5%、
-/// 50 季 72.3%、100 季 76.7%、200 季 76.8%。设计文档 §7.1 承诺的「空掉的格
-/// 会被重新殖民、可用面积不只减不增」因此仍然成立。平台值比无地形时的 87.2%
-/// 低，原因是两股：��屏障限制移动，以及存量梯度会制造聚集（见设计文档
-/// §2.1 的补充说明 —— 梯度不填空，它重新分配）。
+/// **逐季表里的 H_obs / F / Ne 是物种 1 自己的，不是全世界的** —— 阶段 3
+/// 之前只有一个物种所以两者等价，现在不等价了，列名已写成 `H_obs(sp1)`。
 ///
-/// **此前挂在这里的所有读数组已全部作废**：决策 14 把老化的销毁时机从 flush
-/// 末尾挪到季首，阶段 2 又把可用面积砍到 30% 并改写了移动规则。下面世代数换算
-/// 里的平均年龄沿用更早那组读数，只作量级示意。
+/// **两个最大的物种对应两块最大的陆块，且它们始终不合并**：连通分量在移动下
+/// 是不变量（4 邻域逐格判通行），繁殖侧同样封闭（水格 capacity = 0 ⇒
+/// headroom ≤ 0 ⇒ 不发站点），所以跨陆块的基因流**结构上不可能**发生。
+///
+/// **覆盖率仍在上升后趋平**（20 季 71.3% → 200 季 78.0%），设计文档 §7.1 的
+/// 「空掉的格会被重新殖民」在三个阶段之后依然成立。
+///
+/// **此前挂在这里的所有读数组已全部作废**（决策 14 作废过一组、阶段 2 作废过
+/// 一组、这里第三次）。下面世代数换算里的平均年龄沿用更早那组读数，只作量级
+/// 示意。
 ///
 /// **世代数是按周转率算的，不是按寿命上限算的**：平均年龄 = 1/死亡率，短
 /// 寿命那套换代约比长寿命那套快一倍，而寿命上限是 8 对 80（10:1）。绝大
@@ -116,7 +122,7 @@ enum class Preset
 /// 近交衰退强度。只有 fragile 打开，另两套为 0（整季行为与引入之前逐位相同）。
 [[nodiscard]] constexpr float inbreeding_load(const Preset p) noexcept
 {
-    return p == Preset::Fragile ? 0.7f : 0.0f;
+    return p == Preset::Fragile ? 0.55f : 0.0f;
 }
 
 [[nodiscard]] const char* preset_name(const Preset p) noexcept
@@ -270,27 +276,25 @@ GeneticsConfig build_genetics(const Preset preset)
     // 从杂合度反推，是**种群级**的量（genetics 设计文档 §2 决定不追踪家谱），
     // 整群共用同一个数，因此这一项表达的是「群体近交程度整体压低存活」。
     //
-    // 0.7 这个值是在**无地形**的老读数上实测出来的，阈值在 0.5 与 0.7 之间，
-    // 一次干净的分岔：0.25 / 0.4 / 0.5 都能跑满 200 季，0.7 则归零。
+    // 0.55 这个值在**阶段 3 的地形地图**上重扫过。悬崖夹在 0.50 与 0.55 之间：
     //
-    // **阶段 2 之后 0.7 已经越过悬崖，不再停在临界点上。** 地形把可用面积砍到
-    // 30% 并把地图碎成十几个陆块，fragile 的归零点从第 52 季提前到**第 25 季**。
-    // 这正是下面那条耦合的又一次发作：Σw² 的基线是 1/N，而 N 由每个亲代池
-    // 的大小决定 —— 陆地碎化后同一邻域里的个体更少、N 更小、基线更高，
-    // 0.7 因此压得更狠。**想在碎片化的世界上恢复「刚好压垮」的悬崖，
-    // 得把 0.7 往下重调**，本轮没有调：fragile 只证明「压得垮」，
-    // 而悬崖位置需要把 0.25/0.4/0.5/0.7 在新地图上全部重跑一遍才能定。
+    //   0.50  872 → 768 → 619 → 733 → 728（跑满 200 季，低位企稳）
+    //   0.52  834 → 547 → 280 → 234 → 0（第 150~200 季之间灭绝）
+    //   0.55  第 50 季归零
+    //   0.60  第 31 季归零
+    //   0.70  第 17 季归零
     //
-    // 它比旧口径（走 genetics::summarize 的 f_coefficient）小一个量级，因为
-    // Σw² 的基线在 0.1 ~ 0.5，而那一路的读数只有 0.03 ~ 0.07。
+    // **0.7 曾经也在这张表上，而且不是临界点。** 阶段 2 把可用面积砍到 30%、
+    // 阶段 3 播种改成 32 个创始基因型的强瓶颈之后（Σw² 基线 = 1/N，而 N 由
+    // 亲代池大小决定），0.7 压得太狠 —— 它比 0.55 更远离悬崖而不是更靠近。
+    // 0.55 取「第 50 季灭绝」，与阶段 2 之前的 52 季几乎一致，demo 的性格没变。
     //
     // **它与 mating_radius_cells 耦合，改邻域就得重调。** Σw² 的基线就是 1/N，
-    // 而 N 直接由邻域大小决定：原来那个分岔只对当前
-    // EnvironmentConfig::mating_radius_cells = 1 成立；半径调到 4 相当于把每个
-    // 亲代池撑大九倍、Σw² 压到九分之一，0.7 就再也压不垮任何东西。
-    // 这条耦合由 world_tests 的
+    // 而 N 直接由邻域大小决定。半径调到 4 相当于把每个亲代池撑大九倍、
+    // Σw² 压到九分之一，这一档就再也压不垮任何东西。这条耦合由 world_tests 的
     // mating_radius_widens_the_pool_and_relieves_inbreeding 守着——它盯的是
     // 「半径变宽 ⇒ 惩罚变轻」这个方向，不是某个具体阈值。
+    //
     c.inbreeding_load = inbreeding_load(preset);
 
     // g(E) 会把气候偏移折成性状增量：|temperature| × load 加进 Metabolism，
@@ -331,14 +335,21 @@ SpeciesMask all_loci()
 
 /// 随机起点。全零 Genome 是全体纯合、零遗传方差的世界——那样只剩漂变，
 /// 没有选择可言。
-Genome random_genome(std::mt19937_64& rng)
+/// 取一个 0/1 等位基因。`random_genome` 与 `seed` 的播种突变共用它 ——
+/// 同一件事不留两份同义实现。
+[[nodiscard]] AlleleId random_allele(std::mt19937_64& rng)
 {
     std::uniform_int_distribution<int> pick{0, 1};
+    return static_cast<AlleleId>(pick(rng));
+}
+
+Genome random_genome(std::mt19937_64& rng)
+{
     Genome g{};
     for (std::size_t i = 0; i < kLocusCount; ++i)
     {
-        g.a[i] = AlleleCall{static_cast<AlleleId>(pick(rng)), 0};
-        g.b[i] = AlleleCall{static_cast<AlleleId>(pick(rng)), 0};
+        g.a[i] = AlleleCall{random_allele(rng), 0};
+        g.b[i] = AlleleCall{random_allele(rng), 0};
     }
     return g;
 }
@@ -356,6 +367,20 @@ void seed(gamev2::world::World& world, const SpeciesId sid,
     auto& entities = world.entities();
     const auto& env = world.environment();
     std::uniform_real_distribution<float> jitter{0.05f, 0.95f};
+
+    // 全球单一创始池：全图 ≈ 2400 个个体 descended from 这一小撮。原来的
+    // 「每体一份独立随机基因型」让同格的邻居毫无亲缘关系，主大陆从第 0 季起
+    // 就是几千个互不相关谱系的混合物 —— 实测第 0 季 divergence 就 1.75
+    // （值域 [0, 150]），真分化与初始抽样噪声根本分不开。实测见设计文档 §2.3。
+    std::vector<Genome> founders;
+    founders.reserve(env.config().seed_founder_pool);
+    for (std::uint32_t f = 0; f < env.config().seed_founder_pool; ++f)
+    {
+        founders.push_back(random_genome(rng));
+    }
+    std::uniform_int_distribution<std::size_t> pick_founder{
+        0, founders.size() - 1};
+    std::uniform_real_distribution<float> mutate{0.0f, 1.0f};
 
     for (std::size_t c = 0; c < kCellCount; ++c)
     {
@@ -375,7 +400,16 @@ void seed(gamev2::world::World& world, const SpeciesId sid,
         const auto base_y = static_cast<float>(c / kGridSide);
         for (std::size_t i = 0; i < n; ++i)
         {
-            const auto genome = random_genome(rng);
+            auto genome = founders[pick_founder(rng)];
+            // 每个个体带一点点私有差异，不足以让它变成独立的谱系。
+            for (std::size_t l = 0; l < kLocusCount; ++l)
+            {
+                if (mutate(rng) < env.config().seed_mutation_rate)
+                {
+                    genome.a[l].allele = random_allele(rng);
+                    genome.b[l].allele = random_allele(rng);
+                }
+            }
             const EntityId e = entities.create();
             (void)entities.add<SpeciesTag>(e, SpeciesTag{sid});
             (void)entities.add<Genome>(e, genome);
@@ -490,8 +524,13 @@ int main(const int argc, char** argv)
     // 是将近一分钟的干等。age_seasons 是亲子代的分割线：AgingSystem 在 flush
     // 之前就跑完了，flush 才创建的子代因此挂着默认构造的 Vitality（age 为 0），
     // 而活过本季的个体都被递增过（world 测试用的是同一把尺子）。
-    std::println("\n{:>6}  {:>7}  {:>7}  {:>7}  {:>8}  {:>7}  {:>5}",
-                 "season", "pop", "born", "died", "H_obs", "F", "Ne");
+    // H_obs / F / Ne 取的是**物种 1 自己的**统计，而 pop 是全部物种之和。
+    // 阶段 3 之前只有一个物种，两者等价；裂变之后不等价了，列名必须说清楚，
+    // 否则 H_obs 一栏会让人误以为是全世界的多样性。逐物种的数字在末尾的
+    // 「物种 N census ...」那一段里。
+    std::println("\n{:>6}  {:>7}  {:>7}  {:>7}  {:>9}  {:>8}  {:>6}",
+                 "season", "pop", "born", "died", "H_obs(sp1)", "F(sp1)",
+                 "Ne(sp1)");
 
     std::size_t previous = initial;
     std::size_t low_pop = 0;
@@ -537,6 +576,33 @@ int main(const int argc, char** argv)
         previous = report.population;
     }
 
+    // 物种逐项列出。阶段 3 之后物种数不再恒为 1，这是本阶段最直观的观测量。
+    // 用 `world.last_season()` 而不是循环里的局部 `report` —— 后者出了循环
+    // 就不在作用域里了，而 `last_season()` 拿的正是同一份（World 在
+    // season_report 里缓存它）。
+    const auto& report = world.last_season();
+    {
+        std::size_t coexisting = 0;
+        for (const auto& s : report.species)
+        {
+            if (s.census > 0)
+            {
+                ++coexisting;
+            }
+        }
+        std::println("\n物种 {}（census > 0 的 {} 个）：",
+                     world.species().species_count(), coexisting);
+        for (std::size_t k = 0; k < report.species.size(); ++k)
+        {
+            const auto& s = report.species[k];
+            if (s.census == 0)
+            {
+                continue;
+            }
+            std::println("  物种 {}  census {:>5}  H_obs {:.4f}  F {:.4f}",
+                         k + 1, s.census, s.heterozygosity, s.f_coefficient);
+        }
+    }
     if (previous == 0)
     {
         std::println("\n第 {} 季种群归零。", low_season);

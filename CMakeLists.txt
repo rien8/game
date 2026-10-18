@@ -55,6 +55,7 @@ set(GENETICS_SOURCES
     src/genetics/statistics.cpp
     src/genetics/population.cpp
     src/ecs/adapt/genetics_systems.cpp
+    src/ecs/adapt/speciation.cpp
 )
 add_library(genetics STATIC ${GENETICS_SOURCES})
 target_include_directories(genetics PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -74,6 +75,7 @@ set(GENETICS_TEST_SOURCES
     tests/test_genetics_determinism.cpp
     tests/test_genetics_performance.cpp
     tests/test_genetics_systems.cpp
+    tests/test_speciation.cpp
 )
 add_executable(genetics_tests ${GENETICS_TEST_SOURCES})
 # environment 只挂在可执行目标上，不挂 genetics——见下面那条不变量。链路

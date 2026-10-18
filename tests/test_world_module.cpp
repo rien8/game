@@ -8,8 +8,11 @@
 #include "gamev2/genetics/phenotype.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
+#include <random>
 #include <vector>
 
 namespace {
@@ -31,6 +34,7 @@ using gamev2::environment::EnvironmentConfig;
 using gamev2::environment::kCellCount;
 using gamev2::environment::kGridSide;
 using gamev2::genetics::AlleleCall;
+using gamev2::genetics::AlleleId;
 using gamev2::genetics::Genome;
 using gamev2::genetics::GeneticsConfig;
 using gamev2::genetics::LocusKind;
@@ -268,6 +272,56 @@ struct Fixture
         return census(world.entities(), world.species().species_count());
     }
 };
+
+/// 世界 × 地形的集成夹具。**不碰既有 `Fixture`**：它把 `EnvironmentConfig`
+/// 与 `World` 的构造顺序焊死了，而这里需要在 World 建好之前就设
+/// `water_fraction` —— 世界层要守的正是「有地形时会不会裂变」。
+struct TerrainWorld
+{
+    LocusTable table{neutral_table()};
+    GeneticsConfig genetics{steady_genetics()};
+    EnvironmentConfig config{roomy_config()};
+    SpeciesId sid{};
+    std::optional<gamev2::world::World> world;
+
+    explicit TerrainWorld(const float water_fraction)
+        : config{roomy_config()}
+    {
+        config.water_fraction = water_fraction;
+        // hysteresis = 1：world 层的这条只守「接线对了」，条件 (d) 由
+        // test_speciation.cpp 的两条迟滞测试守。
+        config.speciation_hysteresis = 1;
+        // emplace 在 config 赋值之后发生，因此 World 看到的是改过的值。
+        // World 不可移动，但 optional 的就地构造不需要移动。
+        world.emplace(table, genetics, config, 31);
+        const auto reg = world->species().register_species(all_loci());
+        CHECK(reg.has_value());
+        sid = *reg;
+    }
+
+    [[nodiscard]] gamev2::world::World& get() { return *world; }
+};
+
+/// 确定性但逐位不同的基因组，按 `tag` 在两位之间取一。
+///
+/// 全零 Genome 是全体纯合、零遗传方差的世界 —— 那样只有漂变、没有分化可言。
+/// **`tag` 必须真的起作用**：全部个体拿同一份基因组时两组之间 divergence 恒
+/// 为 0，裂变永远不会触发，而症状是「born == 0」而非任何报错。tag 不同则
+/// 每个位点 |Δf| = 1 ⇒ divergence = 300 / 2 = 150，远超 θ = 10。
+///
+/// 不引入随机流：`tag` 的取法确定，因此同 seed 逐位可复现。
+[[nodiscard]] Genome patterned_genome(const int tag)
+{
+    Genome g{};
+    const auto a0 = static_cast<AlleleId>(tag % 2);
+    const auto b0 = static_cast<AlleleId>((tag / 2) % 2);
+    for (std::size_t i = 0; i < kLocusCount; ++i)
+    {
+        g.a[i] = AlleleCall{static_cast<AlleleId>((i + a0) % 2), 0};
+        g.b[i] = AlleleCall{static_cast<AlleleId>((i / 2 + b0) % 2), 0};
+    }
+    return g;
+}
 
 }  // namespace
 
@@ -1050,4 +1104,189 @@ TEST(a_season_that_did_not_run_every_substep_is_reported)
     // 头文件的 \pre 与设计文档都承诺 error 级；只按 code 过滤的话，把它
     // 降成 warning 照样全绿。
     CHECK(seen.front().level == DiagnosticLevel::error);
+}
+
+TEST(the_world_splits_a_species_across_two_landmasses)
+{
+    // World 层的接线守卫：SpeciationSystem 必须排在换代 flush 之后、统计之前。
+    // 排在统计之后，季末报告会把刚裂出来的物种连同它的全部个体一起漏掉
+    // （设计文档 §4.3）。末尾那句「两个新物种的 census 之和 == 全部个体数」
+    // 正是这条次序的判据：漏了谁就会少谁。
+    TerrainWorld t{0.70f};
+    auto& w = t.get();
+
+    // 选两块离得最远的可通行格。**不用整块陆块**：一个陆地格里塞 40 个
+    // 个体时它就是一个连通分量，判据干净；而两块格离得够远就一定被水隔开。
+    std::vector<std::pair<float, float>> all;
+    for (std::size_t c = 0; c < kCellCount; ++c)
+    {
+        const auto cell = CellIndex{static_cast<std::uint16_t>(c)};
+        if (w.environment().terrain().passable(cell))
+        {
+            all.emplace_back(static_cast<float>(c % kGridSide) + 0.5f,
+                             static_cast<float>(c / kGridSide) + 0.5f);
+        }
+    }
+    CHECK(all.size() >= 2);
+    std::size_t placed = 0;
+    std::size_t far = 1;
+    double far_d = -1.0;
+    for (std::size_t i = 1; i < all.size(); ++i)
+    {
+        const auto dx = all[i].first - all[0].first;
+        const auto dy = all[i].second - all[0].second;
+        const auto d = dx * dx + dy * dy;
+        if (d > far_d)
+        {
+            far_d = d;
+            far = i;
+        }
+    }
+    std::vector<std::pair<float, float>> land{all[0], all[far]};
+    CHECK(far_d > 1000.0);
+
+    int tag = 0;
+    for (const auto& p : land)
+    {
+        for (int k = 0; k < 40; ++k)
+        {
+            const EntityId e = w.entities().create();
+            (void)w.entities().add<Position>(e, Position{p.first, p.second});
+            (void)w.entities().add<SpeciesTag>(e, SpeciesTag{t.sid});
+            (void)w.entities().add<Genome>(e, Genome{patterned_genome(tag)});
+            ++placed;
+        }
+        ++tag;
+    }
+    CHECK(land.size() >= 2);
+    CHECK(placed >= 80);
+
+    (void)w.run_season();
+
+    const auto [born, lost] = w.speciation_report();
+    CHECK(lost.empty());
+    CHECK_EQ(born.size(), std::size_t{2});
+    for (const auto& b : born)
+    {
+        CHECK_EQ(b.parent, t.sid);
+        CHECK(b.id != t.sid);
+        CHECK(b.founders >= 40);
+    }
+
+    // 两个新物种的 census 之和必须等于全部个体 —— 没漏。
+    std::size_t total = 0;
+    for (const auto& s : w.last_season().species)
+    {
+        total += s.census;
+    }
+    CHECK_EQ(total, placed);
+}
+
+TEST(water_actually_splits_the_population)
+{
+    // 设计文档 §9 测试 4。**阶段 2 交付了地形与屏障，但没有机制去读它** ——
+    // 招牌产出「屏障两侧分成两群」当时只是一句推断。阶段 3 才有消费者。
+    //
+    // 同一份播种跑两遍，**只有水陆比不同**：
+    //   有屏障 ⇒ 每个陆块各自一个连通分量 ⇒ 各块基因组不同就各自裂变
+    //   无屏障 ⇒ 整张图一个连通分量 ⇒ 没有可裂的 g ⇒ 零裂变
+    //
+    // 因此这条守的是「屏障确实是分化的原因」。与 `no_speciation_without_a_
+    // second_landmass`（test_speciation.cpp）不同：那条把水陆比钉成 0 并断言
+    // 零裂变，这条做的是**同一世界两种地形**的对照。
+    //
+    // 个体只挂 Position / SpeciesTag / Genome：缺 CreaturePhenotype 与
+    // Vitality 让 AgingSystem 与 BreedingSystem 跳过它们，于是它们既不死也不
+    // 生，`MovementSystem` 同样跳过 —— 位置一季不变，连通分量因此完全确定，
+    // 这条测试只测「屏障 × 裂变机制」这一件事。
+    /// 返回 {物种数, 陆块数}。两个都带出来是因为「无屏障 ⇒ 恰好一个陆块」
+    /// 本身就是被测性质的一部分，报出来才不会把「地形没生成」误当成
+    /// 「屏障起作用了」。
+    const auto after = [](const float water)
+    {
+        TerrainWorld t{water};
+        auto& w = t.get();
+
+        // 先给每块陆地编号，再按编号给不同的基因组 —— 分化是**构造**出来的，
+        // 因此「没有屏障就不裂」这条归因干净：变量只有地形。
+        std::vector<int> block(kCellCount, -1);
+        int next_block = 0;
+        std::vector<std::size_t> stack;
+        for (std::size_t c = 0; c < kCellCount; ++c)
+        {
+            const auto cell = CellIndex{static_cast<std::uint16_t>(c)};
+            if (block[c] >= 0 || !w.environment().terrain().passable(cell))
+            {
+                continue;
+            }
+            const int id = next_block++;
+            stack.assign(1, c);
+            while (!stack.empty())
+            {
+                const auto i = stack.back();
+                stack.pop_back();
+                const auto ci = CellIndex{static_cast<std::uint16_t>(i)};
+                if (block[i] >= 0
+                    || !w.environment().terrain().passable(ci))
+                {
+                    continue;
+                }
+                block[i] = id;
+                const auto x = i % kGridSide;
+                const auto y = i / kGridSide;
+                if (x > 0)
+                {
+                    stack.push_back(i - 1);
+                }
+                if (x + 1 < kGridSide)
+                {
+                    stack.push_back(i + 1);
+                }
+                if (y > 0)
+                {
+                    stack.push_back(i - kGridSide);
+                }
+                if (y + 1 < kGridSide)
+                {
+                    stack.push_back(i + kGridSide);
+                }
+            }
+        }
+        // 每块陆地铺满 capacity × 0.6，让所有够 min_founder 的陆块都有机会裂。
+        for (std::size_t c = 0; c < kCellCount; ++c)
+        {
+            if (block[c] < 0)
+            {
+                continue;
+            }
+            const auto cell = CellIndex{static_cast<std::uint16_t>(c)};
+            const auto n = static_cast<int>(std::max(
+                1.0f, w.environment().resources().capacity(cell) * 0.6f));
+            const auto x = static_cast<float>(c % kGridSide) + 0.5f;
+            const auto y = static_cast<float>(c / kGridSide) + 0.5f;
+            for (int k = 0; k < n; ++k)
+            {
+                const EntityId e = w.entities().create();
+                (void)w.entities().add<Position>(e, Position{x, y});
+                (void)w.entities().add<SpeciesTag>(e, SpeciesTag{t.sid});
+                (void)w.entities().add<Genome>(
+                    e, Genome{patterned_genome(block[c])});
+            }
+        }
+
+        // 迟滞是 1（TerrainWorld 已设），跑一季就够 —— 位置不变所以一季即定型。
+        (void)w.run_season();
+        return std::make_pair(w.species().species_count(),
+                              static_cast<std::size_t>(next_block));
+    };
+
+    const auto [with_water_species, with_water_blocks] = after(0.70f);
+    const auto [flat_species, flat_blocks] = after(0.0f);
+
+    // 无屏障：按定义整张图就是一个陆块 ⇒ 零裂变。
+    CHECK_EQ(flat_blocks, std::size_t{1});
+    CHECK_EQ(flat_species, std::size_t{1});
+    // 有屏障：地形确实切出了多块，且每块各自成种。
+    CHECK(with_water_blocks >= 2);
+    CHECK(with_water_species > 1);
 }

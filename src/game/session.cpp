@@ -46,10 +46,32 @@ void GameSession::advance_one_season()
     {
         world_.step_once();
     }
+    // 上一季的报告留在这儿，只为取「刚灭绝那支的归零前规模」—— 本季报告里
+    // 它的 census 已经是 0 了。
+    previous_ = scroll_.report;
     scroll_.report = world_.season_report();
     // +1 不是凑数：report.season 是刚结算完的那一季（0 基），seasons_elapsed
     // 是世界此刻所在的季，也是胜利进度条的分子。
     scroll_.seasons_elapsed = scroll_.report.season + 1;
+
+    const auto [born, lost] = world_.speciation_report();
+    scroll_.born.clear();
+    for (const auto& b : born)
+    {
+        scroll_.born.push_back(
+            BornSpecies{b.id, b.parent, b.founders, b.anchor});
+    }
+    scroll_.lost.clear();
+    for (const auto id : lost)
+    {
+        // SeasonReport::species 的下标是 SpeciesId::value - 1，直接换算。
+        const auto idx = static_cast<std::size_t>(id.value) - 1;
+        const auto before = idx < previous_.species.size()
+                                ? previous_.species[idx].census
+                                : 0;
+        scroll_.lost.push_back(LostSpecies{id, before});
+    }
+
     refresh_scroll();
 }
 

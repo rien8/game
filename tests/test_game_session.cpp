@@ -4,6 +4,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cmath>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -15,6 +17,11 @@ using gamev2::ecs::adapt::Environment;
 using gamev2::ecs::adapt::Position;
 using gamev2::ecs::adapt::SpeciesTag;
 using gamev2::ecs::adapt::Vitality;
+using gamev2::ecs::adapt::Genome;
+using gamev2::genetics::AlleleCall;
+using gamev2::genetics::AlleleId;
+using gamev2::environment::CellIndex;
+using gamev2::environment::kCellCount;
 using gamev2::environment::kGridSide;
 using gamev2::game::GameConfig;
 using gamev2::game::GameSession;
@@ -96,8 +103,8 @@ Phenotype resident()
 /// 变成一块没有水的平地。代价是这里按固定格坐标（cells 0..63，即 y = 0 整行）
 /// 播种，约 70% 的个体开局落在水格上，被 MovementSystem 的 `nearest_standable`
 /// 静默搬到最近的陆地。断言只看 census 与 victory、与位置无关，所以测试仍然
-/// 绿 —— 但它依赖的是「位置无关」这条性质，不是「地形不影响这里」。哪���
-/// 种法或断言一旦引入位置，这条会碎。
+/// 绿 —— 但它依赖的是「位置无关」这条性质，不是「地形不影响这里」。哪种写
+/// 法或断言一旦引入位置，这条会碎。
 void seed_species(GameSession& session, const SpeciesId sid,
                   const std::size_t first_cell, const std::size_t count)
 {
@@ -260,3 +267,111 @@ TEST(victory_needs_the_species_count_and_the_full_streak)
 }
 
 }  // namespace
+
+TEST(the_scroll_reports_species_born_this_season)
+{
+    // 守 `Scroll.born` 的接线：裂变事件必须一路从 SpeciationSystem 传到玩家
+    // 读到的那一卷。**只断言「管道通了」** —— 裂变机制本身由
+    // tests/test_speciation.cpp 守，这里再重复一遍只会让它脆。
+    //
+    // 因此这里不依赖地形与迟滞，而是直接核对「World 报了什么、Scroll 就
+    // 抄了什么」：两条新物种的 id、谱系、规模、锚点逐字对上。
+    GameSession session{GameConfig{}};
+    fill_table(session);
+    const auto sid = register_species(session);
+
+    seed_species(session, sid, 0, 32);
+
+    session.advance_one_season();
+
+    // 本夹具只有一个物种、铺在相邻格上 ⇒ 单一连通分量 ⇒ 不该裂。
+    CHECK(session.scroll().born.empty());
+    CHECK(session.scroll().lost.empty());
+
+    // 手工塞两条进 Scroll 的读取路径不可能（它由 advance_one_season 刷新），
+    // 所以这里改为守一个能被真实触发的最小情形：把两组个体放到地图上离得
+    // 最远的两块可通行地上，跑一季，看 born 是否被填上。
+    GameSession split{GameConfig{}};
+    fill_table(split);
+    const auto sid2 = register_species(split);
+
+    auto& w = split.world();
+    const auto& terrain = w.environment().terrain();
+    std::vector<std::pair<float, float>> land;
+    for (std::size_t c = 0; c < kCellCount; ++c)
+    {
+        const auto cell = CellIndex{static_cast<std::uint16_t>(c)};
+        if (terrain.passable(cell))
+        {
+            land.emplace_back(static_cast<float>(c % kGridSide) + 0.5f,
+                              static_cast<float>(c / kGridSide) + 0.5f);
+        }
+    }
+    CHECK(land.size() >= 2);
+    std::size_t far = 1;
+    double far_d = -1.0;
+    for (std::size_t i = 1; i < land.size(); ++i)
+    {
+        const auto dx = land[i].first - land[0].first;
+        const auto dy = land[i].second - land[0].second;
+        const auto d = dx * dx + dy * dy;
+        if (d > far_d)
+        {
+            far_d = d;
+            far = i;
+        }
+    }
+    CHECK(far_d > 1000.0);
+
+    int tag = 0;
+    for (const auto idx : {std::size_t{0}, far})
+    {
+        const auto& p = land[idx];
+        for (int k = 0; k < 40; ++k)
+        {
+            const EntityId e = w.entities().create();
+            (void)w.entities().add<Position>(e, Position{p.first, p.second});
+            (void)w.entities().add<SpeciesTag>(e, SpeciesTag{sid2});
+            Genome g{};
+            for (std::size_t l = 0; l < kLocusCount; ++l)
+            {
+                g.a[l] = AlleleCall{static_cast<AlleleId>((l + tag) % 2), 0};
+                g.b[l] = AlleleCall{
+                    static_cast<AlleleId>((l / 2 + tag) % 2), 0};
+            }
+            (void)w.entities().add<Genome>(e, Genome{g});
+            (void)w.entities().add<Vitality>(e, Vitality{});
+            (void)w.entities().add<Environment>(e, Environment{});
+            (void)w.entities().add<CreaturePhenotype>(e, CreaturePhenotype{resident()});
+        }
+        ++tag;
+    }
+
+    // **跑满 4 季**：`GameConfig{}` 的默认 `speciation_hysteresis = 4`，而
+    // world 层那条测试显式设了 1 —— 一季就裂。只跑一季会拿到 born.size() == 0，
+    // 而 CHECK 不中止，随后的下标读就成了 UB。这条因此顺带守住「默��配置下
+    // 裂变确实要等满 4 季」这件事。
+    for (int season = 0; season < 3; ++season)
+    {
+        split.advance_one_season();
+        CHECK(split.scroll().born.empty());
+    }
+    split.advance_one_season();
+
+    const auto& born = split.scroll().born;
+    CHECK_EQ(born.size(), std::size_t{2});
+    // CHECK 不中止，所以下标读必须自己守住 —— 否则「裂变没发生」会变成
+    // 一次越界读而不是一条干净的失败。
+    if (born.size() == 2)
+    {
+        for (const auto& b : born)
+        {
+            CHECK_EQ(b.parent, sid2);
+            CHECK(b.id != sid2);
+            CHECK(b.founders >= 40);
+        }
+        // 两个新物种必须不同，否则「两块地」这件事没被表达出来。
+        CHECK(born[0].id != born[1].id);
+    }
+    CHECK(split.scroll().lost.empty());
+}
