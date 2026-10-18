@@ -75,16 +75,18 @@ MovementSystem::richest_neighbour(const float x, const float y) const noexcept
     return best;
 }
 
-std::pair<float, float>
-MovementSystem::nearest_standable(const float x, const float y) const noexcept
+std::optional<std::pair<float, float>>
+MovementSystem::nearest_standable(
+    const float x, const float y, const std::vector<std::int32_t>& home_tag,
+    const std::int32_t home) const noexcept
 {
     using gamev2::environment::CellIndex;
     using gamev2::environment::kCellCount;
     using gamev2::environment::kGridSide;
 
-    const auto home = CellIndex::of(x, y);
-    const auto cx = static_cast<int>(home.value % kGridSide);
-    const auto cy = static_cast<int>(home.value / kGridSide);
+    const auto here = CellIndex::of(x, y);
+    const auto cx = static_cast<int>(here.value % kGridSide);
+    const auto cy = static_cast<int>(here.value / kGridSide);
     // 方环（切比雪夫）距离。度量只决定「哪些格算最近」，平手由下面那句的
     // 遍历序打破——换成人曼哈顿同样取到最近格，差别只在等距的一批里先取到
     // 哪个。选方环是因为本 system 的移动是四邻、轴对齐的，方环与那套模型
@@ -99,21 +101,81 @@ MovementSystem::nearest_standable(const float x, const float y) const noexcept
         const auto gy = static_cast<int>(c / kGridSide);
         return std::max(std::abs(gx - cx), std::abs(gy - cy));
     };
+    // home < 0 时无从追溯（首季、或个体开局就在水上），退回全局最近。
+    const auto in_home = [home, &home_tag](const std::size_t c)
+    {
+        return home < 0 || home_tag[c] == home;
+    };
     // 遍历序就是格号，而 min_element 取第一个最小元，因此同距离的平手有
     // 确定答案——否则同种子的两次运行可能各挑一个不同的落点。
     const auto nearest = std::ranges::min_element(
         std::views::iota(std::size_t{0}, kCellCount),
         [&](const std::size_t a, const std::size_t b)
         {
-            const auto passable_a = terrain_.passable(cell_of(a));
-            const auto passable_b = terrain_.passable(cell_of(b));
-            // 不可通行的格恒不优于任何格，因此只有整张图没有陆地时它才会
-            // 被选中——那时钳回无处可去，调用方只能把它留在原地。
-            return passable_a && (!passable_b || ring(a) < ring(b));
+            const auto ok_a = in_home(a) && terrain_.passable(cell_of(a));
+            const auto ok_b = in_home(b) && terrain_.passable(cell_of(b));
+            // 不合格的格恒不优于任何格，因此只有全图一个候选都没有时它才会
+            // 被选中——那正是下面返回 nullopt 的情形。
+            return ok_a && (!ok_b || ring(a) < ring(b));
         });
     const auto c = *nearest;
-    return {static_cast<float>(c % kGridSide) + 0.5f,
-            static_cast<float>(c / kGridSide) + 0.5f};
+    if (!in_home(c) || !terrain_.passable(cell_of(c)))
+    {
+        return std::nullopt;
+    }
+    return std::pair<float, float>{static_cast<float>(c % kGridSide) + 0.5f,
+                                    static_cast<float>(c / kGridSide) + 0.5f};
+}
+
+std::vector<std::int32_t> MovementSystem::component_of() const noexcept
+{
+    using gamev2::environment::CellIndex;
+    using gamev2::environment::kCellCount;
+    using gamev2::environment::kGridSide;
+
+    std::vector<std::int32_t> tag(kCellCount, -1);
+    std::vector<std::uint32_t> stack;
+    std::int32_t next = 0;
+    for (std::size_t seed = 0; seed < kCellCount; ++seed)
+    {
+        if (tag[seed] >= 0
+            || !terrain_.passable(CellIndex{static_cast<std::uint16_t>(seed)}))
+        {
+            continue;
+        }
+        const auto id = next++;
+        stack.assign(1, static_cast<std::uint32_t>(seed));
+        while (!stack.empty())
+        {
+            const auto c = stack.back();
+            stack.pop_back();
+            if (tag[c] >= 0
+                || !terrain_.passable(CellIndex{static_cast<std::uint16_t>(c)}))
+            {
+                continue;
+            }
+            tag[c] = id;
+            const auto x = c % kGridSide;
+            const auto y = c / kGridSide;
+            if (x > 0)
+            {
+                stack.push_back(c - 1);
+            }
+            if (x + 1 < kGridSide)
+            {
+                stack.push_back(c + 1);
+            }
+            if (y > 0)
+            {
+                stack.push_back(c - kGridSide);
+            }
+            if (y + 1 < kGridSide)
+            {
+                stack.push_back(c + kGridSide);
+            }
+        }
+    }
+    return tag;
 }
 
 void MovementSystem::advance(Position& position, const float dx,
@@ -148,7 +210,7 @@ void MovementSystem::advance(Position& position, const float dx,
     position.y = y;
 }
 
-void MovementSystem::execute(World& world, CommandBuffer& /*cmd*/)
+void MovementSystem::execute(World& world, CommandBuffer& cmd)
 {
     using gamev2::genetics::TraitKind;
     using gamev2::genetics::mix_seed;
@@ -159,6 +221,10 @@ void MovementSystem::execute(World& world, CommandBuffer& /*cmd*/)
     // 规则就会连带改掉全部出生结果，而那种整体漂移极难定位到是哪一处改动。
     std::mt19937_64 rng{
         mix_seed(mix_seed(root_seed_, season_index_), kMovementPurpose)};
+
+    // 钳回认「哪块地」用的是**上一次 execute 时**那张分量表：玩家的干预落在
+    // 两次 execute 之间，那之后算出来的分量里个体脚下已经是水（−1）。
+    const auto home_tag = tag_;
 
     world.for_each_entity([&](const EntityId e)
     {
@@ -172,14 +238,28 @@ void MovementSystem::execute(World& world, CommandBuffer& /*cmd*/)
         // BreedingSystem 对它的处理保持一致——三者对「谁参与世界运转」
         // 必须给出同一个答案，否则会凭空多出一个只消耗不生产的幽灵。
         //
-        // 起点落在水上（地形生成后由调用方播种时踩中，或阶段 4 玩家改写
-        // 地形）时先钳回最近的可行走格，否则它会在水里原地站一整季——
+        // 起点落在水上（地形生成后由调用方播种时踩中，或玩家改写地形）时先
+        // 钳回自己那块地上最近的可行走格，否则它会在水里原地站一整季——
         // 被水围死又撞着图边界的那一格连滑行都出不去。
+        //
+        // **钳回不得跨陆块**：全局最近会把个体静默扔到另一块地上，玩家一淹
+        // 地就无声地拆掉了屏障（决策 19）。因此落点只在自己上赛季所在的分量
+        // 里找；那一块地被整个淹掉时无处可去，销毁（决策 19 的后半句）。
         if (!standable(position->x, position->y))
         {
-            const auto landed = nearest_standable(position->x, position->y);
-            position->x = landed.first;
-            position->y = landed.second;
+            const auto here =
+                gamev2::environment::CellIndex::of(position->x, position->y);
+            const auto home =
+                home_tag.empty() ? -1 : home_tag[here.value];
+            const auto landed =
+                nearest_standable(position->x, position->y, home_tag, home);
+            if (!landed)
+            {
+                cmd.destroy(e);
+                return;
+            }
+            position->x = landed->first;
+            position->y = landed->second;
         }
 
         // Speed 允许为负（表型区间配错时），先夹到 [0, 3] 再取整。
@@ -221,6 +301,10 @@ void MovementSystem::execute(World& world, CommandBuffer& /*cmd*/)
 
         advance(*position, dx, dy, stride);
     });
+
+    // 记给下一季：这张表描述的是本季结束时地形的样子，而下一季的干预要到
+    // 那之后才落地，因此它正是「个体脚下那块地」在那时的拓扑。
+    tag_ = component_of();
 }
 
 }  // namespace gamev2::ecs::adapt

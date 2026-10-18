@@ -32,9 +32,33 @@ using gamev2::ecs::adapt::Position;
 using gamev2::environment::CellIndex;
 using gamev2::environment::EnvironmentConfig;
 using gamev2::environment::kCellCount;
+using gamev2::environment::kGridSide;
+using gamev2::environment::TerrainField;
 using gamev2::genetics::Phenotype;
 using gamev2::genetics::TraitKind;
 using gamev2::genetics::trait_index;
+
+[[nodiscard]] CellIndex cell_at(const std::uint16_t x, const std::uint16_t y)
+{
+    return CellIndex{static_cast<std::uint16_t>(y * kGridSide + x)};
+}
+
+/// 把 keep 判假的格全淹掉，只留下想要的陆块。夹具要摆的是「被水分隔的
+/// 两块地」，逐格 flood 写出来读不懂它们互不相连这件事。
+template <typename Keep>
+void carve(TerrainField& terrain, Keep keep)
+{
+    for (std::uint16_t y = 0; y < kGridSide; ++y)
+    {
+        for (std::uint16_t x = 0; x < kGridSide; ++x)
+        {
+            if (!keep(x, y))
+            {
+                terrain.flood(cell_at(x, y));
+            }
+        }
+    }
+}
 
 /// 只有 Speed 非默认，其余全给中性值——本测试只关心移动。
 Phenotype mover(const float speed)
@@ -336,4 +360,82 @@ TEST(a_gradient_bearing_creature_repeatedly_returns_to_rich_cells)
     // 效应量下限而不是裸 > ：裸 > 在梯度完全不起作用时也能过（两臂读数
     // 接近，裸 > 就是掷硬币）。1.05 按实测比值 1.1379 取，留了余量。
     CHECK(seeking > wandering * 1.05f);
+}
+
+TEST(a_stranded_creature_is_pulled_back_into_its_own_landmass)
+{
+    // 决策 19：钳回**不许跨陆块**。原实现用切比雪夫方环找**全局**最近的可
+    // 通行格，淹一块地就可能把它上面的个体静默扔到另一个陆块 —— 玩家的干
+    // 预能无声地拆掉屏障。
+    //
+    // 这条在旧实现下**也绿**（下面那条才是它真正的判别力所在）：个体脚下
+    // 被淹时，它四邻里只要还有陆地，那一格必属同一分量，全局最近与分量内
+    // 最近必然重合。它守的是另一半——钳回**不许退化成销毁**，也别把个体
+    // 送到另一块地上。夹具把两块地摆成 x < 16 与 x >= 48，中间全是水。
+    EnvironmentConfig config{};
+    config.water_fraction = 0.0f;
+    EnvironmentWorld env{20261016, config};
+    auto& terrain = env.terrain();
+    carve(terrain, [](const std::uint16_t x, const std::uint16_t y)
+          { return x < 16 || x >= 48 || (x == 16 && y == 32); });
+
+    World entities;
+    const EntityId e = place(entities, 16.5f, 32.5f, 0.0f);
+    MovementSystem movement{20261016, 0, env.resources(), terrain, 0.0f};
+    CommandBuffer cmd;
+    // 先走一季：MovementSystem 由此记下「个体脚下这块地的拓扑」，那才是
+    // 地形被改写之后唯一还能追溯到原来哪块地的凭据。
+    movement.execute(entities, cmd);
+    cmd.flush(entities);
+
+    terrain.flood(cell_at(16, 32));
+    movement.advance_season(1);
+    movement.execute(entities, cmd);
+    cmd.flush(entities);
+
+    CHECK(entities.is_alive(e));
+    const auto& p = at(entities, e);
+    // 没被送到 x >= 48 那块地上，也没被留在水里。
+    CHECK(p.x < 16.0f);
+    CHECK(terrain.passable(CellIndex::of(p.x, p.y)));
+}
+
+TEST(a_creature_whose_whole_landmass_is_flooded_is_destroyed)
+{
+    // 决策 19 的后半句：分量被整个淹没时个体无处可去，销毁。走
+    // `CommandBuffer::destroy`，与其他死亡路径同一条。
+    //
+    // **旧实现在这里才真的错**：它找全局最近，于是把个体静默搬到几十格外的
+    // 大陆上，世界从此多出一批「本该淹死却凭空活下来并开始繁殖」的个体。
+    // 夹具刻意留下那块大陆 —— 没有它，「销毁」与「搬运」会给出同一个可
+    // 观察结果。
+    EnvironmentConfig config{};
+    config.water_fraction = 0.0f;
+    EnvironmentWorld env{20261016, config};
+    auto& terrain = env.terrain();
+    carve(terrain, [](const std::uint16_t x, const std::uint16_t y)
+          {
+              return x >= 40 || (x >= 14 && x < 17 && y >= 31 && y < 34);
+          });
+
+    World entities;
+    const EntityId e = place(entities, 15.5f, 32.5f, 0.0f);
+    MovementSystem movement{20261016, 0, env.resources(), terrain, 0.0f};
+    CommandBuffer cmd;
+    movement.execute(entities, cmd);
+    cmd.flush(entities);
+    CHECK(entities.is_alive(e));
+
+    for (std::uint16_t y = 31; y < 34; ++y)
+    {
+        for (std::uint16_t x = 14; x < 17; ++x)
+        {
+            terrain.flood(cell_at(x, y));
+        }
+    }
+    movement.advance_season(1);
+    movement.execute(entities, cmd);
+    cmd.flush(entities);
+
+    CHECK(!entities.is_alive(e));
 }

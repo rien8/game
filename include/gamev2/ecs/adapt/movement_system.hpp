@@ -20,8 +20,10 @@
 #include "gamev2/environment/terrain.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 namespace gamev2::ecs::adapt {
 
@@ -100,13 +102,27 @@ private:
     [[nodiscard]] std::pair<float, float>
     richest_neighbour(const float x, const float y) const noexcept;
 
-    /// 离 (x, y) 最近的那个可通行格的中心。整张图没有陆地时原样返回。
+    /// 离 (x, y) 最近的可行走格，**限个体自己所在的那个连通分量内**
+    /// （决策 19）。四邻不够用：被水围死又撞着图边界的那一格，逐格判通行加
+    /// 沿墙滑行永远出不去。
     ///
-    /// 四邻不够用：被水围死又撞着图边界的那一格，逐格判通行加沿墙滑行
-    /// 永远出不去——设计文档 §7.2 契约 3 的钳回按「最近的可行走格」定，
-    /// 不是按「邻格可达」。
-    [[nodiscard]] std::pair<float, float>
-    nearest_standable(const float x, const float y) const noexcept;
+    /// `home_tag` 是**上一次 execute 时**的连通分量表，`home` 是 (x, y) 在
+    /// 其中所属的分量（−1 表示那时它就已经是水，无从追溯）。地形改写发生在
+    /// 两次 execute 之间，因此改写之后再算分量只会读到 −1 —— 拿它认「个体
+    /// 原来属于哪块地」永远是错的。
+    ///
+    /// 返回 `std::nullopt` 表示「自己这个分量里已经没有可站的地方了」，
+    /// 调用方据此销毁该个体。`home < 0` 时退回**全局**最近：个体开局就在
+    /// 水上，没有分量可依，而把它留在水里只会被静默饿死。
+    [[nodiscard]] std::optional<std::pair<float, float>> nearest_standable(
+        float x, float y, const std::vector<std::int32_t>& home_tag,
+        std::int32_t home) const noexcept;
+
+    /// 全图的连通分量打标表：每格存它所属分量的编号，不可通行的格是 -1。
+    ///
+    /// **每次 execute 算一次，不是每个落水个体算一次** —— 玩家淹一块地可能
+    /// 牵涉上千个体，逐个泛洪是 O(个体数 × kCellCount)。
+    [[nodiscard]] std::vector<std::int32_t> component_of() const noexcept;
 
     /// 朝 (dx, dy) 推进 stride 格，逐格判通行；撞墙先试只走 x 再试只走 y，
     /// 两边都不通就停在最后一个能站的格。
@@ -118,6 +134,11 @@ private:
     const gamev2::environment::ResourceField& resources_;
     const gamev2::environment::TerrainField& terrain_;
     float gradient_weight_ = 0.0f;
+
+    /// **上一次 execute 结束时**的连通分量表。玩家的干预落在两次 execute
+    /// 之间，因此这是唯一能认出「个体原来属于哪块地」的依据——干预之后它
+    /// 脚下已是水，那张表里是 -1。首季为空，即「无从追溯」。
+    std::vector<std::int32_t> tag_;
 };
 
 }  // namespace gamev2::ecs::adapt
