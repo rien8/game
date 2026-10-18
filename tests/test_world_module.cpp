@@ -8,6 +8,7 @@
 #include "gamev2/genetics/phenotype.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -1289,4 +1290,67 @@ TEST(water_actually_splits_the_population)
     // 有屏障：地形确实切出了多块，且每块各自成种。
     CHECK(with_water_blocks >= 2);
     CHECK(with_water_species > 1);
+}
+
+TEST(a_painted_terrain_edit_lands_at_the_start_of_the_next_season)
+{
+    // 决策 20：干预进队列，季初 `open_season` 统一写入。守的是**时机** ——
+    // 本季立刻就变，还是下一季开季才变。
+    TerrainWorld t{0.70f};
+    auto& w = t.get();
+
+    // 找一个可通行格，把它排进「变成水」的队列。
+    std::size_t land = kCellCount;
+    for (std::size_t c = 0; c < kCellCount; ++c)
+    {
+        const auto cell = CellIndex{static_cast<std::uint16_t>(c)};
+        if (w.environment().terrain().passable(cell))
+        {
+            land = c;
+            break;
+        }
+    }
+    CHECK(land < kCellCount);
+    const std::array<CellIndex, 1> cells{
+        CellIndex{static_cast<std::uint16_t>(land)}};
+
+    const auto queued = w.queue_terrain_edit(cells, false);
+    CHECK_EQ(queued, std::size_t{1});
+    // **尚未生效**：地形此刻还没变。
+    CHECK(w.environment().terrain().passable(cells[0]));
+    CHECK_EQ(w.pending_terrain_edits(), std::size_t{1});
+
+    // 跑一整季。季末读数时地形应当已经变了 —— 队列在季初落地。
+    (void)w.run_season();
+    CHECK(!w.environment().terrain().passable(cells[0]));
+    CHECK_EQ(w.pending_terrain_edits(), std::size_t{0});
+}
+
+TEST(a_terrain_edit_can_be_undone_before_the_season_ends)
+{
+    // 季内可撤是误点护栏；撤不掉的那些在季末落地后就是历史。
+    TerrainWorld t{0.70f};
+    auto& w = t.get();
+
+    std::vector<CellIndex> cells;
+    for (std::size_t c = 0; c < kCellCount && cells.size() < 4; ++c)
+    {
+        const auto cell = CellIndex{static_cast<std::uint16_t>(c)};
+        if (w.environment().terrain().passable(cell))
+        {
+            cells.push_back(cell);
+        }
+    }
+    CHECK(cells.size() == 4);
+
+    CHECK_EQ(w.queue_terrain_edit(cells, false), std::size_t{4});
+    CHECK_EQ(w.undo_terrain(cells), std::size_t{4});
+    CHECK_EQ(w.pending_terrain_edits(), std::size_t{0});
+
+    (void)w.run_season();
+    // 撤掉了，所以地形没变。
+    for (const auto& c : cells)
+    {
+        CHECK(w.environment().terrain().passable(c));
+    }
 }

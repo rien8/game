@@ -1,5 +1,7 @@
 #include "gamev2/world/world.hpp"
 
+#include <algorithm>
+#include <span>
 #include <string>
 
 namespace gamev2::world {
@@ -66,6 +68,10 @@ void World::step_once()
 
 void World::open_season()
 {
+    // 待生效的干预在这里落地，排在移动之前 —— 否则个体先按旧地形走了一步，
+    // 才发现自己脚下被淹了。
+    flush_edits();
+
     // 三处 season_index_ 都在各自消费它的入口一次性使用（移动的随机流、
     // climate().advance、RandomStreams），因此推进必须整体发生在它们各自
     // 读之前。
@@ -140,6 +146,97 @@ std::vector<SeasonReport> World::run_seasons(const std::uint32_t count)
         reports.push_back(run_season());
     }
     return reports;
+}
+
+std::size_t World::queue_terrain_edit(
+    const std::span<const gamev2::environment::CellIndex> cells,
+    const bool make_land)
+{
+    std::size_t queued = 0;
+    for (const auto& cell : cells)
+    {
+        // 已经在目标状态的格不入队：玩家要拿返回值当笔刷的反馈，
+        // 「涂了 40 格结果返回 40」比「返回 12」更难解释。
+        if (env_.terrain().passable(cell) == make_land)
+        {
+            continue;
+        }
+        pending_.push_back(TerrainEdit{cell, make_land});
+        ++queued;
+    }
+    return queued;
+}
+
+std::size_t World::undo_terrain(
+    const std::span<const gamev2::environment::CellIndex> cells)
+{
+    const auto before = pending_.size();
+    std::erase_if(pending_,
+                  [&cells](const TerrainEdit& e)
+                  {
+                      return std::ranges::any_of(
+                          cells,
+                          [&e](const auto& c)
+                          {
+                              return c.value == e.cell.value;
+                          });
+                  });
+    return before - pending_.size();
+}
+
+std::size_t World::queue_climate_edit(
+    const std::span<const gamev2::environment::CellIndex> cells, const float delta)
+{
+    std::size_t queued = 0;
+    for (const auto& cell : cells)
+    {
+        const auto it = std::ranges::find_if(
+            pending_climate_,
+            [&cell](const auto& p)
+            {
+                return p.first.value == cell.value;
+            });
+        if (it != pending_climate_.end())
+        {
+            it->second += delta;
+        }
+        else
+        {
+            pending_climate_.emplace_back(cell, delta);
+        }
+        ++queued;
+    }
+    return queued;
+}
+
+void World::flush_edits()
+{
+    const bool touched_terrain = !pending_.empty();
+    for (const auto& [cell, make_land] : pending_)
+    {
+        if (make_land)
+        {
+            env_.terrain().drain(cell);
+        }
+        else
+        {
+            env_.terrain().flood(cell);
+        }
+    }
+    pending_.clear();
+
+    for (const auto& [cell, delta] : pending_climate_)
+    {
+        env_.climate().adjust_temperature(cell, delta);
+    }
+    pending_climate_.clear();
+
+    if (touched_terrain)
+    {
+        // 填水造陆的那几格必须在同一次 flush 里拿回承载力，否则它们会以
+        // 0 capacity 进入第一季摄食。
+        env_.resources().rebind_terrain(env_.terrain());
+    }
 }
 
 }  // namespace gamev2::world

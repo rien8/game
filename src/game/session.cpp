@@ -1,5 +1,7 @@
 #include "gamev2/game/session.hpp"
 
+#include <span>
+
 namespace gamev2::game {
 
 namespace {
@@ -100,6 +102,30 @@ void GameSession::refresh_scroll() noexcept
     scroll_.seasons_to_victory =
         scroll_.victory ? 0
                         : config_.target_seasons - coexist_seasons_;
+}
+
+std::size_t GameSession::paint_terrain(
+    const std::span<const gamev2::environment::CellIndex> cells)
+{
+    return world_.queue_terrain_edit(cells, false);
+}
+
+std::size_t GameSession::raise_land(
+    const std::span<const gamev2::environment::CellIndex> cells)
+{
+    return world_.queue_terrain_edit(cells, true);
+}
+
+std::size_t GameSession::undo_terrain(
+    const std::span<const gamev2::environment::CellIndex> cells)
+{
+    return world_.undo_terrain(cells);
+}
+
+std::size_t GameSession::paint_climate(
+    const std::span<const gamev2::environment::CellIndex> cells, const float delta)
+{
+    return world_.queue_climate_edit(cells, delta);
 }
 
 }  // namespace gamev2::game

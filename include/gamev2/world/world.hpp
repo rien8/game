@@ -21,6 +21,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -148,10 +149,37 @@ public:
     /// 这条等价性是可测的，也是日后加存档的前提。
     [[nodiscard]] std::vector<SeasonReport> run_seasons(std::uint32_t count);
 
+    /// 把这些格排进「变成不可通行」/「变回可通行」的待生效队列。
+    ///
+    /// \post 返回实际入队的格数 —— 已经在目标状态的格不算。玩家要拿这个
+    ///   数字当反馈，而落地时不报告「改了哪些格子」、也不预测后果
+    ///   （设计文档 §7.2 契约 6）。
+    std::size_t queue_terrain_edit(std::span<const gamev2::environment::CellIndex> cells,
+                                   bool make_land);
+
+    /// 从待生效队列里撤回这些格。**只撤还没落地的** —— 季初落地之后即为
+    /// 历史，没有撤销路径（决策 20）。
+    std::size_t undo_terrain(std::span<const gamev2::environment::CellIndex> cells);
+
+    /// 排一次气候笔刷。同一格多次排队时**累加**而不是覆盖，否则玩家涂两下
+    /// 反而把第一下抹掉了。
+    std::size_t queue_climate_edit(
+        std::span<const gamev2::environment::CellIndex> cells, float delta);
+
+    /// 还没落地的地形格数。UI 用它决定「撤销」按钮亮不亮。
+    [[nodiscard]] std::size_t pending_terrain_edits() const noexcept
+    {
+        return pending_.size();
+    }
+
 private:
     /// 季首：推进三处季号，跑移动与老化那一批，再收集摄食输入。
     /// 只由 step_once 在 tick_ == 0 时调用。
     void open_season();
+
+    /// 把待生效队列写进环境。排在移动之前，否则个体先按旧地形走了一步，
+    /// 才发现自己脚下被淹了。
+    void flush_edits();
 
     gamev2::genetics::GeneticsConfig genetics_config_;
     gamev2::genetics::SpeciesRegistry species_;
@@ -189,6 +217,17 @@ private:
     std::vector<gamev2::ecs::adapt::BornSpecies> born_;
     std::vector<gamev2::genetics::SpeciesId> lost_;
     SeasonReport last_;
+
+    /// 待生效的地形编辑。`make_land` 为 true 表示「把水填成陆」——不翻成
+    /// 不可通行，而是 drain，因此填出来的陆地把 capacity 拿回来了。
+    struct TerrainEdit
+    {
+        gamev2::environment::CellIndex cell;
+        bool make_land;
+    };
+    std::vector<TerrainEdit> pending_;
+    /// 逐格的待生效温度增量。累加而非覆盖，见 queue_climate_edit 的注释。
+    std::vector<std::pair<gamev2::environment::CellIndex, float>> pending_climate_;
 };
 
 }  // namespace gamev2::world

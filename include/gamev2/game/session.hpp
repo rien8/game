@@ -14,11 +14,12 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 namespace gamev2::game {
 
-/// 一局的配置。玩家干预工具（画屏障 / 气候笔刷 / 育种所）在阶段 4 才接进来。
+/// 一局的配置。
 struct GameConfig
 {
     std::uint64_t root_seed = 20261017;
@@ -123,6 +124,25 @@ public:
     {
         return world_.tick_in_season();
     }
+
+    /// 把这些格淹掉。**季初才生效**，季内可 `undo_terrain`。
+    ///
+    /// \post 实际入队的格数（已在目标状态的格不算）。
+    std::size_t paint_terrain(
+        std::span<const gamev2::environment::CellIndex> cells);
+
+    /// 把这些格从水填成陆。capacity 在同一季的开季随地形一起重算，因此
+    /// 新造的陆地当季就能承载个体。
+    std::size_t raise_land(std::span<const gamev2::environment::CellIndex> cells);
+
+    /// 撤回尚未落地的地形编辑。季初之后没有撤销路径。
+    std::size_t undo_terrain(
+        std::span<const gamev2::environment::CellIndex> cells);
+
+    /// 气候笔刷。改的是 base temperature，经一整个季的摄食与存活抽签才
+    /// 反映到季末报告（设计文档 §7.2 契约 6）。
+    std::size_t paint_climate(
+        std::span<const gamev2::environment::CellIndex> cells, float delta);
 
 private:
     /// 只读地重算并存物种数与胜利进度。不改世界。
