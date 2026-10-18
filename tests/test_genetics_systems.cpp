@@ -882,3 +882,78 @@ TEST(breeding_advance_season_replaces_the_season_index)
         CHECK(ga[i] == gb[i]);
     }
 }
+
+TEST(a_culled_phenotype_range_cannot_but_still_lives)
+{
+    // 决策 21：表型落在区间的个体被剔出**亲代池**，但照常存活、照常参与
+    // 存活抽签。只断「下一代里没有它」是不够的 —— 那也可能是它死了，
+    // 而玩家要的是育种定向，不是屠杀。
+    //
+    // 判据分两半，缺一不可：对照臂证明夹具本身会产子代（否则「一个也没有」
+    // 是夹具没配好），禁令臂证明子代真的停了，而两臂的 founders 全都活着。
+    const auto run = [](const bool cull)
+    {
+        World w;
+        Harness h;
+        // 子代表型完全由 trait_base 决定（与 adapt_breeding_multi_season 同
+        // 一套夹具）：Metabolism 归零 + Speed 取 1 让 survival_rate 恒为 1，
+        // 存活抽签必然全中 —— 否则「照常存活」这条断言量的就是死亡而非禁令。
+        const GeneticsConfig config = steady_config();
+        const auto spawn = [&w, &config, &h]()
+        {
+            const EntityId e = w.create();
+            (void)w.add<SpeciesTag>(e, SpeciesTag{h.sid});
+            CreaturePhenotype cp{};
+            cp.phenotype.traits = config.trait_base;
+            (void)w.add<CreaturePhenotype>(e, cp);
+            (void)w.add<Environment>(e, Environment{});
+            (void)w.add<Vitality>(e, Vitality{});
+            (void)w.add<Genome>(e, Genome{});
+            return e;
+        };
+
+        std::vector<EntityId> founders;
+        for (int i = 0; i < 12; ++i)
+        {
+            founders.push_back(spawn());
+        }
+
+        // 全员同表型（夹具里它由 config 逐项钉死），因此按这一个取值整段
+        // 禁掉就等于禁掉全员 —— 而规则按 SpeciesId 匹配，不会误伤别种。
+        BreedingSystem sys{h.table, h.species, config, 7, 1};
+        if (cull)
+        {
+            const auto speed = w.get_if<CreaturePhenotype>(founders.front())
+                                   ->phenotype.traits[trait_index(TraitKind::Speed)];
+            sys.add_cull(CullRule{h.sid, TraitKind::Speed, speed, speed});
+        }
+
+        std::size_t born = 0;
+        for (std::uint64_t season = 1; season <= kSeasons; ++season)
+        {
+            CommandBuffer cmd;
+            sys.execute(w, cmd);
+            cmd.flush(w);
+            born = w.entity_count() - founders.size();
+        }
+
+        std::size_t alive = 0;
+        for (const auto e : founders)
+        {
+            if (w.is_alive(e))
+            {
+                ++alive;
+            }
+        }
+        return std::make_pair(alive, born);
+    };
+
+    const auto [alive_unculled, born_unculled] = run(false);
+    const auto [alive_culled, born_culled] = run(true);
+
+    CHECK(born_unculled > 0);
+    CHECK_EQ(alive_culled, std::size_t{12});
+    CHECK_EQ(born_culled, std::size_t{0});
+    // 对照臂的 founders 也全活：两臂的差异只可能来自禁令。
+    CHECK_EQ(alive_unculled, std::size_t{12});
+}

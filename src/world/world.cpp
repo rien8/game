@@ -209,6 +209,14 @@ std::size_t World::queue_climate_edit(
     return queued;
 }
 
+void World::queue_cull(const gamev2::genetics::SpeciesId species,
+                       const gamev2::genetics::TraitKind trait,
+                       const float lo, const float hi)
+{
+    breeding_.add_cull(
+        gamev2::ecs::adapt::CullRule{species, trait, lo, hi});
+}
+
 void World::flush_edits()
 {
     const bool touched_terrain = !pending_.empty();

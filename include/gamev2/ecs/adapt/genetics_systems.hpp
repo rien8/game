@@ -31,6 +31,16 @@ struct CreaturePhenotype
     gamev2::genetics::Phenotype phenotype;
 };
 
+/// 「表型落在 [lo, hi] 的个体不得繁殖」。被剔除者**照常存活、照常参与
+/// 存活抽签**，只是不进亲代池 —— 所以这不是屠杀，是育种定向。
+struct CullRule
+{
+    gamev2::genetics::SpeciesId species;
+    gamev2::genetics::TraitKind trait;
+    float lo = 0.0f;
+    float hi = 0.0f;
+};
+
 struct Environment
 {
     gamev2::environment::EnvironmentSnapshot snapshot;
@@ -169,6 +179,9 @@ public:
     /// cmd.create 的回写目标，下一轮 execute 会覆盖它。
     void execute(World& world, CommandBuffer& cmd) override;
 
+    /// 追加一条育种禁令。规则只增不减 —— 玩家想解除得靠新一轮对局。
+    void add_cull(CullRule rule);
+
 private:
     const gamev2::genetics::LocusTable& table_;
     const gamev2::genetics::SpeciesRegistry& species_;
@@ -194,6 +207,8 @@ private:
     /// cmd.create 的回写目标。execute 返回后栈上的局部量已经失效，而
     /// flush 发生在 execute 之后，新句柄只能寄存在成员里。
     std::vector<EntityId> newborn_;
+
+    std::vector<CullRule> culls_;
 };
 
 /// 群体统计。结果由调用方取走——系统不往 World 之外写全局状态，

@@ -246,6 +246,24 @@ void BreedingSystem::execute(World& world, CommandBuffer& cmd)
         // 两条分支填 Parent 时用的是同一套约定：index 填本池内的下标，
         // settle 靠它回查 survived 与季节适应力；fitness 是先验权重，
         // settle 重建父池时整列替换成季节适应力，这里给什么都不影响结果。
+        // 育种禁令：表型落在区间的个体不进亲代池。**只看 CreaturePhenotype**
+        // —— 玩家的指令说的是「这种长相的不许生」，不是「这个基因型不许生」；
+        // 同一表型可由多个基因型产生，按基因型过滤会误伤。
+        const auto barred = [this, s, &pool_phenotypes](const std::size_t i)
+        {
+            const auto& traits = pool_phenotypes[i].traits;
+            return std::ranges::any_of(
+                culls_,
+                [s, &traits](const CullRule& rule)
+                {
+                    if (rule.species.value != s)
+                    {
+                        return false;
+                    }
+                    const auto v = traits[trait_index(rule.trait)];
+                    return v >= rule.lo && v <= rule.hi;
+                });
+        };
         if (targets_ != nullptr)
         {
             // 空间分桶在 adapt 层完成：Parent::index 必须是本物种数组内的
@@ -265,7 +283,7 @@ void BreedingSystem::execute(World& world, CommandBuffer& cmd)
                 std::vector<Parent> bucket;
                 for (std::size_t i = 0; i < members.size(); ++i)
                 {
-                    if (has_position[members[i]] == 0)
+                    if (has_position[members[i]] == 0 || barred(i))
                     {
                         continue;
                     }
@@ -293,12 +311,21 @@ void BreedingSystem::execute(World& world, CommandBuffer& cmd)
         else
         {
             parents.reserve(members.size());
+            std::vector<Phenotype> kept;
+            kept.reserve(members.size());
             for (std::size_t i = 0; i < members.size(); ++i)
             {
+                if (barred(i))
+                {
+                    continue;
+                }
                 parents.push_back(Parent{i, &pool_genomes[i], 1.0f});
+                // 出生预算也只按留下的那些算，否则被禁的个体仍以繁殖力的
+                // 份额撑着一个自己填不满的池子。
+                kept.push_back(pool_phenotypes[i]);
             }
             sites.push_back(ParentPool{parents, SpeciesId{s}, std::nullopt,
-                                       progeny_for(pool_phenotypes)});
+                                       progeny_for(kept)});
         }
 
         // 子代认回自己的格靠顺序：settle 按 sites 顺序逐个追加子代，而
@@ -438,6 +465,11 @@ void BreedingSystem::execute(World& world, CommandBuffer& cmd)
                        CreaturePhenotype{born[i].phenotype}, Vitality{});
         }
     }
+}
+
+void BreedingSystem::add_cull(CullRule rule)
+{
+    culls_.push_back(rule);
 }
 
 void PopulationStatisticsSystem::execute(World& world, CommandBuffer& cmd)

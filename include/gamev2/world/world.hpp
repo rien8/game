@@ -172,6 +172,11 @@ public:
         return pending_.size();
     }
 
+    /// 追加一条育种禁令：表型落在 [lo, hi] 的个体照常存活、照常参与存活抽签，
+    /// 只是不进亲代池（决策 21）。规则只增不减。
+    void queue_cull(gamev2::genetics::SpeciesId species,
+                    gamev2::genetics::TraitKind trait, float lo, float hi);
+
 private:
     /// 季首：推进三处季号，跑移动与老化那一批，再收集摄食输入。
     /// 只由 step_once 在 tick_ == 0 时调用。

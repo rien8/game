@@ -128,4 +128,11 @@ std::size_t GameSession::paint_climate(
     return world_.queue_climate_edit(cells, delta);
 }
 
+void GameSession::cull(const gamev2::genetics::SpeciesId species,
+                       const gamev2::genetics::TraitKind trait, const float lo,
+                       const float hi)
+{
+    world_.queue_cull(species, trait, lo, hi);
+}
+
 }  // namespace gamev2::game

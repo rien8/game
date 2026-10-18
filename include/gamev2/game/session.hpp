@@ -144,6 +144,10 @@ public:
     std::size_t paint_climate(
         std::span<const gamev2::environment::CellIndex> cells, float delta);
 
+    /// 育种禁令：表型落在 [lo, hi] 的个体不许繁殖，但照常存活。
+    void cull(gamev2::genetics::SpeciesId species,
+              gamev2::genetics::TraitKind trait, float lo, float hi);
+
 private:
     /// 只读地重算并存物种数与胜利进度。不改世界。
     void refresh_scroll() noexcept;
