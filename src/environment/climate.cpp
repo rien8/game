@@ -32,6 +32,12 @@ namespace {
     return lo + unit * (hi - lo);
 }
 
+/// 玩家笔刷能推出的温度范围。与 `config.temperature_amplitude` 同量级 ——
+/// 再大就超过 genetics 那边 `thermal_survival` 的饱和区，落笔之后所有个体
+/// 的存活率都归 0，玩家会觉得工具失灵而不是世界在反应。
+constexpr float kMinTemperature = -30.0f;
+constexpr float kMaxTemperature = 30.0f;
+
 }  // namespace
 
 ClimateField::ClimateField(const std::uint64_t root_seed,
@@ -79,6 +85,14 @@ EnvironmentSnapshot ClimateField::at(const CellIndex cell) const noexcept
 const ClimateCell& ClimateField::base(const CellIndex cell) const noexcept
 {
     return cells_[cell.value];
+}
+
+void ClimateField::adjust_temperature(const CellIndex cell,
+                                      const float delta) noexcept
+{
+    cells_[cell.value].base_temperature =
+        std::clamp(cells_[cell.value].base_temperature + delta,
+                   kMinTemperature, kMaxTemperature);
 }
 
 }  // namespace gamev2::environment

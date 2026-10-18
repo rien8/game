@@ -187,6 +187,101 @@ TEST(the_map_has_a_landmass_big_enough_to_be_a_barrier)
     }
 }
 
+TEST(flooding_a_cell_makes_it_impassable_and_draining_gives_it_back)
+{
+    EnvironmentConfig config{};
+    auto terrain = TerrainField::generate(31, config);
+
+    // 挑一个当前是陆地的格：flood 只改 passable，elevation 与海平面都不动，
+    // 因此测试与「这块地原本多高」无关。
+    std::size_t land = kCellCount;
+    for (std::size_t i = 0; i < kCellCount; ++i)
+    {
+        const auto cell = CellIndex{static_cast<std::uint16_t>(i)};
+        if (terrain.passable(cell))
+        {
+            land = i;
+            break;
+        }
+    }
+    CHECK(land < kCellCount);
+    const auto cell = CellIndex{static_cast<std::uint16_t>(land)};
+
+    const auto before = terrain.elevation(cell);
+    terrain.flood(cell);
+    CHECK(!terrain.passable(cell));
+    // **高程不动**：玩家的干预改的是「现在能不能站」，不是「这里本来多高」。
+    // 渲染层画水墨晕染读的是 elevation，若 flood 顺手改了它，玩家一淹就
+    // 把地势也抹平了。
+    CHECK_EQ(terrain.elevation(cell), before);
+
+    terrain.drain(cell);
+    CHECK(terrain.passable(cell));
+    CHECK_EQ(terrain.elevation(cell), before);
+}
+
+TEST(drained_water_stays_passable_below_the_original_sea_level)
+{
+    // drain 可以把格变成比海平面还低的「水」——那是玩家的画，不是自然地形。
+    // 因此「passable」与「elevation > sea_level」必须彻底解耦，否则 drain
+    // 过的格下一季会被 generate 的逻辑重新淹掉。
+    EnvironmentConfig config{};
+    auto terrain = TerrainField::generate(31, config);
+    const auto sea = terrain.sea_level();
+
+    // 挑一个本就在水位之下的水格。找不到就让这条测试失败而不是悄悄跳过：
+    // 70% 的水保证至少有一格，而断言要断的正是「这一格 drain 之后仍然是陆」。
+    std::size_t deep = kCellCount;
+    for (std::size_t i = 0; i < kCellCount; ++i)
+    {
+        const auto cell = CellIndex{static_cast<std::uint16_t>(i)};
+        if (!terrain.passable(cell) && terrain.elevation(cell) < sea)
+        {
+            deep = i;
+            break;
+        }
+    }
+    CHECK(deep < kCellCount);
+    const auto cell = CellIndex{static_cast<std::uint16_t>(deep)};
+
+    terrain.drain(cell);
+    // 两条判据解耦的直接证据：可通行，但高程仍在海平面之下。
+    CHECK(terrain.passable(cell));
+    CHECK(terrain.elevation(cell) < sea);
+    // 海平面是生成时的产物，玩家的干预改不动它。
+    CHECK_EQ(terrain.sea_level(), sea);
+}
+
+TEST(rebinding_the_resource_field_gives_painted_land_its_capacity_back)
+{
+    // 玩家填水造陆时 capacity 必须从 0 回到 capacity_base × base_fertility，
+    // 否则新造的陆地是零承载力的死地 —— 铺得进去、生不出来。
+    EnvironmentConfig config{};
+    const gamev2::environment::ClimateField climate{20261016, config};
+    auto terrain = TerrainField::generate(20261016, config);
+    gamev2::environment::ResourceField field{climate, config, terrain};
+
+    std::size_t water = kCellCount;
+    for (std::size_t i = 0; i < kCellCount; ++i)
+    {
+        const auto cell = CellIndex{static_cast<std::uint16_t>(i)};
+        if (!terrain.passable(cell))
+        {
+            water = i;
+            break;
+        }
+    }
+    CHECK(water < kCellCount);
+    const auto cell = CellIndex{static_cast<std::uint16_t>(water)};
+    CHECK_EQ(field.capacity(cell), 0.0f);
+
+    terrain.drain(cell);
+    field.rebind_terrain(terrain);
+
+    CHECK_EQ(field.capacity(cell),
+             config.capacity_base * climate.base(cell).base_fertility);
+}
+
 TEST(water_cells_carry_no_capacity)
 {
     // Σcapacity 是 sim 那句「末季 X = Σcapacity 的 Y%」的分母，也是

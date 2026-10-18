@@ -10,11 +10,12 @@ namespace gamev2::environment {
 ResourceField::ResourceField(const ClimateField& climate,
                              const EnvironmentConfig& config,
                              const TerrainField& terrain)
-    : regen_rate_{config.regen_rate}
+    : regen_rate_{config.regen_rate}, capacity_base_{config.capacity_base}
 {
     for (std::size_t i = 0; i < kCellCount; ++i)
     {
         const auto index = CellIndex{static_cast<std::uint16_t>(i)};
+        base_fertility_[i] = climate.base(index).base_fertility;
         // 不可通行的格 capacity 恒 0：它永远站不了人，headroom 会算出一份
         // 永远用不到的承载力，于是 Σcapacity 虚高、sim 那句百分比失去意义。
         //
@@ -22,8 +23,7 @@ ResourceField::ResourceField(const ClimateField& climate,
         // lround(0 × offspring_scale) = 0，子代预算取 min(eco, parent)
         // 已经是 0。
         cells_[i].capacity = terrain.passable(index)
-                                ? config.capacity_base
-                                      * climate.base(index).base_fertility
+                                ? capacity_base_ * base_fertility_[i]
                                 : 0.0f;
         cells_[i].stock = cells_[i].capacity;
     }
@@ -64,6 +64,26 @@ void ResourceField::count_occupants(const std::span<const Forager> foragers)
     for (const auto& f : foragers)
     {
         ++occupants_[CellIndex::of(f.x, f.y).value];
+    }
+}
+
+void ResourceField::rebind_terrain(const TerrainField& terrain) noexcept
+{
+    for (std::size_t i = 0; i < kCellCount; ++i)
+    {
+        const auto cell = CellIndex{static_cast<std::uint16_t>(i)};
+        if (terrain.passable(cell))
+        {
+            // 新露出的陆地：按容量填满，与构造时一致。
+            cells_[i].capacity = capacity_base_ * base_fertility_[i];
+            cells_[i].stock = cells_[i].capacity;
+        }
+        else
+        {
+            // 被淹的格：capacity 与 stock 双双归 0，0 是 regrow/draw 的吸收点。
+            cells_[i].capacity = 0.0f;
+            cells_[i].stock = 0.0f;
+        }
     }
 }
 

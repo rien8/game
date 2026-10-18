@@ -56,6 +56,11 @@ const gamev2::environment::TerrainField& EnvironmentWorld::terrain()
     return terrain_;
 }
 
+gamev2::environment::TerrainField& EnvironmentWorld::terrain() noexcept
+{
+    return terrain_;
+}
+
 void EnvironmentSystem::begin_season(World& world)
 {
     env_.climate().advance(season_index_);

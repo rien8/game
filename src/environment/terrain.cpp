@@ -142,6 +142,7 @@ TerrainField TerrainField::generate(
     std::ranges::nth_element(sorted,
                              sorted.begin() + static_cast<std::ptrdiff_t>(cut));
     const float sea_level = sorted[cut];
+    out.sea_level_ = sea_level;
 
     for (std::size_t i = 0; i < kCellCount; ++i)
     {
@@ -162,6 +163,16 @@ bool TerrainField::passable(const CellIndex cell) const noexcept
 float TerrainField::elevation(const CellIndex cell) const noexcept
 {
     return elevation_[cell.value];
+}
+
+void TerrainField::flood(const CellIndex cell) noexcept
+{
+    passable_[cell.value] = false;
+}
+
+void TerrainField::drain(const CellIndex cell) noexcept
+{
+    passable_[cell.value] = true;
 }
 
 }  // namespace gamev2::environment

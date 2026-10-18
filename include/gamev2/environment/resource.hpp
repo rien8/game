@@ -56,10 +56,24 @@ public:
     /// 清零后按 foragers 的坐标重数一遍。
     void count_occupants(std::span<const Forager> foragers);
 
+    /// 地形被玩家改写之后重算全部 capacity 与 stock。
+    ///
+    /// **为什么必需**：capacity 在构造时按「水格 = 0」算好，而 capacity 的
+    /// 来源 `base_fertility` 在 ClimateField 里、与地形无关。玩家把水填成
+    /// 陆时若不重算，新造的陆地承载力恒为 0 —— 铺得进去、生不出来。
+    ///
+    /// \pre `terrain` 必须与本场由同一个 `root_seed` 生成。
+    void rebind_terrain(const TerrainField& terrain) noexcept;
+
 private:
     std::array<ResourceCell, kCellCount> cells_{};
     std::array<std::uint16_t, kCellCount> occupants_{};
     float regen_rate_ = 0.25f;
+    /// `rebind_terrain` 拿不到 ClimateField 与 config，所以逐格的
+    /// base_fertility 与 capacity_base 在构造时就存下来。两者都是逐格定长
+    /// 的，重算 capacity 不需要遍历别处。
+    std::array<float, kCellCount> base_fertility_{};
+    float capacity_base_ = 0.0f;
 };
 
 }  // namespace gamev2::environment

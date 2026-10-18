@@ -46,10 +46,14 @@ public:
     [[nodiscard]] const gamev2::environment::ResourceField& resources()
         const noexcept;
 
-    /// 只读地形。**不给可变重载**：玩家改写地形属阶段 4，届时再补。
-    /// MovementSystem 与 World::environment() 走的就是这一条。
+    /// 只读地形。MovementSystem 与 World::environment() 走的就是这一条。
     [[nodiscard]] const gamev2::environment::TerrainField& terrain()
         const noexcept;
+
+    /// **非常量**通道：阶段 4 起玩家要改写地形。这是继 `SpeciationSystem`
+    /// 拿非常量 `SpeciesRegistry&` 之后第二次破 const —— 前者因为物种要
+    /// 运行期登记，后者因为地形要运行期改写。
+    [[nodiscard]] gamev2::environment::TerrainField& terrain() noexcept;
 
 private:
     gamev2::environment::EnvironmentConfig config_;

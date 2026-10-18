@@ -69,6 +69,13 @@ public:
     [[nodiscard]] EnvironmentSnapshot at(CellIndex cell) const noexcept;
     [[nodiscard]] const ClimateCell& base(CellIndex cell) const noexcept;
 
+    /// 调这一格的气候基准温度，夹到 [kMinTemperature, kMaxTemperature]。
+    ///
+    /// 改的是 `base_temperature`（构造后一直没被写过的那份基准），而
+    /// `advance` 每季在上面叠正弦偏移 —— 所以一次笔刷的效果会持续到
+    /// 地形之外的所有季，而不是被下一季的 `advance` 冲掉。
+    void adjust_temperature(CellIndex cell, float delta) noexcept;
+
 private:
     std::array<ClimateCell, kCellCount> cells_{};
     std::uint32_t season_ = 0;
