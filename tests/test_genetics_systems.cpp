@@ -498,7 +498,9 @@ TEST(adapt_breeding_uses_environment_targets_when_provided)
         set_trait(*p, TraitKind::Fecundity, 0.05f);
     }
 
-    EnvironmentWorld env{31, gamev2::environment::EnvironmentConfig{}};
+    auto flat = gamev2::environment::EnvironmentConfig{};
+    flat.water_fraction = 0.0f;
+    EnvironmentWorld env{31, flat};
     EnvironmentSystem environment{env, h.species, 0};
 
     CommandBuffer env_cmd;
@@ -594,6 +596,11 @@ TEST(adapt_breeding_keeps_positionless_entities_out_of_every_bucket)
     // 站点必发——于是「零子代」只可能来自桶被剔空，不会是因为整条链没跑起来。
     gamev2::environment::EnvironmentConfig config{};
     config.capacity_base = 40.0f;
+    // 本文件测的是 genetics 层的系统装配，不测地形。阶段 2 起
+    // water_fraction 默认 0.70，因此**继承默认值等于跑在一张七成是水的图上**，
+    // 而下面若干夹具的 feeding 实测区间是按全陆地写进注释的。钉死成全陆地，
+    // 断言与那些区间才继续对得上。
+    config.water_fraction = 0.0f;
 
     // placed 个个体带 Position，第 placed + 1 个个体身上没有。返回本季子代数。
     const auto offspring_count = [&](const std::size_t placed)
@@ -688,6 +695,8 @@ TEST(adapt_breeding_ignores_feeding_when_environment_is_not_wired)
     // 因此对这条改动完全无感。
     Harness h;
     gamev2::environment::EnvironmentConfig scarce{};
+    // 同上：喂食实测区间（下面那条注释里的 [0.0224, 0.0712]）按全陆地取得。
+    scarce.water_fraction = 0.0f;
     // want = 0.35 × 2 = 0.7，而存量上限 0.16 × base_fertility ∈ [0.04, 0.16)
     // 恒小于它，于是 got 恒取满存量，feeding 逐个都远低于 want。
     //

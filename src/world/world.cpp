@@ -1,6 +1,11 @@
 #include "gamev2/world/world.hpp"
 
+#include <string>
+
 namespace gamev2::world {
+
+using gamev2::ecs::Diagnostic;
+using gamev2::ecs::DiagnosticLevel;
 
 World::World(const gamev2::genetics::LocusTable& table,
              gamev2::genetics::GeneticsConfig genetics_config,
@@ -13,7 +18,8 @@ World::World(const gamev2::genetics::LocusTable& table,
       cmd_{},
       scheduler_{worker_count},
       env_{root_seed, environment_config},
-      movement_{root_seed, 0},
+      movement_{root_seed, 0, env_.resources(), env_.terrain(),
+                environment_config.gradient_weight},
       environment_{env_, species_, 0},
       aging_{},
       // table 不落成成员：构造函数的 const 引用形参绑的就是调用方的对象，
@@ -23,13 +29,18 @@ World::World(const gamev2::genetics::LocusTable& table,
                 environment_config.mating_radius_cells},
       statistics_{species_}
 {
-    // 注册顺序不参与调度顺序：plan() 先按 System::order 稳定排序再贪心分层
-    // （MovementSystem 为 -1，EnvironmentSystem 与 AgingSystem 为 0，
-    // BreedingSystem 为 1）。这里只决定同 order 的 system 谁先占住靠前的批次。
+    // 调度器现在只装 MovementSystem 与 AgingSystem。两者访问集不相交
+    // （movement_system.hpp 的 ReadSet/WriteSet 说明了为什么），因此排成
+    // 一批并发执行——这是 World 层唯一的并发点，也是 tick 化之后仍然
+    // 保留的那一处。
+    //
+    // EnvironmentSystem 与 BreedingSystem 刻意不进：前者的 8 个子步要由
+    // World 逐步驱动（跨 tick 的位置关系调度器表达不了），后者必须在
+    // EnvironmentSystem::finish 之后、换代 flush 之前跑，与
+    // PopulationStatisticsSystem 是同一条理由——直接 execute，位置由 World
+    // 的显式序列钉死。
     scheduler_.add(movement_);
-    scheduler_.add(environment_);
     scheduler_.add(aging_);
-    scheduler_.add(breeding_);
     scheduler_.plan();
 
     // statistics_ 刻意不进调度器：它与另三个 system 的访问集相交（都碰
@@ -38,22 +49,55 @@ World::World(const gamev2::genetics::LocusTable& table,
     // 于是 census 会含本季将死者、不含刚出生的子代。
 }
 
-SeasonReport World::run_season()
+void World::step_once()
 {
-    // 三处 season_index_ 都在各自 execute 的开头消费一次，因此推进必须
-    // 整体发生在 scheduler_.run 之前。
+    if (tick_ == 0)
+    {
+        open_season();
+    }
+    environment_.step();
+    ++tick_;
+}
+
+void World::open_season()
+{
+    // 三处 season_index_ 都在各自消费它的入口一次性使用（移动的随机流、
+    // climate().advance、RandomStreams），因此推进必须整体发生在它们各自
+    // 读之前。
     movement_.advance_season(season_);
     environment_.advance_season(season_);
     breeding_.advance_season(season_);
 
+    // 季首这一批：移动与老化排在摄食之前，与 EnvironmentSystem 的
+    // order = 0 那条约束同源——摄食要按当季坐标分格。
     scheduler_.run(entities_, cmd_);
 
-    // 换代（死亡销毁与子代创建）归 Scheduler::run：它把各 system 的缓冲并进
-    // cmd 之后就在末尾 cmd.flush(world)（src/ecs/scheduler.cpp）。**此处不得
-    // 再加一次 flush。** 它不是无害的重复：多一行 flush，「统计落在换代之前」
-    // 这个回归在代码结构上就看不出来了——后续的变异验证会删掉这行、得到
-    // 全绿，然后误判成测试没有鉴别力。真正的约束是下面这行 statistics_ 必须
-    // 排在 scheduler_.run 之后：census 要含刚出生的子代、不含本季将死者。
+    environment_.begin_season(entities_);
+}
+
+SeasonReport World::season_report()
+{
+    if (tick_ != env_.config().steps_per_season)
+    {
+        entities_.report(Diagnostic{
+            DiagnosticLevel::error, "WORLD_INCOMPLETE_SEASON",
+            "season_report called after " + std::to_string(tick_)
+                + " of "
+                + std::to_string(env_.config().steps_per_season)
+                + " substeps"});
+    }
+
+    environment_.finish(entities_);
+
+    // BreedingSystem 经 targets_ 指针读 EnvironmentSystem 的产物，因此它
+    // 必须排在 finish 之后。
+    breeding_.execute(entities_, cmd_);
+
+    // 换代在这里生效。调度器在它自己的 run 末尾 flush 一次，但此刻不在
+    // run 内部——breeding 直接 execute 入的是 cmd_，需要 World 自己冲。
+    cmd_.flush(entities_);
+
+    // 统计落在换代之后，因此 census 含刚出生的子代、不含本季将死者。
     statistics_.execute(entities_, cmd_);
 
     SeasonReport report{season_, 0, statistics_.statistics()};
@@ -62,7 +106,17 @@ SeasonReport World::run_season()
         report.population += s.census;
     }
     ++season_;
+    tick_ = 0;
     return report;
+}
+
+SeasonReport World::run_season()
+{
+    for (std::uint32_t i = 0; i < env_.config().steps_per_season; ++i)
+    {
+        step_once();
+    }
+    return season_report();
 }
 
 std::vector<SeasonReport> World::run_seasons(const std::uint32_t count)

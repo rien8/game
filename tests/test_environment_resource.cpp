@@ -14,12 +14,28 @@ using gamev2::environment::ClimateField;
 using gamev2::environment::EnvironmentConfig;
 using gamev2::environment::Forager;
 using gamev2::environment::ResourceField;
+using gamev2::environment::TerrainField;
+
+namespace {
+
+/// 既有断言全部在 capacity_base × base_fertility 这个关系上，而该关系在
+/// water_fraction = 0（全陆地）下与引入地形之前逐位相同——因此这 7 条
+/// 测试的断言一个字都不用改，改的只是「传哪个地形进去」。
+EnvironmentConfig flat()
+{
+    auto c = EnvironmentConfig{};
+    c.water_fraction = 0.0f;
+    return c;
+}
+
+}  // namespace
 
 TEST(resource_capacity_scales_with_base_fertility)
 {
-    const EnvironmentConfig config{};
+    const auto config = flat();
     const ClimateField climate{5, config};
-    const ResourceField field{climate, config};
+    const TerrainField terrain = TerrainField::generate(5, config);
+    const ResourceField field{climate, config, terrain};
 
     for (std::size_t i = 0; i < gamev2::environment::kCellCount; ++i)
     {
@@ -33,9 +49,10 @@ TEST(resource_capacity_scales_with_base_fertility)
 
 TEST(resource_starts_full)
 {
-    const EnvironmentConfig config{};
+    const auto config = flat();
     const ClimateField climate{5, config};
-    const ResourceField field{climate, config};
+    const TerrainField terrain = TerrainField::generate(5, config);
+    const ResourceField field{climate, config, terrain};
 
     const auto index = CellIndex::of(20.0f, 20.0f);
     // 否则第一季所有个体都从饥饿开始，而那不是任何配置意图表达的初始条件。
@@ -44,9 +61,10 @@ TEST(resource_starts_full)
 
 TEST(resource_regrow_never_exceeds_capacity)
 {
-    const EnvironmentConfig config{};
+    const auto config = flat();
     const ClimateField climate{11, config};
-    ResourceField field{climate, config};
+    const TerrainField terrain = TerrainField::generate(11, config);
+    ResourceField field{climate, config, terrain};
     const auto index = CellIndex::of(20.0f, 20.0f);
 
     field.draw(index, field.capacity(index) * 0.5f);
@@ -62,9 +80,10 @@ TEST(resource_regrow_never_exceeds_capacity)
 
 TEST(resource_draw_clamps_at_zero)
 {
-    const EnvironmentConfig config{};
+    const auto config = flat();
     const ClimateField climate{3, config};
-    ResourceField field{climate, config};
+    const TerrainField terrain = TerrainField::generate(3, config);
+    ResourceField field{climate, config, terrain};
     const auto index = CellIndex::of(1.0f, 1.0f);
 
     field.draw(index, 1e9f);
@@ -73,9 +92,10 @@ TEST(resource_draw_clamps_at_zero)
 
 TEST(resource_occupants_start_at_zero)
 {
-    const EnvironmentConfig config{};
+    const auto config = flat();
     const ClimateField climate{3, config};
-    const ResourceField field{climate, config};
+    const TerrainField terrain = TerrainField::generate(3, config);
+    const ResourceField field{climate, config, terrain};
 
     CHECK_EQ(field.occupants(CellIndex::of(0.5f, 0.5f)),
              std::uint16_t{0});
@@ -83,10 +103,11 @@ TEST(resource_occupants_start_at_zero)
 
 TEST(regen_rate_comes_from_config)
 {
-    auto config = EnvironmentConfig{};
+    auto config = flat();
     config.regen_rate = 0.5f;
     const ClimateField climate{5, config};
-    ResourceField field{climate, config};
+    const TerrainField terrain = TerrainField::generate(5, config);
+    ResourceField field{climate, config, terrain};
     const auto index = CellIndex::of(20.0f, 20.0f);
 
     field.draw(index, field.capacity(index) * 0.5f);
@@ -98,9 +119,10 @@ TEST(regen_rate_comes_from_config)
 
 TEST(count_occupants_tallies_cells_by_position)
 {
-    auto config = EnvironmentConfig{};
+    auto config = flat();
     const ClimateField climate{3, config};
-    ResourceField field{climate, config};
+    const TerrainField terrain = TerrainField::generate(3, config);
+    ResourceField field{climate, config, terrain};
 
     // 三个挤在 (1,1) 格、一个在 (3,1) 格。坐标刻意对角不对称：
     // 对称的夹具在 x/y 取反后落进同一批格，两组断言会同时保持绿。

@@ -95,15 +95,49 @@ public:
     /// \pre 不可重入，不可多线程并发调用。
     [[nodiscard]] SeasonReport run_season();
 
+    /// 推进一个季内子步。一季 = config.steps_per_season 次。
+    ///
+    /// 第一次调用顺带跑完「季首」那一步：推进三处季号、跑 MovementSystem
+    /// 与 AgingSystem、推进气候、收集摄食输入。之后每次只跑一步摄食。
+    ///
+    /// \pre 不可重入，不可多线程并发调用（同 run_season）。
+    void step_once();
+
+    /// 季末结算并返回报告：算子代预算、繁殖、换代、统计。返回后世界停在
+    /// 下一季的开头，tick_in_season() 归零。
+    ///
+    /// \pre 本季已被 step_once 推进 config.steps_per_season 次。少跑会
+    ///      让摄食累加器少累一轮、季末 feeding 偏高——不崩，只是静默偏松，
+    ///      因此这里报一条 WORLD_INCOMPLETE_SEASON 诊断而非拦下。
+    [[nodiscard]] SeasonReport season_report();
+
+    /// 本季已推进的子步数。0 表示「季末刚过或尚未开始」，两种状态对调用方
+    /// 是同一个——渲染层看到 0 就该准备进入下一季。
+    [[nodiscard]] std::uint32_t tick_in_season() const noexcept
+    {
+        return tick_;
+    }
+
+    /// 一季有几个季内子步。GameSession 用它把一季补齐。
+    [[nodiscard]] std::uint32_t steps() const noexcept
+    {
+        return env_.config().steps_per_season;
+    }
+
     /// 逐季推进 count 次。与调用 count 次 run_season() 逐位等价——
     /// 这条等价性是可测的，也是日后加存档的前提。
     [[nodiscard]] std::vector<SeasonReport> run_seasons(std::uint32_t count);
 
 private:
+    /// 季首：推进三处季号，跑移动与老化那一批，再收集摄食输入。
+    /// 只由 step_once 在 tick_ == 0 时调用。
+    void open_season();
+
     gamev2::genetics::GeneticsConfig genetics_config_;
     gamev2::genetics::SpeciesRegistry species_;
     std::uint64_t root_seed_;
     std::uint32_t season_ = 0;
+    std::uint32_t tick_ = 0;
 
     gamev2::ecs::World entities_;
     gamev2::ecs::CommandBuffer cmd_;

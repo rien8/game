@@ -12,7 +12,8 @@
 /// 生态平衡与「超载格停产」那条结构性性质。默认 evolve；第一个参数是数字
 /// 时按老写法解析成季数。
 ///
-/// `fragile` 与 `evolve` 只差近交衰退强度（0 对 4），8 季灭绝。
+/// `fragile` 与 `evolve` 只差近交衰退强度（0 对 0.7），在当前地形上第 25 季
+/// 灭绝（`inbreeding_load` 的注释解释了它为什么不再是临界点）。
 #include "gamev2/world/world.hpp"
 
 #include "gamev2/ecs/adapt/components.hpp"
@@ -31,9 +32,13 @@
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
+#include <format>
 #include <print>
 #include <random>
+#include <ranges>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -67,18 +72,32 @@ constexpr std::uint64_t kDefaultSeed = 20261016;
 /// 对照：一次只动一个变量，差出来的数字才可归因。其余参数（thermal_base_width
 /// 在 18、其余全部）两边一致。
 ///
-/// 两套都实测过 500 季（种子 20261016）：
+/// **本分支（阶段 2：地形 + 移动重写落地）之后的实测读数，种子 20261016，
+/// 跑 200 季取末季。地形由 root_seed 生成，水陆 70/30（决策 15）：**
 ///
-/// - `evolve`：短寿命。种群停在 Σcapacity 的 89.6%，死亡率 23.3%，
-///   杂合度从 0.481 一路磨到 0.425（−0.0057/100 季），近交系数升到 0.061。
-/// - `persist`：长寿命。种群停在 Σcapacity 的 **124.4%**——超载格里的长寿命
-///   个体不被清空、那部分承载力就永久停产。死亡率只有 11.4%，杂合度几乎磨
-///   不动（−0.0023/100 季），近交系数反而降到 0.028。
+/// - 初始个体 2460（只铺可通行格），Σcapacity 2958，可通行格 1230。
+/// - `evolve`：短寿命。population 2418 = Σcapacity 的 82%，覆盖率 76.8%，
+///   born 583 / died 612，H_obs 0.3727，F 0.1906，Ne 0.9。
+///   区间 [1(1562), 194(2522)] —— 第 194 季见顶后缓降，不是崩溃。
+/// - `persist`：长寿命。population 3554，**越过 Σcapacity 达 120%**——超载格里的
+///   长寿命个体不被清空、那部分承载力就永久停产。born 433 / died 466，
+///   H_obs 0.4299，F 0.1109，Ne 1.0。覆盖率 87.6%（1077/1230），最挤一格 20。
+/// - `fragile`：第 **25** 季归零。见下面 inbreeding_load 的注释。
 ///
-/// **世代数是按周转率算的，不是按寿命上限算的**：平均年龄 = 1/死亡率，两套
-/// 分别是 4.3 与 8.7 季，500 季折合约 117 代对 57 代（约 2:1），而寿命上限
-/// 是 8 对 80（10:1）。绝大多数个体在活到寿命上限之前就被抽签选掉了，所以
-/// 寿命上限几乎不影响世代数——它影响的是超载格停不停产。
+/// **覆盖率随时间上升后趋平，不是在蚀**（`evolve`）：20 季 69.5%、
+/// 50 季 72.3%、100 季 76.7%、200 季 76.8%。设计文档 §7.1 承诺的「空掉的格
+/// 会被重新殖民、可用面积不只减不增」因此仍然成立。平台值比无地形时的 87.2%
+/// 低，原因是两股：��屏障限制移动，以及存量梯度会制造聚集（见设计文档
+/// §2.1 的补充说明 —— 梯度不填空，它重新分配）。
+///
+/// **此前挂在这里的所有读数组已全部作废**：决策 14 把老化的销毁时机从 flush
+/// 末尾挪到季首，阶段 2 又把可用面积砍到 30% 并改写了移动规则。下面世代数换算
+/// 里的平均年龄沿用更早那组读数，只作量级示意。
+///
+/// **世代数是按周转率算的，不是按寿命上限算的**：平均年龄 = 1/死亡率，短
+/// 寿命那套换代约比长寿命那套快一倍，而寿命上限是 8 对 80（10:1）。绝大
+/// 多数个体在活到寿命上限之前就被抽签选掉了，所以寿命上限几乎不影响世代
+/// 数——它影响的是超载格停不停产。
 ///
 /// 短寿命那套看得见演化是因为世代换得快；长寿命那套种群更大更稳，是超载格
 /// 停产换来的。两者不是「更好的和更差的」，是问不同问题的两个世界。
@@ -251,15 +270,22 @@ GeneticsConfig build_genetics(const Preset preset)
     // 从杂合度反推，是**种群级**的量（genetics 设计文档 §2 决定不追踪家谱），
     // 整群共用同一个数，因此这一项表达的是「群体近交程度整体压低存活」。
     //
-    // 0.7 这个值是实测出来的，阈值在 0.5 与 0.7 之间，是一次干净的分岔：
-    // 0.25 / 0.4 / 0.5 都能跑满 200 季（末季 8099 / 7816 / 7288，逐级被压低），
-    // 0.7 则第 44 季归零。
+    // 0.7 这个值是在**无地形**的老读数上实测出来的，阈值在 0.5 与 0.7 之间，
+    // 一次干净的分岔：0.25 / 0.4 / 0.5 都能跑满 200 季，0.7 则归零。
+    //
+    // **阶段 2 之后 0.7 已经越过悬崖，不再停在临界点上。** 地形把可用面积砍到
+    // 30% 并把地图碎成十几个陆块，fragile 的归零点从第 52 季提前到**第 25 季**。
+    // 这正是下面那条耦合的又一次发作：Σw² 的基线是 1/N，而 N 由每个亲代池
+    // 的大小决定 —— 陆地碎化后同一邻域里的个体更少、N 更小、基线更高，
+    // 0.7 因此压得更狠。**想在碎片化的世界上恢复「刚好压垮」的悬崖，
+    // 得把 0.7 往下重调**，本轮没有调：fragile 只证明「压得垮」，
+    // 而悬崖位置需要把 0.25/0.4/0.5/0.7 在新地图上全部重跑一遍才能定。
     //
     // 它比旧口径（走 genetics::summarize 的 f_coefficient）小一个量级，因为
     // Σw² 的基线在 0.1 ~ 0.5，而那一路的读数只有 0.03 ~ 0.07。
     //
     // **它与 mating_radius_cells 耦合，改邻域就得重调。** Σw² 的基线就是 1/N，
-    // 而 N 直接由邻域大小决定：上面那个分岔只对当前
+    // 而 N 直接由邻域大小决定：原来那个分岔只对当前
     // EnvironmentConfig::mating_radius_cells = 1 成立；半径调到 4 相当于把每个
     // 亲代池撑大九倍、Σw² 压到九分之一，0.7 就再也压不垮任何东西。
     // 这条耦合由 world_tests 的
@@ -282,10 +308,13 @@ GeneticsConfig build_genetics(const Preset preset)
 EnvironmentConfig build_environment()
 {
     EnvironmentConfig c{};
-    // Σcapacity = 4096 × capacity_base × mean(base_fertility) = 4096 × 3.9 ×
-    // 0.625 ≈ 9984，即种群的天花板。这是默认值，而 build_sites 的出生预算
-    // 取 eco_ceiling（headroom 份额）与 parent_ceiling（在场数 × 2.0）的
-    // 较小者，因此满占用下真正的刹车是承载力而不是繁殖力。
+    // **全陆地上** Σcapacity = 4096 × capacity_base × mean(base_fertility)
+    // = 4096 × 3.9 × 0.625 ≈ 9984。阶段 2 之后地形生效、水陆 70/30，
+    // 水格 capacity 归零，实际 Σcapacity 落到约 2958（种子 20261016）——
+    // 9984 现在只是全陆地上的上限，**不是天花板**，写死会让百分比读数出错。
+    //
+    // build_sites 的出生预算取 eco_ceiling（headroom 份额）与 parent_ceiling
+    // （在场数 × 2.0）的较小者，因此满占用下真正的刹车是承载力而不是繁殖力。
     c.capacity_base = 3.9f;
     return c;
 }
@@ -331,6 +360,12 @@ void seed(gamev2::world::World& world, const SpeciesId sid,
     for (std::size_t c = 0; c < kCellCount; ++c)
     {
         const auto cell = CellIndex{static_cast<std::uint16_t>(c)};
+        // 水格站不了人，在这里铺个体等于开机就把一堆幽灵丢进水里 ——
+        // 它们会被 MovementSystem 的静默钳回挤上岸，但那是纠错，不是初始化。
+        if (!env.terrain().passable(cell))
+        {
+            continue;
+        }
         const auto fill =
             static_cast<std::size_t>(env.resources().capacity(cell)
                                      * kSeedFill);
@@ -508,7 +543,116 @@ int main(const int argc, char** argv)
     }
     else
     {
-        std::println("\n种群区间 [{}({}), {}({})]，末季 {}。", low_season,
+        // 覆盖率：有个体的可通行格占全部可通行格的比例。它守的是设计文档
+        // §7.1 承诺的「空掉的格会被重新殖民」——world_tests 只跑几季，看不出
+        // 长期下来地图会不会单调收缩，sim 的长局才看得出。
+        //
+        // 最挤那一格也要报：覆盖率可以靠「少数格塞满」凑出来。
+        //
+        // Σcapacity 按实地图求和，不能写死：地形生成后水格 capacity 为 0，
+        // 全陆地的 4096 × capacity_base × mean(base_fertility) 只是上限，
+        // 写死会让下面那句百分比静默变成错的 —— 不报任何错，只给离谱的数。
+        std::size_t passable = 0;
+        std::size_t occupied = 0;
+        std::uint32_t worst = 0;
+        double sum_capacity = 0.0;
+        for (std::size_t c = 0; c < kCellCount; ++c)
+        {
+            const auto cell = CellIndex{static_cast<std::uint16_t>(c)};
+            if (!world.environment().terrain().passable(cell))
+            {
+                continue;
+            }
+            ++passable;
+            sum_capacity += world.environment().resources().capacity(cell);
+            const auto occ = world.environment().resources().occupants(cell);
+            if (occ > 0)
+            {
+                ++occupied;
+                worst = std::max<std::uint32_t>(worst, occ);
+            }
+        }
+        const auto cover = static_cast<double>(occupied)
+                           / static_cast<double>(passable) * 100.0;
+        std::println(
+            "\n覆盖率 {:.1f}%（{}/{} 个可通行格有主），最挤一格 {} 个体。",
+            cover, occupied, passable, worst);
+
+        // 按陆块分组的个体数。4 邻域移动逐格判通行 ⇒ 个体所在陆块的连通分量
+        // 在移动下是不变量；繁殖侧同样封闭（水格 capacity = 0 ⇒ headroom ≤ 0
+        // ⇒ 不发站点）。所以**跨陆块扩散在结构上不可能发生**，两个陆块上的
+        // 群体是真正隔离的 —— 阶段 2 招牌产出「屏障两侧分成两群」的观测点
+        // 在这里，也是阶段 3 `divergence` 指标的前置数据源。
+        //
+        // 之所以现在就要：上面那个覆盖率是**全图口径**，看不出按陆块分组之后
+        // 是什么样，而这个游戏唯一的看点正是分组之后的样子。
+        std::vector<bool> seen(kCellCount, false);
+        std::vector<std::size_t> block_sizes;
+        std::vector<std::size_t> stack;
+        for (std::size_t seed_cell = 0; seed_cell < kCellCount; ++seed_cell)
+        {
+            if (seen[seed_cell]
+                || !world.environment().terrain().passable(
+                    CellIndex{static_cast<std::uint16_t>(seed_cell)}))
+            {
+                continue;
+            }
+            std::size_t members = 0;
+            stack.assign(1, seed_cell);
+            while (!stack.empty())
+            {
+                const auto i = stack.back();
+                stack.pop_back();
+                const auto cell = CellIndex{static_cast<std::uint16_t>(i)};
+                if (seen[i] || !world.environment().terrain().passable(cell))
+                {
+                    continue;
+                }
+                seen[i] = true;
+                members += world.environment().resources().occupants(cell);
+
+                const auto gx = i % kGridSide;
+                const auto gy = i / kGridSide;
+                if (gx > 0)
+                {
+                    stack.push_back(i - 1);
+                }
+                if (gx + 1 < kGridSide)
+                {
+                    stack.push_back(i + 1);
+                }
+                if (gy > 0)
+                {
+                    stack.push_back(i - kGridSide);
+                }
+                if (gy + 1 < kGridSide)
+                {
+                    stack.push_back(i + kGridSide);
+                }
+            }
+            if (members > 0)
+            {
+                block_sizes.push_back(members);
+            }
+        }
+        std::ranges::sort(block_sizes, std::ranges::greater{});
+        // **时点必须写清楚**：`occupants` 全仓只在 EnvironmentSystem::
+        // begin_season 被写一次，而 begin_season 在 open_season 里、早于本季的
+        // 摄食与换代。所以这里读到的是**最后一季开季时**的分布，与同屏打印的
+        // 「末季 population」差一整季的净变化（本例 −29，约 1.2%）。想把两者
+        // 对齐得让 World 暴露可变的环境场，那是阶段 3 自己的事，不在这里放宽。
+        std::string line = "有主陆块（开季快照，落后末季一季）";
+        for (std::size_t i = 0; i < block_sizes.size() && i < 6; ++i)
+        {
+            line += std::format(" {} 个", block_sizes[i]);
+        }
+        if (block_sizes.size() > 6)
+        {
+            line += std::format(" …（共 {} 块）", block_sizes.size());
+        }
+        std::println("{}", line);
+
+        std::println("种群区间 [{}({}), {}({})]，末季 {}。", low_season,
                      low_pop, high_season, high_pop, previous);
         std::println(
             "Ne 恒在 1 附近不是退化：effective_population = 激活位点数 /\n"
@@ -523,9 +667,10 @@ int main(const int argc, char** argv)
         }
         else
         {
-            const auto pct = static_cast<double>(previous) / 9984.0 * 100.0;
-            std::println("\n末季 {:.0f} = Σcapacity(9984) 的 {:.0f}%。",
-                         static_cast<double>(previous), pct);
+            const auto pct =
+                static_cast<double>(previous) / sum_capacity * 100.0;
+            std::println("\n末季 {:.0f} = Σcapacity({:.0f}) 的 {:.0f}%。",
+                         static_cast<double>(previous), sum_capacity, pct);
             if (pct > 100.0)
             {
                 std::println(
@@ -533,7 +678,7 @@ int main(const int argc, char** argv)
                     "headroom 逐格取 max(0, capacity − occupants)，超载格贡献\n"
                     "0，而它多占的个体不会被赶走、只是不再产子；空着的格照常\n"
                     "产出，于是总量能长期停在承载力之和之上。个体寿命越长缺口\n"
-                    "越大——evolve 停在 89%，persist 停在 125%。");
+                    "越大——evolve 停在 82%，persist 停在 120%。");
             }
             else
             {

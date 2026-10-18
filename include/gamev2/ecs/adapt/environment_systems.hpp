@@ -16,6 +16,7 @@
 #include "gamev2/environment/config.hpp"
 #include "gamev2/environment/resource.hpp"
 #include "gamev2/environment/sites.hpp"
+#include "gamev2/environment/terrain.hpp"
 
 #include <cstdint>
 #include <tuple>
@@ -45,25 +46,43 @@ public:
     [[nodiscard]] const gamev2::environment::ResourceField& resources()
         const noexcept;
 
+    /// 只读地形。**不给可变重载**：玩家改写地形属阶段 4，届时再补。
+    /// MovementSystem 与 World::environment() 走的就是这一条。
+    [[nodiscard]] const gamev2::environment::TerrainField& terrain()
+        const noexcept;
+
 private:
     gamev2::environment::EnvironmentConfig config_;
+    gamev2::environment::TerrainField terrain_;
     gamev2::environment::ClimateField climate_;
     gamev2::environment::ResourceField resources_;
 };
 
 /// 逐个体写 Feeding，逐站点出 BreedingTarget。必须先于 BreedingSystem 跑完。
-/// WriteSet / ReadSet 只保证二者不同批，批次之间的先后由 System::order 表达；
-/// 两者都改掉时本 system 会落在 BreedingSystem 之后，读到上一季的站点表，
-/// 那只会让本季出生数按上一季结算。
 ///
-/// Feeding 的首次写入是 `World::add`，即 archetype 迁移。它与另一 system 对
-/// 同一批 slots_ 的无锁遍历并发相撞就是 use-after-free，而访问集表达不了这个
-/// 风险——挡它的是本类的 `mutates_structure`，它让本 system 独占一个批次。
+/// **自 tick 化起，World 不再把本 system 装进调度器**：那 8 个子步要由
+/// World 逐步驱动，跨 tick 的位置关系调度器表达不了。ReadSet / WriteSet 与
+/// `order` 在这条路径上都不参与——与 BreedingSystem 那份注释同理——实际
+/// 次序由 `World::step_once`（季首跑 begin_season，其后每 tick 一步 step）
+/// 与 `World::season_report`（finish 之后才 execute breeding）的显式序列
+/// 钉死。
 ///
-/// 持 SpeciesRegistry 是为了与 BreedingSystem 对「谁参与繁殖」给出同一个答案：
-/// 未注册的物种 id 若被本 system 放进来，它会占位、吃光本该属于真实物种的存量
-/// 并出现在 targets() 里，而 BreedingSystem 会把它整个跳过——一个只消耗不繁殖
-/// 的幽灵物种。
+/// 下面三段讲的都是**为什么这些声明仍然保留**：别的装配下
+/// `Scheduler::plan` 还要读它们，不要因为「本条路径不用」就顺手删掉。
+///
+/// 第一，`WriteSet` / `ReadSet` 只保证二者不同批，批次之间的先后由
+/// `System::order` 表达；两者都改掉时本 system 会落在 BreedingSystem 之后，
+/// 读到上一季的站点表，那只会让本季出生数按上一季结算。
+///
+/// 第二，Feeding 的首次写入是 `World::add`，即 archetype 迁移。它与另一
+/// system 对同一批 slots_ 的无锁遍历并发相撞就是 use-after-free，而访问集
+/// 表达不了这个风险——挡它的是本类的 `mutates_structure`，它让本 system 独占
+/// 一个批次。
+///
+/// 第三，持 SpeciesRegistry 是为了与 BreedingSystem 对「谁参与繁殖」给出
+/// 同一个答案：未注册的物种 id 若被本 system 放进来，它会占位、吃光本该属于
+/// 真实物种的存量并出现在 targets() 里，而 BreedingSystem 会把它整个跳过
+/// ——一个只消耗不繁殖的幽灵物种。
 class EnvironmentSystem final : public System
 {
 public:
@@ -93,9 +112,26 @@ public:
 
     void execute(World& world, CommandBuffer& cmd) override;
 
+    /// 季首：推进气候、收集摄食输入、点一次格内人数。step 与 finish 的
+    /// 全部输入都在这里备齐。
+    ///
+    /// 三段必须按 begin → step×steps_per_season → finish 的次序调用。
+    /// 跨过 begin 直接 step 会拿空的 foragers 跑完一季，跨过 finish
+    /// 直接让调用方结算则整季没有 Feeding——两者都不崩，只是让饥荒与
+    /// 出生预算静默失效，因此次序写在这里而不靠运行时拦截。
+    void begin_season(World& world);
+
+    /// 跑一个季内子步。次数由调用方决定，等于 steps_per_season。
+    /// \pre begin_season 已被调用。
+    void step();
+
+    /// 季末：把累计满意度写回 Feeding，按格与物种算子代预算填 targets_。
+    /// \pre 本季的 step 已被调用 steps_per_season 次。
+    void finish(World& world);
+
     /// 改写本 system 消费的季号。每季开始前调用一次。
     ///
-    /// \pre 调用必须发生在 execute 之前：本类在 execute 的第一行就把
+    /// \pre 调用必须发生在 begin_season 之前：本类在 begin_season 的第一行就把
     ///       season_index_ 交给 climate().advance()，之后改它不会有效果。
     void advance_season(std::uint32_t season_index) noexcept
     {
@@ -114,6 +150,14 @@ private:
     const gamev2::genetics::SpeciesRegistry& species_;
     std::uint32_t season_index_;
     std::vector<BreedingTarget> targets_;
+
+    // begin_season 备齐、finish 消费。留在成员里而不是每季构造，是为了让
+    // step() 无参：它每季被调用 steps_per_season 次，任何一次分配都会被
+    // 乘上这个倍数。
+    std::vector<EntityId> handles_;
+    std::vector<gamev2::environment::Forager> foragers_;
+    std::vector<std::uint32_t> species_keys_;
+    gamev2::environment::SeasonFeeder feeder_{env_.config()};
 };
 
 }  // namespace gamev2::ecs::adapt

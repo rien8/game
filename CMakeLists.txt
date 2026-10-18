@@ -86,6 +86,7 @@ set(ENVIRONMENT_SOURCES
     src/environment/climate.cpp
     src/environment/resource.cpp
     src/environment/sites.cpp
+    src/environment/terrain.cpp
     src/ecs/adapt/environment_systems.cpp
     src/ecs/adapt/movement_system.cpp
 )
@@ -108,6 +109,8 @@ set(ENVIRONMENT_TEST_SOURCES
     tests/test_environment_resource.cpp
     tests/test_environment_sites.cpp
     tests/test_environment_systems.cpp
+    tests/test_terrain.cpp
+    tests/test_movement.cpp
 )
 add_executable(environment_tests ${ENVIRONMENT_TEST_SOURCES})
 target_link_libraries(environment_tests PRIVATE environment)
@@ -125,6 +128,20 @@ set(WORLD_TEST_SOURCES
 )
 add_executable(world_tests ${WORLD_TEST_SOURCES})
 target_link_libraries(world_tests PRIVATE world)
+
+set(GAME_SOURCES
+    src/game/session.cpp
+)
+add_library(game STATIC ${GAME_SOURCES})
+target_include_directories(game PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(game PUBLIC world)
+
+set(GAME_TEST_SOURCES
+    tests/main.cpp
+    tests/test_game_session.cpp
+)
+add_executable(game_tests ${GAME_TEST_SOURCES})
+target_link_libraries(game_tests PRIVATE game)
 
 # 演示入口：world 模块的调用方，自带 main。刻意不进下面的 ASan foreach ——
 # 那条列表把所有 *_TEST_SOURCES 连同 tests/main.cpp 编成单个可执行目标，而本
@@ -154,7 +171,8 @@ if(GAMEV2_ENABLE_ASAN)
     foreach(f IN LISTS ECS_SOURCES ECS_TEST_SOURCES
                   GENETICS_SOURCES GENETICS_TEST_SOURCES
                   ENVIRONMENT_SOURCES ENVIRONMENT_TEST_SOURCES
-                  WORLD_SOURCES WORLD_TEST_SOURCES)
+                  WORLD_SOURCES WORLD_TEST_SOURCES
+                  GAME_SOURCES GAME_TEST_SOURCES)
         list(APPEND ECS_ASAN_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/${f}")
     endforeach()
     # 每个可执行目标都自带 tests/main.cpp（它定义了 main 与 test::run_all），

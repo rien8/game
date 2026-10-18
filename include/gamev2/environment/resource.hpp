@@ -5,6 +5,7 @@
 
 #include "gamev2/environment/climate.hpp"
 #include "gamev2/environment/config.hpp"
+#include "gamev2/environment/terrain.hpp"
 
 #include <array>
 #include <cstddef>
@@ -20,7 +21,7 @@ struct Forager;
 struct ResourceCell
 {
     float stock = 0.0f;     ///< 当前存量，[0, capacity]
-    float capacity = 0.0f;  ///< = capacity_base × 该格 base_fertility
+    float capacity = 0.0f;  ///< = capacity_base × 该格 base_fertility，水格恒 0
 };
 
 class ResourceField
@@ -29,8 +30,11 @@ public:
     /// \pre config.regen_rate ∈ (0, 1]：指数回归的收敛系数，越界会让
     ///      stock 冲出 [0, capacity]。本模块没有配置期校验机制，
     ///      因此这里只写明，不在运行时拦。
+    ///
+    /// 不可通行的格 capacity 恒 0，stock 因此也恒 0。
     ResourceField(const ClimateField& climate,
-                  const EnvironmentConfig& config);
+                  const EnvironmentConfig& config,
+                  const TerrainField& terrain);
 
     /// stock += regen_rate × (capacity - stock)。指数逼近而非线性：
     /// 线性在贴近 capacity 时仍以固定速率加，会在边界上反复穿越。

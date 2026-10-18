@@ -19,6 +19,8 @@ namespace {
 namespace ecs = gamev2::ecs;
 
 using gamev2::ecs::EntityId;
+using gamev2::ecs::Diagnostic;
+using gamev2::ecs::DiagnosticLevel;
 using gamev2::ecs::adapt::CreaturePhenotype;
 using gamev2::ecs::adapt::Environment;
 using gamev2::ecs::adapt::Position;
@@ -101,6 +103,12 @@ EnvironmentConfig roomy_config()
 {
     EnvironmentConfig c{};
     c.capacity_base = 40.0f;
+    // 本文件的 15 条测 world 层的编排（季序、确定性、繁殖、统计），不测地形。
+    // 阶段 2 起 water_fraction 默认 0.70，而 `spawn` / `seed` 按**固定坐标**
+    // 铺个体 —— 落在水上的个体会被 MovementSystem 的 nearest_standable 静默
+    // 搬运，夹具注释里那些数字推导就全过期了。钉死成全陆地，让这 15 条继续
+    // 测它们本来要测的东西；地形由 environment_tests 单独守。
+    c.water_fraction = 0.0f;
     return c;
 }
 
@@ -225,8 +233,12 @@ struct Fixture
 
     /// genetics::outlived 判的是 `age >= lifespan`：AgingSystem 把 age 递增到
     /// age_seasons，而 template 的 Lifespan 远大于 1，第一季不成立，故要显式
-    /// 设 0 让它恒真。Age 先跑而死亡在 flush 才生效，因此它当季仍参与繁殖与
-    /// 存活抽签——这对本模块无影响，只在写测试时别被吓到。
+    /// 设 0 让它恒真。
+    ///
+    /// tick 化之后老化的销毁命令由 open_season 里那次 Scheduler::run 末尾的
+    /// flush 当场生效——它不再与繁殖共享同一次 flush。于是到期个体在当季
+    /// 摄食与繁殖**之前**就已消失，比直觉预期的少参与一轮。这同样反直觉，
+    /// 写测试时别被吓到。
     EntityId spawn_doomed(const float x, const float y)
     {
         const EntityId e = spawn(x, y);
@@ -958,4 +970,84 @@ TEST(mating_radius_widens_the_pool_and_relieves_inbreeding)
     CHECK(wide_alive > 0);
     CHECK(mean_survival(wide) > mean_survival(narrow));
     CHECK(wide_alive > narrow_alive);
+}
+
+TEST(run_season_equals_eight_step_once)
+{
+    // **前半句「tick 化是纯重组」这条守不住**：World::run_season 的函数体
+    // 就是 step_once × N + season_report()，与下面手写的那一侧逐句同构，
+    // 任何一步被挪到另一个 tick 会同时改两边，这条恒绿。
+    //
+    // 它真正守两件事，两件都成立：
+    //
+    // 1. **步数正确**。finish() 要除以 config.steps_per_season 做摄食归一化，
+    //    多跑或少跑一步都会让两条轨迹的归一化分母与累加轮数不等。循环写死
+    //    8 步而配置不是 8，这条立刻红——这是它最有鉴别力的地方。
+    // 2. **tick 状态机自洽**：循环里那行 CHECK_EQ(tick_in_season(), i + 1)
+    //    逐步盯住 tick 累加，末尾那条 CHECK_EQ(tick, 0) 盯住 season_report
+    //    结算后确实把 tick_ 归零。忘了 `tick_ = 0` 会被末尾那条抓住。
+    //
+    // 「纯重组」的真正证据是 13 条既有 world 测试一字未改仍过（它们全部经
+    // run_season 这扇门走），外加 sim 基准：那些读数（`evolve 200` 末季
+    // population 8922 等）也出自 run_season，而本条钉住的是分步那扇门与它
+    // 逐位同源——两扇门因此给出同一批数。
+    //
+    // 两个 Fixture 同种子、同铺法，因此两条轨迹本该逐位一致。
+    // 报告的比较逐字段手比：SeasonReport 没有现成的逐项比较函数。
+    Fixture whole;
+    whole.seed(kCellCount, 2);
+    const auto whole_report = whole.world.run_season();
+
+    Fixture stepped;
+    stepped.seed(kCellCount, 2);
+    for (std::uint32_t i = 0; i < 8; ++i)
+    {
+        stepped.world.step_once();
+        CHECK_EQ(stepped.world.tick_in_season(), i + 1);
+    }
+    const auto stepped_report = stepped.world.season_report();
+
+    CHECK_EQ(stepped_report.season, whole_report.season);
+    CHECK_EQ(stepped_report.population, whole_report.population);
+    CHECK_EQ(stepped_report.species.size(), whole_report.species.size());
+    for (std::size_t i = 0; i < whole_report.species.size(); ++i)
+    {
+        CHECK_EQ(stepped_report.species[i].census,
+                 whole_report.species[i].census);
+        CHECK_EQ(stepped_report.species[i].heterozygosity,
+                 whole_report.species[i].heterozygosity);
+        CHECK_EQ(stepped_report.species[i].f_coefficient,
+                 whole_report.species[i].f_coefficient);
+        CHECK_EQ(stepped_report.species[i].effective_population,
+                 whole_report.species[i].effective_population);
+    }
+    // 报告归零，下一季从头开始。
+    CHECK_EQ(stepped.world.tick_in_season(), std::uint32_t{0});
+}
+
+TEST(a_season_that_did_not_run_every_substep_is_reported)
+{
+    // 少跑一步就结算会让摄食累加器少累一轮，季末 feeding 偏高——不崩，
+    // 只是静默偏松。因此这里要的是一条 error 级诊断，而不是断言数值。
+    Fixture f;
+    f.seed(64);
+
+    std::vector<Diagnostic> seen;
+    f.world.entities().set_diagnostic_handler(
+        [&](const Diagnostic& d)
+        {
+            if (d.code == "WORLD_INCOMPLETE_SEASON")
+            {
+                seen.push_back(d);
+            }
+        });
+
+    f.world.step_once();
+    f.world.step_once();
+    (void)f.world.season_report();
+
+    CHECK_EQ(seen.size(), std::size_t{1});
+    // 头文件的 \pre 与设计文档都承诺 error 级；只按 code 过滤的话，把它
+    // 降成 warning 照样全绿。
+    CHECK(seen.front().level == DiagnosticLevel::error);
 }

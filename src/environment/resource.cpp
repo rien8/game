@@ -8,15 +8,23 @@
 namespace gamev2::environment {
 
 ResourceField::ResourceField(const ClimateField& climate,
-                             const EnvironmentConfig& config)
+                             const EnvironmentConfig& config,
+                             const TerrainField& terrain)
     : regen_rate_{config.regen_rate}
 {
     for (std::size_t i = 0; i < kCellCount; ++i)
     {
-        const auto index =
-            CellIndex{static_cast<std::uint16_t>(i)};
-        cells_[i].capacity =
-            config.capacity_base * climate.base(index).base_fertility;
+        const auto index = CellIndex{static_cast<std::uint16_t>(i)};
+        // 不可通行的格 capacity 恒 0：它永远站不了人，headroom 会算出一份
+        // 永远用不到的承载力，于是 Σcapacity 虚高、sim 那句百分比失去意义。
+        //
+        // build_sites 无需跟着改：空格里没有亲代，parent_ceiling 本来就是
+        // lround(0 × offspring_scale) = 0，子代预算取 min(eco, parent)
+        // 已经是 0。
+        cells_[i].capacity = terrain.passable(index)
+                                ? config.capacity_base
+                                      * climate.base(index).base_fertility
+                                : 0.0f;
         cells_[i].stock = cells_[i].capacity;
     }
 }

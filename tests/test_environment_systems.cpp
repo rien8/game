@@ -274,6 +274,10 @@ TEST(feeding_varies_with_available_stock)
     // 会让贫格那组断言变红。
     EnvironmentConfig scarce{};
     scarce.capacity_base = 0.001f;
+    // 每格放一个个体，含水格。水格 capacity 恒 0，两个人为的「富/贫」世界
+    // 都会读到 0，这条就不再比较承载力了——只比水的比例。全陆地配置下
+    // 逐格 capacity 仍逐位等于改前的那条关系，断言不动。
+    scarce.water_fraction = 0.0f;
     EnvironmentWorld poor{31, scarce};
     EnvironmentSystem poor_system{poor, species, 0};
     CommandBuffer poor_cmd;
@@ -281,7 +285,9 @@ TEST(feeding_varies_with_available_stock)
     poor_cmd.flush(world);
     const auto poor_feeding = collect_feeding(world);
 
-    EnvironmentWorld rich{31, EnvironmentConfig{}};
+    auto rich_config = EnvironmentConfig{};
+    rich_config.water_fraction = 0.0f;
+    EnvironmentWorld rich{31, rich_config};
     EnvironmentSystem rich_system{rich, species, 0};
     CommandBuffer rich_cmd;
     rich_system.execute(world, rich_cmd);
@@ -317,7 +323,13 @@ TEST(environment_system_uses_the_config_given_to_environment_world)
     auto species = one_species();
 
     // 对照组：默认配置必须发得出站点，否则下面那条 empty() 是恒真。
-    EnvironmentWorld plain{41, EnvironmentConfig{}};
+    // 钉全陆地：下面 mute / sterile / barren 三组配置都由 plain 派生。70% 水的
+    // 地图上约 70% 的个体是因为「站在水格、stock = 0」而非 `demand_rate = 0`
+    // 拿到 0.0f —— 断言仍绿（陆上那 30% 守着原契约），但失败模式分裂了。
+    // 钉死之后，这条测的就是它声称要测的那件事。
+    auto plain_config = EnvironmentConfig{};
+    plain_config.water_fraction = 0.0f;
+    EnvironmentWorld plain{41, plain_config};
     EnvironmentSystem plain_system{plain, species, 0};
     CommandBuffer plain_cmd;
     plain_system.execute(world, plain_cmd);
@@ -402,6 +414,9 @@ TEST(unregistered_species_do_not_participate)
 TEST(total_birth_budget_stays_under_total_capacity)
 {
     EnvironmentConfig config{};
+    // 全陆地：夹具逐格按 capacity 放人，落在水格上 capacity 恒 0，
+    // 放不下任何人，那不是这条要守的东西。
+    config.water_fraction = 0.0f;
     // 占位率必须贴近 1 但不超过，headroom 才是紧的。capacity =
     // capacity_base × base_fertility 而 base_fertility ∈ [0.25, 1)，故
     // capacity_base = 40 时单格容量落在 [10, 40)，floor(C/2) >= 5。
@@ -522,20 +537,25 @@ TEST(environment_aging_and_breeding_plan_into_three_singleton_batches)
     CHECK_EQ(scheduler.batch_count(), std::size_t{3});
 }
 
-TEST(world_assembly_plans_into_three_batches_with_one_parallel_pair)
+TEST(a_structure_mutating_system_still_forces_its_own_batch)
 {
-    // 世界模块装配进调度器的四个 system（PopulationStatisticsSystem 刻意不进，
-    // 见 doc/2026-10-16-world-design.md 第 2 节），按 order 稳定排序后是
+    // 本用例自建的四个 system，按 order 稳定排序后是
     // Movement(-1) → Environment(0) → Aging(0) → Breeding(1)，贪心分层得到：
     //
     //     batch 0 = {MovementSystem, AgingSystem}
     //     batch 1 = {EnvironmentSystem}
     //     batch 2 = {BreedingSystem}
     //
-    // **四个 system 排成三批，这件事本身就是断言。** Scheduler 只暴露
-    // batch_count 而不暴露每批的成员，因此「3 批」与「4 个 system」合起来
-    // 唯一地说明有一批装着两个 system——而 Scheduler::run 只在批内多于一个
-    // system 时才向线程池派发，于是并行在这个装配下**确实会发生**。
+    // 世界模块在 tick 化之后只把 MovementSystem 与 AgingSystem 装进调度器
+    // （见 doc/2026-10-17-game-design.md 决策 4），排成一批并行。这条用例
+    // 守的是另一件事：一个 mutates_structure 的 system 与两个 WriteSet
+    // 相交的 system 仍然排成三批——它的形状与 World 的装配同源，因此
+    // World 那一侧少装两个 system 时它依然有效。
+    //
+    // **这里断言的是「这个子装配排成三批」，不是「World 排成三批」。**
+    // World 的批次条数由 movement_and_aging_do_not_conflict_so_a_batch_can_
+    // run_them_in_parallel 守着，它断言的 batch_count() == 1 正是 World
+    // 现在的装配。
     //
     // 这条断言替掉了它此前那个孪生的 worker_count 用例。那条用例比较两个不同
     // worker 数的世界各跑三季、断言结果一致，在并行压根不发生的旧装配下它
@@ -552,7 +572,8 @@ TEST(world_assembly_plans_into_three_batches_with_one_parallel_pair)
     auto config = default_genetics();
 
     EnvironmentWorld env{51, EnvironmentConfig{}};
-    MovementSystem movement{51, 0};
+    MovementSystem movement{51, 0, env.resources(), env.terrain(),
+                            EnvironmentConfig{}.gradient_weight};
     EnvironmentSystem environment{env, species, 0};
     AgingSystem aging;
     BreedingSystem breeding{table, species, config, 51, 0};
@@ -580,7 +601,9 @@ TEST(movement_and_aging_do_not_conflict_so_a_batch_can_run_them_in_parallel)
     // 结构变更，而 World::get_if 全程只读——slot_of 读槽位表、find 只扫
     // key_、column_at 直接返回 columns_[i]、chunk_data 返回
     // chunks_[chunk].data()，四步都不分配也不改结构。
-    MovementSystem movement{51, 0};
+    EnvironmentWorld env{51, EnvironmentConfig{}};
+    MovementSystem movement{51, 0, env.resources(), env.terrain(),
+                            EnvironmentConfig{}.gradient_weight};
     AgingSystem aging;
 
     Scheduler scheduler{2};
@@ -696,4 +719,44 @@ TEST(advance_season_replaces_the_season_index)
         CHECK_EQ(a.climate().at(cell).temperature,
                  b.climate().at(cell).temperature);
     }
+}
+
+TEST(environment_system_can_be_driven_one_substep_at_a_time)
+{
+    // execute() 是三者的组合。这条直接逐段驱动，钉住「begin 备齐输入、
+    // step 跑一步、finish 落结果」这个次序约定——World::run_season 之后
+    // 就靠它。
+    //
+    // place_creature 只挂 Position / SpeciesTag / CreaturePhenotype，而这三者
+    // 正是 EnvironmentSystem 的 ReadSet，因此不需要 Genome 或 Environment。
+    //
+    // 水格 capacity 为 0 而 count_occupants 照常计数，于是 occupancy ≥ 1
+    // 的水格 headroom ≤ 0、build_sites 不发站点 —— targets() 的条数会
+    // 取决于「(6,1) 恰好是陆」这个从未写下的地形事实。本条守的是
+    // begin/step/finish 的次序约定，不该被地形决定，因此钉成全陆地。
+    auto config = EnvironmentConfig{};
+    config.water_fraction = 0.0f;
+    EnvironmentWorld env{51, config};
+    const auto species = one_species();
+    EnvironmentSystem environment{env, species, 0};
+
+    World entities;
+    const auto e = place_creature(entities, 6.5f, 1.5f, SpeciesId{1});
+
+    environment.begin_season(entities);
+    // 还没跑任何一步：targets 必须还是空的，Feeding 也还不该存在。
+    CHECK_EQ(environment.targets().size(), std::size_t{0});
+    CHECK(!has_feeding(entities, e));
+
+    for (std::uint32_t i = 0; i < env.config().steps_per_season; ++i)
+    {
+        environment.step();
+    }
+    // 跑完步但没 finish：Feeding 仍未写回——begin 备的输入在 step 里只被
+    // 消费到内部累加器，写回在 finish。
+    CHECK(!has_feeding(entities, e));
+
+    environment.finish(entities);
+    CHECK(has_feeding(entities, e));
+    CHECK_EQ(environment.targets().size(), std::size_t{1});
 }

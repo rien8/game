@@ -52,15 +52,20 @@ struct Vitality
 /// 年龄递增 + 寿命硬判定。寿命是确定死亡，不是概率约束，
 /// 因此不走 genetics::survival_rate。
 ///
-/// 与 BreedingSystem 的先后要求见 BreedingSystem 的说明：两者同写
-/// Vitality，调度器会强制分层，但批次之间的先后不是它能表达的。
+/// 与 BreedingSystem 的先后自 tick 化起由 `World::season_report` 的显式
+/// 序列保证，不再由调度器分层：本 system 仍留在调度器里、季首那一批就跑完，
+/// 而 BreedingSystem 不进调度器，改由 World 在 EnvironmentSystem::finish
+/// 之后直接 execute。
 class AgingSystem final : public System
 {
 public:
-    /// 本 system 写 Vitality、BreedingSystem 也写，二者访问集冲突，被强制
-    /// 分进不同批次；order 把 AgingSystem 排在前面，兑现「**必须排在
-    /// BreedingSystem 之后**（即之前）」这条约束。冲突由 WriteSet 兜底，
-    /// order 只决定哪一批在前。
+    /// 本 system 写 Vitality、BreedingSystem 也写，二者访问集冲突——**能否
+    /// 同批由访问集决定，不由 order 决定**。World 如今不再把 BreedingSystem
+    /// 装进调度器，「必须排在 BreedingSystem 之前」这条约束由
+    /// World::season_report 的显式序列兑现，order 在这条路径上不参与。
+    ///
+    /// 但不要因此删掉这个声明：若 World 改回把两者都装进调度器，访问集仍是
+    /// 它们能否同批的唯一依据，order 只能决定哪一批在前。
     static constexpr int order = 0;
 
     /// 读集就是本 system 真的读到的那些组件：收集遍历取出 CreaturePhenotype
@@ -84,7 +89,10 @@ public:
 /// 而 settle 收到的 age 恒为 0（SeasonInput 不携带年龄，递增由 AgingSystem
 /// 负责）：Age 先跑，本季过寿的个体带着真实年龄进结算并当场出局；反过来
 /// 则用上一季的年龄判定，等于让寿命判定整整慢一季。反序唯一可察觉的后果是
-/// 一季的偏差，正因为它不崩不报错，才只能靠 order 与 WriteSet 一起守住。
+/// 一季的偏差，正因为它不崩不报错，这条先后才只能由一处显式序列显式钉死。
+/// 自 tick 化起那一处是 World::season_report（EnvironmentSystem 必须排在它
+/// 之前，否则 BreedingSystem 读到的是上一季的站点表与不存在的 Feeding，
+/// 整季饥荒静默失效）；本类的 order 与 WriteSet 在这条路径上都不参与。
 class BreedingSystem final : public System
 {
 public:

@@ -17,10 +17,22 @@ using gamev2::environment::ClimateField;
 using gamev2::environment::EnvironmentConfig;
 using gamev2::environment::Forager;
 using gamev2::environment::ResourceField;
+using gamev2::environment::SeasonFeeder;
+using gamev2::environment::TerrainField;
 using gamev2::environment::build_sites;
 using gamev2::environment::run_season;
 
 namespace {
+
+/// 既有断言全部在 capacity_base × base_fertility 这个关系上，而该关系在
+/// water_fraction = 0（全陆地）下与引入地形之前逐位相同——因此这些测试的
+/// 断言一个字都不用改，改的只是「传哪个地形进去」。
+EnvironmentConfig flat()
+{
+    auto c = EnvironmentConfig{};
+    c.water_fraction = 0.0f;
+    return c;
+}
 
 /// 把一批个体全部塞进同一格附近，方便构造「拥挤」与「空旷」两种极端。
 /// 位置在格内抖动，避免所有人落在同一个浮点坐标上。
@@ -93,8 +105,13 @@ std::vector<BreedingSite> sites_of(
     const EnvironmentConfig& config, const std::vector<Forager>& foragers,
     const std::vector<std::uint32_t>& keys)
 {
-    const ClimateField climate{5, config};
-    ResourceField field{climate, config};
+    // 调用方给的那份 config 保持默认的 70% 水；只有构造资源场用的这份是全陆地，
+    // 这样 capacity 与引入地形之前逐位相同。build_sites 读不到 water_fraction。
+    auto local = config;
+    local.water_fraction = 0.0f;
+    const ClimateField climate{5, local};
+    const TerrainField terrain = TerrainField::generate(5, local);
+    ResourceField field{climate, local, terrain};
     field.count_occupants(foragers);
     return build_sites(field, climate, foragers, keys, config);
 }
@@ -115,11 +132,140 @@ std::uint32_t progeny_of(const std::vector<BreedingSite>& sites,
 
 }  // namespace
 
+TEST(stepping_a_feeder_matches_running_the_whole_season)
+{
+    // 逐位比较：两个 ResourceField 从同一种子构造、同一次 count_occupants
+    // 开始，差别只在「谁来驱动那 8 步」。
+    //
+    // **这条守的不是「tick 化是纯重组」，它守不了那个**：run_season 的函数体
+    // 就是 SeasonFeeder + reset + K 步循环 + finish，与右侧逐句同构。任何一步
+    // 的顺序或公式改动会同时改两侧，这一条恒绿。
+    //
+    // 它真正能红的是**两个入口将来分叉**：只有一边调了 reset、循环次数写成
+    // K−1 或 K+1、或者某一侧把 step/finish 的次序颠过来，两边就不再逐位相等
+    // 了。也就是「门面与分步器必须始终等价」这条契约本身。
+    //
+    // 「tick 化是纯重组」的真正证据在既有的环境测试里：
+    // two_pass_feeding_uses_pre_draw_stock（闭式解，逐位对得上手算）、
+    // feeding_is_independent_of_forager_order（遍历顺序变了读数不变，
+    // 说明结果真的来自存量而非遍历副作用）、
+    // environment_system_uses_the_config_given_to_environment_world
+    // （ECS 适配层取的 config 与调用方给的那份逐位相同）。
+    auto config = flat();
+    config.steps_per_season = 8;
+
+    const std::vector<Forager> foragers{
+        Forager{3.5f, 4.5f, 1.0f},
+        Forager{5.5f, 6.5f, 0.4f},
+        Forager{20.25f, 20.75f, 2.0f},
+    };
+
+    ClimateField whole_climate{42, config};
+    const TerrainField whole_terrain = TerrainField::generate(42, config);
+    ResourceField whole{whole_climate, config, whole_terrain};
+    whole.count_occupants(foragers);
+    const auto whole_season = run_season(whole, foragers, config);
+
+    ClimateField stepped_climate{42, config};
+    const TerrainField stepped_terrain = TerrainField::generate(42, config);
+    ResourceField stepped{stepped_climate, config, stepped_terrain};
+    stepped.count_occupants(foragers);
+    SeasonFeeder feeder{config};
+    feeder.reset(foragers.size());
+    for (std::uint32_t i = 0; i < config.steps_per_season; ++i)
+    {
+        feeder.step(stepped, foragers);
+    }
+    const auto one_by_one = feeder.finish();
+
+    CHECK_EQ(one_by_one.size(), whole_season.size());
+    for (std::size_t i = 0; i < one_by_one.size(); ++i)
+    {
+        CHECK_EQ(one_by_one[i], whole_season[i]);
+    }
+}
+
+TEST(reset_clears_the_previous_seasons_accumulation)
+{
+    // 不调 reset 就连跑两季，satisfaction 会跨季累加——finish 的归一化
+    // 除以的仍是单季步数，于是第二季的读数被顶到 1 并夹住，饥荒静默失效。
+    //
+    // 判据是**逐位相等于一个全新 feeder**，不是任何阈值比较：阈值版本
+    // （如「第二季 ≤ 1」）在跨季累加下依然成立——累加的结果正被夹到 1，
+    // 断言恒绿。逐位相等才有鉴别力。
+    //
+    // 但逐位相等本身也只有在**未饱和区**才有鉴别力：一旦 ratio ≡ 1，累积
+    // 值越过 1 后又被 std::clamp 夹回 1，与全新 feeder 的输出仍然逐位相同。
+    // 所以夹具必须严格未饱和——crowd(12, 4.0f) 落在 cell(1,1)，实测一季
+    // satisfaction = 0.074397、正确第二季 = 0.054107（每步 ratio ≈ 0.0541，
+    // 严格 < 1）。把 reset 里的 assign 换成 resize（不清零）时第二季读到
+    // 0.128504 ≠ 0.054107：残留的是**未归一化的累加值**（0.074397 × 8），
+    // 不是上一季的读数，所以两者不是简单的 2 倍关系。
+    //
+    // 代价是两块地必须先各跑一季把存量压到同一状态：未饱和夹具下第二季
+    // 的读数取决于进季存量，拿一块用过的地对 virgin 地比，比的其实是存量
+    // 而不是累加器。
+    auto config = flat();
+    const auto foragers = crowd(12, 4.0f);
+
+    const auto run_one_season = [&](ResourceField& field, SeasonFeeder& feeder)
+    {
+        feeder.reset(foragers.size());
+        for (std::uint32_t i = 0; i < config.steps_per_season; ++i)
+        {
+            feeder.step(field, foragers);
+        }
+        return feeder.finish();
+    };
+
+    // 两块同种子的地，各跑一季热身，把存量压到同一状态；结果丢弃。
+    ClimateField a_climate{7, config};
+    const TerrainField a_terrain = TerrainField::generate(7, config);
+    ResourceField a{a_climate, config, a_terrain};
+    a.count_occupants(foragers);
+    SeasonFeeder reused{config};
+    (void)run_one_season(a, reused);
+
+    ClimateField b_climate{7, config};
+    const TerrainField b_terrain = TerrainField::generate(7, config);
+    ResourceField b{b_climate, config, b_terrain};
+    b.count_occupants(foragers);
+    SeasonFeeder warmup{config};
+    (void)run_one_season(b, warmup);
+
+    // 同一份进季存量、同一季：跑过一季的 feeder 与一个从没跑过的 feeder。
+    const auto second = run_one_season(a, reused);
+    SeasonFeeder fresh{config};
+    const auto reference = run_one_season(b, fresh);
+
+    CHECK_EQ(second.size(), reference.size());
+    for (std::size_t i = 0; i < reference.size(); ++i)
+    {
+        CHECK_EQ(second[i], reference[i]);
+    }
+}
+
+TEST(a_fresh_feeder_reports_nothing_before_its_first_step)
+{
+    // finish 在零步时必须给出全 0 而不是 UB：EnvironmentSystem 若在
+    // begin_season 之后、任何 step 之前被结算，渲染层会拿到未定义值。
+    auto config = EnvironmentConfig{};
+    SeasonFeeder feeder{config};
+    feeder.reset(4);
+    const auto nothing = feeder.finish();
+    CHECK_EQ(nothing.size(), std::size_t{4});
+    for (const auto value : nothing)
+    {
+        CHECK_EQ(value, 0.0f);
+    }
+}
+
 TEST(feeding_is_one_when_supply_exceeds_demand)
 {
-    const EnvironmentConfig config{};
+    const auto config = flat();
     const ClimateField climate{5, config};
-    ResourceField field{climate, config};
+    const TerrainField terrain = TerrainField::generate(5, config);
+    ResourceField field{climate, config, terrain};
     // 一个个体在近乎空旷的格子里，存量足够它随便吃。
     const auto foragers = crowd(1, 0.1f);
     field.count_occupants(foragers);
@@ -136,9 +282,10 @@ TEST(feeding_is_one_when_supply_exceeds_demand)
 
 TEST(feeding_drops_when_crowding_exceeds_capacity)
 {
-    const EnvironmentConfig config{};
+    const auto config = flat();
     const ClimateField climate{5, config};
-    ResourceField field{climate, config};
+    const TerrainField terrain = TerrainField::generate(5, config);
+    ResourceField field{climate, config, terrain};
     // 个体数远超该格承载力，且每个都很能吃。
     const auto foragers = crowd(60, 5.0f);
     field.count_occupants(foragers);
@@ -155,17 +302,18 @@ TEST(feeding_drops_when_crowding_exceeds_capacity)
 
 TEST(feeding_is_independent_of_forager_order)
 {
-    const EnvironmentConfig config{};
+    const auto config = flat();
     const ClimateField climate{5, config};
+    const TerrainField terrain = TerrainField::generate(5, config);
     const auto foragers = ramp_crowd(40);
 
-    ResourceField a{climate, config};
+    ResourceField a{climate, config, terrain};
     a.count_occupants(foragers);
     const auto first = run_season(a, foragers, config);
 
     auto shuffled = foragers;
     std::ranges::reverse(shuffled);
-    ResourceField b{climate, config};
+    ResourceField b{climate, config, terrain};
     b.count_occupants(shuffled);
     const auto second = run_season(b, shuffled, config);
 
@@ -198,7 +346,7 @@ TEST(feeding_is_independent_of_forager_order)
 
 TEST(two_pass_feeding_uses_pre_draw_stock)
 {
-    EnvironmentConfig config{};
+    auto config = flat();
     // 必须是两步。一步时满格上 regrow 是精确空操作
     // （stock + 0.25 × (capacity − stock) 括号内恰为 0），于是把
     // run_season 里的 field.regrow() 整行删掉，这条测试照样绿——
@@ -208,7 +356,8 @@ TEST(two_pass_feeding_uses_pre_draw_stock)
     // 故单格容量落在 [10, 40)。夹具的不等式全部按这个区间推，逐条 CHECK 在下面。
     config.capacity_base = 40.0f;
     const ClimateField climate{5, config};
-    ResourceField field{climate, config};
+    const TerrainField terrain = TerrainField::generate(5, config);
+    ResourceField field{climate, config, terrain};
 
     // 夹具：一格 40 个个体，前 20 个「吃得少」（want_lo ≈ 0.07，恒未被
     // share 截断），后 20 个「能吃」（want_hi = 1.4，恒被 share 截断）。
@@ -288,9 +437,10 @@ TEST(two_pass_feeding_uses_pre_draw_stock)
 
 TEST(zero_demand_forager_is_never_food_limited)
 {
-    const EnvironmentConfig config{};
+    const auto config = flat();
     const ClimateField climate{5, config};
-    ResourceField field{climate, config};
+    const TerrainField terrain = TerrainField::generate(5, config);
+    ResourceField field{climate, config, terrain};
     const std::vector<Forager> foragers{Forager{1.0f, 1.0f, 0.0f}};
     field.count_occupants(foragers);
 
@@ -306,9 +456,10 @@ TEST(zero_demand_forager_is_never_food_limited)
 
 TEST(run_season_returns_one_entry_per_forager)
 {
-    const EnvironmentConfig config{};
+    const auto config = flat();
     const ClimateField climate{6, config};
-    ResourceField field{climate, config};
+    const TerrainField terrain = TerrainField::generate(6, config);
+    ResourceField field{climate, config, terrain};
     const auto foragers = crowd(17, 1.0f);
     field.count_occupants(foragers);
 
@@ -323,7 +474,7 @@ TEST(sites_are_empty_when_no_creatures)
 
 TEST(over_capacity_cell_emits_no_site)
 {
-    const EnvironmentConfig config{};
+    const auto config = flat();
     // capacity_base = 3.9，base_fertility <= 1，单格容量不超过 3.9 个体。
     // 塞 20 个进去必然过载，headroom 归零。
     auto foragers = crowd(20, 1.0f);
@@ -339,7 +490,7 @@ TEST(over_capacity_cell_emits_no_site)
 
 TEST(progeny_of_a_lone_creature_is_capped_by_offspring_scale)
 {
-    EnvironmentConfig config{};
+    auto config = flat();
     // 默认 capacity_base = 3.9 下这一格会发站点，但发的不是满窝：cell(1,1)
     // 的 base_fertility 实测 0.825 ⇒ capacity = 3.219，减去 1 个占位者只剩
     // headroom = 2.219，round 得 2，于是 eco_ceiling = 2 < parent_ceiling = 3，
@@ -375,12 +526,13 @@ TEST(progeny_of_a_lone_creature_is_capped_by_offspring_scale)
 
 TEST(capacity_is_split_between_species_by_current_share)
 {
-    EnvironmentConfig config{};
+    auto config = flat();
     // capacity = capacity_base × base_fertility，而 base_fertility ∈ [0.25, 1)。
     // 取 40：两轮夹具都要在任意 f 下成立（下界 f = 0.25 最不利），推导写在
     // 各自处。24 是原始 4 占位者夹具的下限，40 留余量。
     config.capacity_base = 40.0f;
     const ClimateField climate{5, config};
+    const TerrainField terrain = TerrainField::generate(5, config);
 
     // 第一轮：3 个 A + 1 个 B，守的是繁殖上限。
     // capacity ∈ [10, 40)，headroom = capacity − 4 ∈ [6, 36)，
@@ -416,7 +568,7 @@ TEST(capacity_is_split_between_species_by_current_share)
     // 必然发站点。于是站点数恰好 1，这个数只由 share 决定：
     //     share 恒为 1（all = here）⇒ B 拿到 round(headroom) >= 1 ⇒ 2 个站点
     //     抹掉 share（乘 headroom）  ⇒ B 同样拿到 round(headroom) >= 1
-    ResourceField field{climate, config};
+    ResourceField field{climate, config, terrain};
     const auto cell = CellIndex::of(1.0f, 1.0f);
     const auto capacity = field.capacity(cell);
     // n = floor(capacity) − 1 ⇒ headroom = capacity − n = 小数部分 + 1 ∈ [1, 2)。
@@ -477,7 +629,7 @@ TEST(sites_are_identical_under_forager_permutation)
 
 TEST(each_site_carries_its_cell_weather)
 {
-    EnvironmentConfig config{};
+    auto config = flat();
     config.temperature_amplitude = 0.0f;
     // 默认 capacity_base = 3.9 下本格发得出站点，但只在某些种子下：cell(7,9)
     // 的 base_fertility 实测 0.399 ⇒ capacity = 1.556，减去 1 个占位者只剩
@@ -488,7 +640,8 @@ TEST(each_site_carries_its_cell_weather)
     // 的推导），使 1 个占位者的 headroom 恒 ≥ 6，站点在任意种子下必发。
     config.capacity_base = 40.0f;
     const ClimateField climate{5, config};
-    ResourceField field{climate, config};
+    const TerrainField terrain = TerrainField::generate(5, config);
+    ResourceField field{climate, config, terrain};
 
     const std::vector<Forager> foragers{Forager{7.0f, 9.0f, 1.0f}};
     field.count_occupants(foragers);

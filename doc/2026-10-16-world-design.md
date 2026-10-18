@@ -117,6 +117,11 @@ void BreedingSystem::advance_season(std::uint32_t season_index) noexcept
 
 ### 3.3 一季的执行序列
 
+> **已被 `doc/2026-10-17-game-design.md` 取代。** 编排粒度下沉到 tick：
+> `EnvironmentSystem` 与 `BreedingSystem` 不再进调度器，改由 `World` 显式
+> 驱动；调度器只留 `MovementSystem` 与 `AgingSystem` 那一对并行。本节保留
+> 以记录 tick 化之前的样子，读当前行为请读新文档 §3.3。
+
 ```cpp
 SeasonReport World::run_season()
 {
@@ -151,10 +156,12 @@ SeasonReport World::run_season()
    缓冲并进 `cmd` 之后就在末尾 `cmd.flush(world)`
    （`src/ecs/scheduler.cpp:144`）。世界在这一步之后才处于「本季已结算」的
    状态。`PopulationStatisticsSystem` 仍刻意不在其中（决策 3）。
-3. **不要再加一次 `cmd_.flush`。** 它不是无害的重复：`CommandBuffer::flush`
-   末尾有 `commands_.clear()`（`src/ecs/command_buffer.cpp:24`），第二次
-   flush 面对的是空缓冲、纯属空转。多一行 flush，「统计必须排在换代之后」
-   这个约束在代码结构上就看不出来了——只剩这一次 flush 时，位置关系一眼可辨。
+3. **换代 flush 归 `World::season_report` 里的 `cmd_.flush`。** tick 化之后
+   `breeding_.execute` 不在 `Scheduler::run` 内部，它入的 `cmd` 无人冲，因此
+   那一行由 `World` 自己负责，且必须排在 `breeding_.execute` 之后、
+   `statistics_.execute` 之前：`CommandBuffer::flush` 末尾有
+   `commands_.clear()`（`src/ecs/command_buffer.cpp:24`），只有这一次 flush，
+   「统计必须排在换代之后」这个约束在代码结构上一眼可辨。
 4. **统计。** 落在换代之后，因此 `census` 是真实存续数。
 
 `run_seasons(count)` 是 `for (i < count) reports.push_back(run_season())`，
@@ -484,6 +491,15 @@ ecs）。ASan 的 `foreach` 遍历的是具名列表，必须把 `WORLD_SOURCES`
   附近，出生 ≈ 死亡 ≈ 1900/季。`H_obs` 也从一路掉到 0.34 变成稳在 0.44。
   注意修掉的只是「格数流失」：**总规模越过 Σcapacity 仍是可能的**，那是另一条
   性质，见上面「承载力的全局界不成立」。
+- **这条性质在阶段 2（地形 + 移动重写）之后重新验过一次，仍然成立。**
+  它的守法变了：`MovementSystem` 已不是纯随机游走，而是掷硬币决定跟资源存量
+  梯度还是随机游走；地形又把地图切成十几个陆块。所以**单次快照测不出来**
+  —— 必须看时间序列，否则一次偶然的低读数会被误当成失血。
+  `sim` 因此每次运行都打印覆盖率与最挤一格的个体数。实测 `evolve` 跑 200 季：
+  覆盖率 20 季 69.5% → 50 季 72.3% → 100 季 76.7% → 200 季 76.8%，
+  **上升后趋平，不是在蚀**。平台值比无地形时的 87.2% 低，原因是水屏障限制
+  移动，以及存量梯度会制造聚集。细节与梯度那条被推翻的推断见
+  `doc/2026-10-17-game-design.md` §2.1 与 §7.1。
 - `threats` 的来源：捕食威胁等级仍由调用方给，环境层不产生；
   `BreedingSystem` 目前恒给 0.0f
 - 存档需求出现时，`ClimateField` / `ResourceField` / `LocusTable` /
