@@ -59,13 +59,16 @@ Dwarf Fortress 式世界——地表自然地理（高程 / 降水 / 温度 / �
 | 1 | `make_elevation` | — | `elevation`, `sea_level_` |
 | 2 | `make_rainfall` | `elevation` | `rainfall` |
 | 3 | `make_temperature` | `elevation`, `rainfall` | `temperature` |
-| 4 | `make_biomes` | `elevation`, `rainfall`, `temperature` | `biome` |
-| 5 | `make_hydrology` | `elevation` | `downstream`, `flow`, `river_width`, `lake_depth` |
+| 4 | `make_hydrology` | `elevation` | 下游指针 / 汇流量 / 河宽 / 湖深 / 排水量 |
+| 5 | `make_biomes` | `elevation`, `rainfall`, `temperature`, `drainage` | `biome` |
 | 6 | `make_soils` | `biome`, `rainfall` | `soil_depth` |
 | 7 | `make_strata` | `biome`, `rainfall` | `stone`, `aquifer_top` |
 | 8 | `make_caverns` | — | `cavern` |
 | 9 | `make_deposits` | `stone`, `cavern` | `deposit` |
 | 10 | `finalize_aquifers` | `aquifer_top`, `stone`, `cavern` | `aquifer` |
+
+水文排在群系之前，因为群系判定要用它产出的排水量（见 5.4）。这个方向是
+单向的：水文只读高程，不读群系，因此对调这两步没有副作用。
 
 10 与 9 的顺序不可交换：含水层不得出现在洞室里，而洞室必须在放置矿脉之前
 定型。反过来同样，矿脉不得落进洞室。
@@ -176,6 +179,7 @@ public:
     Grid<std::uint32_t> flow;
     Grid<std::uint8_t>  river_width;
     Grid<std::uint8_t>  lake_depth;
+    Grid<std::uint8_t>  drainage;     ///< 0..100，越大排水越好
     Grid<std::uint8_t>  soil_depth;
     Grid<std::uint8_t>  aquifer_top;
 
@@ -207,11 +211,13 @@ enum class ElevClass : std::uint8_t
 
 enum class Biome : std::uint8_t
 {
-    ocean, lake, beach, desert, badlands, savanna, grassland, woodland,
-    taiga, tundra, glacier, ashlands, rainforest, swamp, marshland,
-    shrubland, rocky_grassland, mountain_grassland, meadowland,
-    grassland_hills, wooded_hills, tall_trees, pine_barrens,
-    redwood_forest, coastal_tropics, salt_lake,
+    ocean, lake, mountain,
+    marshland, swamp,
+    taiga, temperate_coniferous, temperate_broadleaf,
+    tropical_coniferous, tropical_dry_broadleaf, tropical_moist_broadleaf,
+    grassland, meadowland, savanna, shrubland, pine_barrens,
+    sand_desert, rocky_wasteland, badlands,
+    tundra, glacier,
 };
 
 enum class Stone : std::uint8_t
@@ -312,21 +318,41 @@ public:
 
 海洋调节是为了避免「内陆极端 / 海洋酷热」这种明显失真的结果。
 
+**温度刻度**：`temperature` 为 `0..255` 的 byte，线性映射到 `-40°C..+50°C`
+（`celsius(t) = -40 + t * 90 / 255`）。群系的冻结与热带阈值都写在这条刻度上，
+而不是裸 byte 值：冻结阈值取 DF 原文的 `-5°C`（对应 byte ≤ 99），
+热带阈值取 `+30°C`（对应 byte ≥ 199）。
+
 ### 5.4 群系 `make_biomes`
 
-纯查表，无代码分支：
+严格照 DF 的三步判定，不做简化：
 
-```cpp
-[[nodiscard]] Biome select_biome(ElevClass, std::uint8_t temp,
-                                 std::uint8_t rain);
+```
+1. 高程先判   ElevClass::ocean   → ocean
+              ElevClass::mountain → mountain
+2. 基础群系   = kBaseBiome[降水 8 档][排水 8 档]
+3. 温度覆写   temp <= 冻结阈值  → 排水 < 75 ? tundra : glacier
+              temp >= 热带阈值  → 针叶林转热带针叶林，阔叶林按干湿转
+                                  热带干/湿阔叶林
 ```
 
-表是 `include/gamev2/world/tables.hpp` 里的 `inline constexpr` 数组，键为
-`(ElevClass, 温度 8 档, 降水 8 档)`，共 5 × 8 × 8 = 320 项。放在头文件里用
-`inline constexpr` 而非 `src/world/tables.cpp` 的匿名静态数组，是为了让测试
-能直接引用同一份数据核对（见 7 节测试 9）。
+```cpp
+[[nodiscard]] Biome select_biome(ElevClass, std::uint8_t drainage,
+                                 std::uint8_t rain, std::uint8_t temp);
+```
 
-`ElevClass` 按 `elevation - sea_level` 分档得到。
+`kBaseBiome` 是 `include/gamev2/world/tables.hpp` 里的
+`inline constexpr std::array<Biome, 64>`，行 = 降水档（0 最干 .. 7 最湿），
+列 = 排水档（0 排水最差 .. 7 排水最好）。放在头文件里用 `inline constexpr`
+而非 `.cpp` 的匿名静态数组，是为了让测试能直接引用同一份数据核对。
+
+**为什么必须引入排水量**：DF 里 grassland / shrubland / savanna / swamp /
+marsh 这一整组的区分靠的是排水量，不是降水量。只用降水的话沼泽只会在雨最多
+的地方出现，山坡上的灌丛也长不出来，整组地形会失真。排水量是河流与泛滥平原
+计算的副产物，在阶段 4 产出。
+
+分档：`rain_band = min(7, rain / 32)`（`rain` 为 0..255），
+`drainage_band = min(7, drainage / 13)`（`drainage` 为 0..100）。
 
 ### 5.5 水文 `make_hydrology`
 
@@ -338,6 +364,7 @@ DF 的 flow-basin 思路，本轮最照抄的一块。
 3. 汇流量     按填平高度【从高到低】处理；flow[格] 初值 1，加给下游
 4. 河道       flow 超阈值者为河；宽度按 flow 分档 tiny..huge → 1..5
 5. 湖泊       终点非海洋且落在洼地 → 成湖，深度 = 填平高度 - 原始高程
+6. 排水量     由水体向外扩散得到 drainage（见下）
 ```
 
 第 3 步的「从高到低」是正确性要害：下游必定更低，必须先算完才能把流量交给它。
@@ -345,6 +372,13 @@ DF 的 flow-basin 思路，本轮最照抄的一块。
 
 **下游指针必须无环**：平局（多个等高邻居）按 `(dy, dx)` 字典序择一，
 而不是靠遍历顺序。靠遍历顺序择一会在环上死循环。
+
+**排水量的推导**：以湖泊格与河道格为源点，初始 `wetness` 分别为 100 与
+`50 * river_width / 5`，洼地格按填平深度加权后一并入队；从源点做多源 BFS，
+每向外一格 `wetness` 衰减一档，下限 0。`drainage = 100 - wetness`。
+
+这是 DF 排水量的等价近似而非复刻——DF 的 `drainage` 来自其泛洪平原计算，
+算法未公开。
 
 阈值与分档的具体数值是调参项，初值由 demo 导出 PPM 后对着图调。
 
@@ -440,7 +474,8 @@ generate_world(const WorldParams& params);
 | 8 | 洞穴 | 洞室体素数 > 0；全在 `z >= 1`；`z=0` 无洞 |
 | 9 | 矿脉 | 矿脉体素数 > 0；不与洞室重叠；母岩在 `deposit_specs()` 对应项的 `hosts` 内 |
 | 10 | 含水层 | 全部在 `aquifer_top` 以下；洞室内无含水层 |
-| 11 | 群系 | 海洋格群系恒为 `Biome::ocean`；无越界枚举值 |
+| 11 | 群系 | 海洋格恒为 `Biome::ocean`，山岳格恒为 `Biome::mountain` |
+| 12 | 群系覆写 | `temperature` 低于冻结阈值的格，按 `drainage < 75` 分别为 `tundra` / `glacier` |
 
 第 1 条与第 3 条是关键项：确定性缺了它没法调试，环会让水文阶段静默死循环。
 
@@ -530,6 +565,9 @@ cmake --build build
 | 洞穴 | 内部实现为随机化 + 平滑 | 随机化 + cellular automata + 连通域清理 | 思路一致 |
 | 降水雨影 | 有 | 有（固定风向） | 简化 |
 | 河流宽度 | 按汇流量分档 | 同（tiny..huge → 1..5） | 采用 |
+| 群系判定 | 高程先判 → 基础群系 = f(排水量, 降水量) → 温度覆写 | 同 | 采用 |
+| 排水量 | 泛洪平原计算的产物 | 由水体多源 BFS 扩散导出 | 算法未公开，近似 |
+| 温度刻度 | DF 自有刻度 | 线性映射 -40°C..+50°C 到 byte 0..255 | 阈值按 DF 原文的 -5°C 换算 |
 
 ## 11. 已知限制与风险
 
