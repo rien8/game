@@ -15,6 +15,13 @@ namespace gamev2::world {
 /// 全部生成阶段之间共享的唯一状态。
 class World
 {
+private:
+    friend void make_elevation(World&);
+
+    /// 生成参数。声明放在所有网格之前：构造函数的初始化列表按声明序写，
+    /// 参数因而先于网格就位，网格初始化若要读它不会读到未初始化的值。
+    WorldParams params_;
+
 public:
     explicit World(WorldParams params);
 
@@ -56,9 +63,6 @@ public:
     std::vector<Grid<bool>>    aquifer;
 
 private:
-    friend void make_elevation(World&);
-
-    WorldParams params_;
     std::uint8_t sea_level_ = 0;
 };
 

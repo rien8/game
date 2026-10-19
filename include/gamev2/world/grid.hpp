@@ -40,6 +40,11 @@ public:
         return cells_[linear];
     }
 
+    [[nodiscard]] const T& at(std::uint32_t linear) const noexcept
+    {
+        return cells_[linear];
+    }
+
     [[nodiscard]] std::uint32_t index_of(std::uint32_t x,
                                          std::uint32_t y) const noexcept
     {
@@ -102,6 +107,11 @@ public:
     }
 
     [[nodiscard]] bool& at(std::uint32_t linear) noexcept
+    {
+        return cells_[linear].value;
+    }
+
+    [[nodiscard]] const bool& at(std::uint32_t linear) const noexcept
     {
         return cells_[linear].value;
     }

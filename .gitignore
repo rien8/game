@@ -11,3 +11,5 @@ build-*/
 *.log
 temp/
 agent-temp/
+# Obsidian 插件的索引缓存（.anh-fsdb），是工具产物不是仓库内容。
+novel-helper/

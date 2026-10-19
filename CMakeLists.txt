@@ -48,6 +48,14 @@ target_link_libraries(ecs_tests PRIVATE ecs)
 
 set(WORLDGEN_SOURCES
     src/world/world.cpp
+    src/world/rng.cpp
+    src/world/terrain.cpp
+    src/world/generate.cpp
+    src/world/hydrology.cpp
+    src/world/biomes.cpp
+    src/world/strata.cpp
+    src/world/caverns.cpp
+    src/world/deposits.cpp
 )
 add_library(worldgen STATIC ${WORLDGEN_SOURCES})
 target_include_directories(worldgen PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -55,9 +63,22 @@ target_include_directories(worldgen PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 set(WORLDGEN_TEST_SOURCES
     tests/main.cpp
     tests/test_world_grid.cpp
+    tests/test_world_rng.cpp
+    tests/test_world_elevation.cpp
+    tests/test_world_rainfall.cpp
+    tests/test_world_temperature.cpp
+    tests/test_world_hydrology.cpp
+    tests/test_world_biomes.cpp
+    tests/test_world_strata.cpp
+    tests/test_world_caverns.cpp
+    tests/test_world_deposits.cpp
+    tests/test_world_determinism.cpp
 )
 add_executable(worldgen_tests ${WORLDGEN_TEST_SOURCES})
 target_link_libraries(worldgen_tests PRIVATE worldgen)
+
+add_executable(worldgen_demo src/demo/main.cpp)
+target_link_libraries(worldgen_demo PRIVATE worldgen)
 
 # Opt-in sanitizer build. Off by default so the pinned build stays untouched;
 # the `active_` invariant in ThreadPool is a lifetime race that no ordinary

@@ -2,6 +2,7 @@
 /// @brief 世界生成用到的全部枚举与刻度常量。
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <cstddef>
 
@@ -24,7 +25,6 @@ enum class Biome : std::uint8_t
     mountain,
     marshland,
     swamp,
-    taiga,
     temperate_coniferous,
     temperate_broadleaf,
     tropical_coniferous,
@@ -42,9 +42,10 @@ enum class Biome : std::uint8_t
     glacier,
 };
 
-inline constexpr std::size_t kBiomeCount = 21;
+inline constexpr std::size_t kBiomeCount = 20;
 
-/// 岩性。sedimentary_* 是表层沉积，igneous_* 是深层与侵入体。
+/// 岩性。表层是沉积（sandstone / shale / limestone / gravel / clay / marble），
+/// 深层与侵入体是火成（granite / basalt / slate / igneous / igneous_intrusive）。
 enum class Stone : std::uint8_t
 {
     sandstone,
@@ -79,6 +80,63 @@ enum class Deposit : std::uint8_t
     adamantine,
 };
 
+/// 随机流编号。设计文档 4.1：编号全局唯一，同一个编号只能被一条随机流占用，
+/// 否则两个阶段从同一条流上取数，派生 seed 相同。
+///
+/// 名字是**流名**不是阶段号：region / offset / intrusion 三条流同属阶段 7，
+/// cavern 是阶段 8 却用 3 号流。
+///
+/// 枚举的取值不保证互异（`a = 3, b = 3` 合法），所以唯一性由紧随其后的
+/// static_assert 钉住：那份清单就是流号登记表，新增一条流必须同改。
+enum class Stream : std::uint32_t
+{
+    elevation = 0,
+    rain = 1,
+    /// 温度阶段不取随机数，编号先占住。
+    temperature = 2,
+    cavern = 3,
+    /// 水文与群系目前不取随机数，编号先占住。
+    hydrology = 4,
+    biome = 5,
+    region = 6,
+    offset = 7,
+    intrusion = 8,
+    deposit = 9,
+};
+
+/// 全部已占用的流号。清单与枚举必须同步维护。
+inline constexpr std::array<std::uint32_t, 10> kStreamIds{
+    static_cast<std::uint32_t>(Stream::elevation),
+    static_cast<std::uint32_t>(Stream::rain),
+    static_cast<std::uint32_t>(Stream::temperature),
+    static_cast<std::uint32_t>(Stream::cavern),
+    static_cast<std::uint32_t>(Stream::hydrology),
+    static_cast<std::uint32_t>(Stream::biome),
+    static_cast<std::uint32_t>(Stream::region),
+    static_cast<std::uint32_t>(Stream::offset),
+    static_cast<std::uint32_t>(Stream::intrusion),
+    static_cast<std::uint32_t>(Stream::deposit),
+};
+
+/// 流号两两不同。重复即意味着两个阶段共用一条随机流——那不是确定性缺陷，
+/// 但会让两个阶段的相关性悄悄渗进世界，规格却写着它们互不串扰。
+consteval bool stream_ids_are_distinct() noexcept
+{
+    for (std::size_t i = 0; i < kStreamIds.size(); ++i)
+    {
+        for (std::size_t j = i + 1; j < kStreamIds.size(); ++j)
+        {
+            if (kStreamIds[i] == kStreamIds[j])
+            {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static_assert(stream_ids_are_distinct());
+
 /// downstream 的哨兵：该格是海洋，或落在洼地底部。
 inline constexpr std::uint32_t kNoDownstream = 0xFFFFFFFFu;
 
@@ -105,5 +163,8 @@ inline constexpr int kTropicalCelsius = 30;
 
 /// DF 原文：排水量低于该值的群系冻结为苔原，高于则为冰川。
 inline constexpr std::uint8_t kGlacierDrainage = 75;
+
+/// 洞穴碎屑阈值：体素数低于该值的空腔连通域视为碎屑，填实。
+inline constexpr std::uint32_t kMinCavernVolume = 64;
 
 }  // namespace gamev2::world
