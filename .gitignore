@@ -1,7 +1,9 @@
 build/
+build-*/
 .cache/
 .vscode/
 .vs/
+.qtcreator/
 *.obj
 *.exe
 *.pdb
@@ -9,3 +11,4 @@ build/
 *.log
 .superpowers/sdd/
 temp/
+agent-temp/
