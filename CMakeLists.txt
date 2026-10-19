@@ -46,6 +46,19 @@ set(ECS_TEST_SOURCES
 add_executable(ecs_tests ${ECS_TEST_SOURCES})
 target_link_libraries(ecs_tests PRIVATE ecs)
 
+set(WORLDGEN_SOURCES
+    src/world/world.cpp
+)
+add_library(worldgen STATIC ${WORLDGEN_SOURCES})
+target_include_directories(worldgen PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+set(WORLDGEN_TEST_SOURCES
+    tests/main.cpp
+    tests/test_world_grid.cpp
+)
+add_executable(worldgen_tests ${WORLDGEN_TEST_SOURCES})
+target_link_libraries(worldgen_tests PRIVATE worldgen)
+
 # Opt-in sanitizer build. Off by default so the pinned build stays untouched;
 # the `active_` invariant in ThreadPool is a lifetime race that no ordinary
 # assertion can observe, and reproducing it needs a UAF detector.

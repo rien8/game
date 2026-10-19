@@ -9,6 +9,5 @@ build-*/
 *.pdb
 *.ilk
 *.log
-.superpowers/sdd/
 temp/
 agent-temp/
