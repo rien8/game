@@ -206,7 +206,7 @@ private:
 ```cpp
 enum class ElevClass : std::uint8_t
 {
-    ocean, lowland, hills, mountain, peak,
+    ocean, lowland, hills, mountain,
 };
 
 enum class Biome : std::uint8_t
@@ -370,8 +370,9 @@ DF 的 flow-basin 思路，本轮最照抄的一块。
 第 3 步的「从高到低」是正确性要害：下游必定更低，必须先算完才能把流量交给它。
 仍用计数排序。
 
-**下游指针必须无环**：平局（多个等高邻居）按 `(dy, dx)` 字典序择一，
-而不是靠遍历顺序。靠遍历顺序择一会在环上死循环。
+**下游指针必然无环**：择取条件是**严格小于**（`filled[next] < filled[self]`），
+因此沿指针前进时填平高度严格递减，环在数学上不可能出现。平局时保持先遍历到
+的那个邻居即可，遍历顺序固定为 `(dy, dx)` 的固定数组，因此结果仍然确定。
 
 **排水量的推导**：以湖泊格与河道格为源点，初始 `wetness` 分别为 100 与
 `50 * river_width / 5`，洼地格按填平深度加权后一并入队；从源点做多源 BFS，
