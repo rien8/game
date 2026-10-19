@@ -85,17 +85,26 @@ include/gamev2/world/
   rng.hpp           Pcg32 + 无状态 value noise + stage_seed
   generate.hpp      generate_world + 10 个阶段函数声明
 src/world/
-  terrain.cpp       阶段 1-4
-  hydrology.cpp     阶段 5
-  strata.cpp        阶段 6-7
-  caverns.cpp       阶段 8
-  deposits.cpp      阶段 9-10
+  terrain.cpp       阶段 1-3：高程 / 降水 / 温度
+  hydrology.cpp     阶段 4：水文
+  biomes.cpp        阶段 5：群系
+  strata.cpp        阶段 6-7：土壤 / 岩层
+  caverns.cpp       阶段 8：洞穴
+  deposits.cpp      阶段 9-10：矿脉 / 含水层
+  generate.cpp      generate_world 编排
 src/demo/main.cpp   worldgen_demo：统计 + PPM 导出
 tests/
-  test_world_determinism.cpp
+  test_world_grid.cpp
+  test_world_rng.cpp
+  test_world_elevation.cpp
+  test_world_rainfall.cpp
+  test_world_temperature.cpp
   test_world_hydrology.cpp
+  test_world_biomes.cpp
   test_world_strata.cpp
   test_world_caverns.cpp
+  test_world_deposits.cpp
+  test_world_determinism.cpp
 ```
 
 ## 3. 数据结构
@@ -213,7 +222,7 @@ enum class Biome : std::uint8_t
 {
     ocean, lake, mountain,
     marshland, swamp,
-    taiga, temperate_coniferous, temperate_broadleaf,
+    temperate_coniferous, temperate_broadleaf,
     tropical_coniferous, tropical_dry_broadleaf, tropical_moist_broadleaf,
     grassland, meadowland, savanna, shrubland, pine_barrens,
     sand_desert, rocky_wasteland, badlands,
