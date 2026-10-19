@@ -15,6 +15,7 @@ These rules are non-negotiable. They override any workflow guidance below.
 - Reply to the user in Chinese.
 - Place generated documentation under `doc/`; put temporary files under `agent-temp/`.
 - Do not delete existing comments arbitrarily.
+- Ues `py -3` as python interpreter.
 
 ## C++ Standard
 
@@ -33,6 +34,7 @@ The project standardizes on **C++23**. Write new code directly in C++23 idioms; 
 - Comments explain *why* (rationale, constraint, ownership, architectural pattern) — never *what*. Anything derivable from names/types belongs in code, not comments.
 - Keep comments sparse and concise; omit comments for self-explanatory code.
 - Preserve existing comments that already explain *why*; don't delete or rewrite them without cause.
+- Comments keep concise and accurate.
 
 ## Before Coding
 
