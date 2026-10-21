@@ -65,9 +65,15 @@ public:
     Grid<std::uint32_t> vein_id;
     Grid<std::uint32_t> eye_flow;
     Grid<std::uint8_t>  domain_concentration;
+    /// 灵域分等：地脉网络给出的**浓度**分档。
+    ///
+    /// 与 `land_type` 有意不一致——一个福地塌成死地之后，这里仍是 blessed。
+    /// 「这里现在能不能住」看 `land_type`，「这里的灵气网络有多强」看这里。
     Grid<DomainGrade>   domain_grade;
     Grid<Scar>          scar_kind;
     Grid<std::uint8_t>  spirit_suppression;
+    /// 最终地貌：浓度分等叠加历史与地脉属性之后的**结论**。
+    /// 读取方要判断某格能不能住，看的是这张网格，不是 `domain_grade`。
     Grid<LandType>      land_type;
     Grid<std::uint8_t>  eye_purity;
     Grid<bool>          cave_heaven;

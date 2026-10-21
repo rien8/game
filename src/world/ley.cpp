@@ -249,6 +249,20 @@ std::uint32_t depth_of(const World& world, std::uint32_t cell,
         raw, static_cast<int>(kMinLeyDepth), static_cast<int>(kMaxLeyDepth)));
 }
 
+/// 全图埋深。埋深是每格自身的属性，与路径无关，因此可以预先算好——择序
+/// 第三条要比的正是它，每步现算会把追踪的代价放大九倍。
+std::vector<std::uint32_t> compute_ley_depths(
+    const World& world, const std::vector<std::uint8_t>& floor)
+{
+    const std::uint32_t n = world.elevation.size();
+    std::vector<std::uint32_t> depths(n);
+    for (std::uint32_t i = 0; i < n; ++i)
+    {
+        depths[i] = depth_of(world, i, floor[i]);
+    }
+    return depths;
+}
+
 /// 节点属性由流经的岩性决定（设定 2.1）。埋深可能超过世界的总格深，
 /// 超出部分取最深的岩层——那本来就是「地脉在更深的地方」。
 Element element_of_node(const World& world, std::uint32_t cell,
@@ -263,10 +277,16 @@ Element element_of_node(const World& world, std::uint32_t cell,
 /// 逐源点追踪通道。
 ///
 /// 择序：先要求严格下降（否则通道会爬坡），再按汇流量大者优先，
-/// 最后按高程低者优先。等价条件时靠 kDx8/kDy8 的固定顺序打破平局，
+/// 最后按埋深浅者优先。等价条件时靠 kDx8/kDy8 的固定顺序打破平局，
 /// 因此结果与遍历顺序无关。
+///
+/// 第三条是「埋深浅」而不是「高程低」：两者在同一汇水区内是反的
+/// （高程越高 → relief 越大 → 埋得越浅）。埋深浅的邻居意味着通道贴着
+/// 盖层底走而不是一头扎进低处——设计 §3.2 说「浅埋才有灵眼在地表出露
+/// 的可能，灵眼若全在河口就与设定打架」。按高程低择优恰好会把通道推向
+/// 河口，埋深随之变大。
 TraceResult trace_channels(const World& world,
-                            const std::vector<std::uint8_t>& floor,
+                            const std::vector<std::uint32_t>& depths,
                             std::uint32_t spacing)
 {
     const WorldParams& p = world.params();
@@ -299,7 +319,7 @@ TraceResult trace_channels(const World& world,
 
             LeyNode node;
             node.cell = cur;
-            node.depth = depth_of(world, cur, floor[cur]);
+            node.depth = depths[cur];
             node.element = element_of_node(world, cur, node.depth);
             node.flow = kLeySourceFlow;
             const auto index = static_cast<std::uint32_t>(result.nodes.size());
@@ -319,7 +339,7 @@ TraceResult trace_channels(const World& world,
             const auto y = static_cast<int>(cur / p.width);
             std::uint32_t best = kNoNode;
             std::uint32_t best_flow = 0;
-            std::uint8_t best_elev = 0;
+            std::uint32_t best_depth = 0;
             for (int d = 0; d < 8; ++d)
             {
                 const int nx = x + kDx8[d];
@@ -348,12 +368,11 @@ TraceResult trace_channels(const World& world,
                     break;
                 }
                 if (best == kNoNode || world.flow.at(j) > best_flow
-                    || (world.flow.at(j) == best_flow
-                        && world.elevation.at(j) < best_elev))
+                    || (world.flow.at(j) == best_flow && depths[j] < best_depth))
                 {
                     best = j;
                     best_flow = world.flow.at(j);
-                    best_elev = world.elevation.at(j);
+                    best_depth = depths[j];
                 }
             }
 
@@ -478,6 +497,7 @@ void make_ley_network(World& world)
 {
     const WorldParams& p = world.params();
     const std::vector<std::uint8_t> floor = compute_basin_floor(world);
+    const std::vector<std::uint32_t> depths = compute_ley_depths(world, floor);
 
     // 通道数要有下界：阶段 13 的灵脉数量是硬约束，每条灵脉占一条通道，
     // 通道不够就切不出那么多段。地形平缓时按固定间距选不出这么多通道，
@@ -487,7 +507,7 @@ void make_ley_network(World& world)
     std::uint32_t best = 0;
     for (std::uint32_t spacing = kLeySourceSpacing; spacing >= 1; --spacing)
     {
-        TraceResult relaxed = trace_channels(world, floor, spacing);
+        TraceResult relaxed = trace_channels(world, depths, spacing);
         if (relaxed.channels.size() > best)
         {
             best = relaxed.channels.size();

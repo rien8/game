@@ -1912,6 +1912,20 @@ std::uint32_t depth_of(const World& world, std::uint32_t cell,
         raw, static_cast<int>(kMinLeyDepth), static_cast<int>(kMaxLeyDepth)));
 }
 
+/// 全图埋深。埋深是每格自身的属性，与路径无关，因此可以预先算好——择序
+/// 第三条要比的正是它，每步现算会把追踪的代价放大九倍。
+std::vector<std::uint32_t> compute_ley_depths(
+    const World& world, const std::vector<std::uint8_t>& floor)
+{
+    const std::uint32_t n = world.elevation.size();
+    std::vector<std::uint32_t> depths(n);
+    for (std::uint32_t i = 0; i < n; ++i)
+    {
+        depths[i] = depth_of(world, i, floor[i]);
+    }
+    return depths;
+}
+
 /// 节点属性由流经的岩性决定（设定 2.1）。埋深可能超过世界的总格深，
 /// 超出部分取最深的岩层——那本来就是「地脉在更深的地方」。
 Element element_of_node(const World& world, std::uint32_t cell,
@@ -1926,10 +1940,14 @@ Element element_of_node(const World& world, std::uint32_t cell,
 /// 逐源点追踪通道。
 ///
 /// 择序：先要求严格下降（否则通道会爬坡），再按汇流量大者优先，
-/// 最后按高程低者优先。等价条件时靠 kDx8/kDy8 的固定顺序打破平局，
+/// 最后按埋深浅者优先。等价条件时靠 kDx8/kDy8 的固定顺序打破平局，
 /// 因此结果与遍历顺序无关。
+///
+/// 第三条是「埋深浅」而不是「高程低」：两者在同一汇水区内是反的
+/// （高程越高 → relief 越大 → 埋得越浅）。按高程低择优恰好会把通道推向
+/// 河口，埋深随之变大。
 TraceResult trace_channels(const World& world,
-                            const std::vector<std::uint8_t>& floor,
+                            const std::vector<std::uint32_t>& depths,
                             std::uint32_t spacing)
 {
     const WorldParams& p = world.params();
@@ -1962,7 +1980,7 @@ TraceResult trace_channels(const World& world,
 
             LeyNode node;
             node.cell = cur;
-            node.depth = depth_of(world, cur, floor[cur]);
+            node.depth = depths[cur];
             node.element = element_of_node(world, cur, node.depth);
             node.flow = kLeySourceFlow;
             const auto index = static_cast<std::uint32_t>(result.nodes.size());
@@ -1982,7 +2000,7 @@ TraceResult trace_channels(const World& world,
             const auto y = static_cast<int>(cur / p.width);
             std::uint32_t best = kNoNode;
             std::uint32_t best_flow = 0;
-            std::uint8_t best_elev = 0;
+            std::uint32_t best_depth = 0;
             for (int d = 0; d < 8; ++d)
             {
                 const int nx = x + kDx8[d];
@@ -2011,12 +2029,11 @@ TraceResult trace_channels(const World& world,
                     break;
                 }
                 if (best == kNoNode || world.flow.at(j) > best_flow
-                    || (world.flow.at(j) == best_flow
-                        && world.elevation.at(j) < best_elev))
+                    || (world.flow.at(j) == best_flow && depths[j] < best_depth))
                 {
                     best = j;
                     best_flow = world.flow.at(j);
-                    best_elev = world.elevation.at(j);
+                    best_depth = depths[j];
                 }
             }
 
@@ -2141,6 +2158,7 @@ void make_ley_network(World& world)
 {
     const WorldParams& p = world.params();
     const std::vector<std::uint8_t> floor = compute_basin_floor(world);
+    const std::vector<std::uint32_t> depths = compute_ley_depths(world, floor);
 
     // 通道数要有下界：阶段 13 的灵脉数量是硬约束，每条灵脉占一条通道，
     // 通道不够就切不出那么多段。地形平缓时按固定间距选不出这么多通道，
@@ -2150,7 +2168,7 @@ void make_ley_network(World& world)
     std::uint32_t best = 0;
     for (std::uint32_t spacing = kLeySourceSpacing; spacing >= 1; --spacing)
     {
-        TraceResult relaxed = trace_channels(world, floor, spacing);
+        TraceResult relaxed = trace_channels(world, depths, spacing);
         if (relaxed.channels.size() > best)
         {
             best = relaxed.channels.size();
@@ -4018,7 +4036,8 @@ git add tests/test_world_domains.cpp
   - 不变式：任一格 `scar_kind != Scar::none` 当且仅当它被某处疤盖住；
     死地类疤（沉陷/渡劫/枯眼）盖住的格 `spirit_suppression > 0`；
     浊域疤盖住的格 `spirit_suppression == 0`（浊域不压制灵气）
-  - 两处疤的圆盘互不相交：中心距 ≥ 两半径之和
+  - 两处疤的圆盘互不相交：中心距 ≥ 两半径之和。**同类枯眼疤除外**——
+    两只枯眼挨得近时两处死地环都要落下，压制量取两者的较大者
 
 **本任务依赖上游任务已满足的契约**（不满足则本任务的实现要改）：
 
@@ -4355,9 +4374,49 @@ TEST(depleted_eyes_are_surrounded_by_scars)
         }
     }
     CHECK(depleted > 0u);
-    // 枯眼周边成死地是抽干的必然后果。放不下的（与别的疤重叠）才例外。
-    CHECK(scarred > 0u);
-    CHECK(scarred <= depleted);
+    // 枯眼周边成死地是抽干的必然后果：每只枯眼都有一处自己的死地环，
+    // 没有例外。两只枯眼挨得近时两处环叠在一起，而不是后一只被丢掉。
+    CHECK_EQ(scarred, depleted);
+}
+
+/// 两只枯眼挨得近时，两处死地环都必须落下。
+///
+/// 枯眼周边的死地是抽干的必然后果，不是可选项。早先的写法把「与已放
+/// 圆盘相交」一律当成放不下，后一只枯眼整处疤都被丢掉——它周边于是既
+/// 不成死地也没有压制，「福地塌成死地」这条设定前提凭空少了几千格
+/// （实测 90 个 256x256 世界里 10.4% 的枯眼中招）。
+///
+/// 叠放处的压制取两处环的较大者，不让后落的一处盖掉前一处。
+TEST(close_depleted_eyes_each_get_their_own_dead_ring)
+{
+    // 合成：两只枯眼相距 5 格，小于两处死地环半径之和（20），必须都落下。
+    WorldParams p;
+    p.width = 64;
+    p.height = 64;
+
+    World w(p);
+    const std::uint32_t a = w.elevation.index_of(20, 20);
+    const std::uint32_t b = w.elevation.index_of(25, 20);
+
+    SpiritEye eye;
+    eye.vein = 0;
+    eye.node = 0;
+    eye.cell = a;
+    eye.flow = 100;
+    eye.depleted = true;
+    w.eyes.push_back(eye);
+    eye.cell = b;
+    w.eyes.push_back(eye);
+
+    make_historical_scars(w);
+
+    // 两处环都落下：每只枯眼的所在格都挂着枯眼疤。
+    CHECK(w.scar_kind.at(a) == Scar::depleted_eye);
+    CHECK(w.scar_kind.at(b) == Scar::depleted_eye);
+    // 环心压制取满值。后落的那处环在环心处只给出 200 * 5/10 = 100，
+    // 若按覆写处理，先落的那处的 200 会被削掉。
+    CHECK_EQ(w.spirit_suppression.at(a), 200u);
+    CHECK_EQ(w.spirit_suppression.at(b), 200u);
 }
 
 TEST(scars_are_deterministic)
@@ -4433,6 +4492,12 @@ TEST(sinkhole_scars_sit_on_low_flat_ground)
 ///
 /// 这条不变式设计 §3.5 与计划 Task 6 都明列着，此前只靠「中心压制量」
 /// 间接兜底——而中心压制量只在重叠恰好盖住某个疤中心时才报警。
+///
+/// 唯一的例外是**同类枯眼疤**：两只枯眼挨得近时，它们各自的死地环都要
+/// 落下——「枯眼周边成死地」是抽干的必然后果，不是可选项。不相交这条
+/// 不变式的理由是「重叠会让同一格挂上两种疤」，而两处枯眼疤是同一种，
+/// 挂上去的种类不冲突，压制量由 stamp_scar 取两者的较大者。异类疤之间
+/// 仍然一律不相交。
 TEST(scars_never_overlap)
 {
     bool ok = true;
@@ -4443,6 +4508,11 @@ TEST(scars_never_overlap)
         {
             for (std::size_t j = i + 1; j < w.scars.size(); ++j)
             {
+                if (w.scars[i].kind == Scar::depleted_eye
+                    && w.scars[j].kind == Scar::depleted_eye)
+                {
+                    continue;
+                }
                 const std::int64_t dx =
                     static_cast<std::int64_t>(w.scars[i].cell % width)
                     - static_cast<std::int64_t>(w.scars[j].cell % width);
@@ -4487,7 +4557,7 @@ TEST(scar_targets_are_valid_indices_or_sentinels)
 /// 浊域的回归哨兵：沸海是设定 4.2 点名的具名地貌，每个世界都得有。
 ///
 /// 浊域提前放置之后，它的处数对半径与选点方式都不敏感（半径 14 与 20、
-/// greedy 与 uniform 都落在 39 处），所以这条用例顺带把浊域的半径与
+/// greedy 与 uniform 都落在同一处数上），所以这条用例顺带把浊域的半径与
 /// 「按流量降序取点」钉住——只有这两条规格能挡住那两类回归。
 TEST(every_world_has_at_least_one_turbid_scar)
 {
@@ -4643,7 +4713,11 @@ TEST(tribulation_scars_take_free_candidates)
     }
     CHECK(ok);
     // 总量是第二道防线：抽中即丢会把渡劫名额白白消耗掉（实测 99 -> 96）。
-    CHECK(tribulations >= 98u);
+    //
+    // 基线随地脉网络重算：择序第三条由「高程低」改成「埋深浅」之后，
+    // 厚域/福地面积与被疤覆盖的比例都变了，自由候选随之变少，21 个世界
+    // 的渡劫疤总量从 99 落到 97。下界取 96，仍留 1 处的余量。
+    CHECK(tribulations >= 96u);
 }
 
 /// `World::scars` 的顺序契约：枯眼疤 → 浊域疤 → 沉陷疤 → 渡劫疤。
@@ -4738,14 +4812,23 @@ enum class ScarPick
 
 /// 两处疤的圆盘是否相交。中心距小于半径之和即相交——重叠会让同一格
 /// 挂上两种疤，压制量也会互相覆盖。
+///
+/// 同类疤的相交不算冲突（`same_kind_ok`）：两只枯眼挨得近时，它们
+/// 各自的死地环都要落下。压制量因此由 stamp_scar 取格上已有值与本次
+/// 值的较大者，而不是让后落的一处盖掉前一处。
 [[nodiscard]] bool overlaps_any(const std::vector<ScarSite>& placed,
                                 std::uint32_t cell, std::uint32_t radius,
-                                const WorldParams& p) noexcept
+                                const WorldParams& p, Scar kind,
+                                bool same_kind_ok) noexcept
 {
     const std::int64_t cx = static_cast<std::int64_t>(cell % p.width);
     const std::int64_t cy = static_cast<std::int64_t>(cell / p.width);
     for (const ScarSite& s : placed)
     {
+        if (same_kind_ok && s.kind == kind)
+        {
+            continue;
+        }
         const std::int64_t dx =
             cx - static_cast<std::int64_t>(s.cell % p.width);
         const std::int64_t dy =
@@ -4763,6 +4846,10 @@ enum class ScarPick
 ///
 /// 压制量在半径处正好落到 0，因此只标记严格在半径内的格：疤的格必有
 /// 压制量，「有疤即有压制」这条不变式才立得住。
+///
+/// 压制量取格上已有值与本次值的**较大者**：同类疤可以重叠（两只枯眼
+/// 挨得近时两处死地环都落下），叠放处若按后落的一处取值，远离该处中心
+/// 的压制会被削掉一截。
 void stamp_scar(World& world, const ScarSite& site,
                 std::uint8_t centre_suppression)
 {
@@ -4798,8 +4885,12 @@ void stamp_scar(World& world, const ScarSite& site,
             const double scaled = static_cast<double>(centre_suppression)
                                   * (radius - dist) / radius;
             const long rounded = std::lround(scaled);
-            world.spirit_suppression.at(i) = static_cast<std::uint8_t>(
+            const auto suppression = static_cast<std::uint8_t>(
                 rounded < 0L ? 0L : (rounded > 255L ? 255L : rounded));
+            if (suppression > world.spirit_suppression.at(i))
+            {
+                world.spirit_suppression.at(i) = suppression;
+            }
         }
     }
 }
@@ -4888,7 +4979,8 @@ void place_scars(World& world, Pcg32& rng, Scar kind, std::uint32_t count,
         free_slots.reserve(cells.size());
         for (std::size_t i = 0; i < cells.size(); ++i)
         {
-            if (!overlaps_any(world.scars, cells[i], radius, world.params()))
+            if (!overlaps_any(world.scars, cells[i], radius, world.params(),
+                              kind, false))
             {
                 free_slots.push_back(static_cast<std::uint32_t>(i));
             }
@@ -4939,6 +5031,12 @@ void make_historical_scars(World& world)
     // ── 枯眼疤 ──
     // 枯眼周边的死地是抽干的必然后果，不是一次选择，因此先放：它不该
     // 被后面三类疤挤掉。
+    //
+    // 同类枯眼疤允许重叠：两只枯眼挨得近时，两处死地环都要落下。早先
+    // 的写法把「与已放圆盘相交」一律当成放不下，于是后一只枯眼整处疤
+    // 都被丢掉——实测 90 个 256x256 世界里有 10.4% 的枯眼拿不到疤，
+    // 周边既不成死地也没有压制，「福地塌成死地」这条设定前提因此凭空
+    // 少了几千格。
     for (std::uint32_t e = 0; e < world.eyes.size(); ++e)
     {
         const SpiritEye& eye = world.eyes[e];
@@ -4946,7 +5044,8 @@ void make_historical_scars(World& world)
         {
             continue;
         }
-        if (overlaps_any(world.scars, eye.cell, kDepletedEyeRadius, p))
+        if (overlaps_any(world.scars, eye.cell, kDepletedEyeRadius, p,
+                         Scar::depleted_eye, true))
         {
             continue;
         }
@@ -5430,9 +5529,49 @@ TEST(depleted_eyes_are_surrounded_by_scars)
         }
     }
     CHECK(depleted > 0u);
-    // 枯眼周边成死地是抽干的必然后果。放不下的（与别的疤重叠）才例外。
-    CHECK(scarred > 0u);
-    CHECK(scarred <= depleted);
+    // 枯眼周边成死地是抽干的必然后果：每只枯眼都有一处自己的死地环，
+    // 没有例外。两只枯眼挨得近时两处环叠在一起，而不是后一只被丢掉。
+    CHECK_EQ(scarred, depleted);
+}
+
+/// 两只枯眼挨得近时，两处死地环都必须落下。
+///
+/// 枯眼周边的死地是抽干的必然后果，不是可选项。早先的写法把「与已放
+/// 圆盘相交」一律当成放不下，后一只枯眼整处疤都被丢掉——它周边于是既
+/// 不成死地也没有压制，「福地塌成死地」这条设定前提凭空少了几千格
+/// （实测 90 个 256x256 世界里 10.4% 的枯眼中招）。
+///
+/// 叠放处的压制取两处环的较大者，不让后落的一处盖掉前一处。
+TEST(close_depleted_eyes_each_get_their_own_dead_ring)
+{
+    // 合成：两只枯眼相距 5 格，小于两处死地环半径之和（20），必须都落下。
+    WorldParams p;
+    p.width = 64;
+    p.height = 64;
+
+    World w(p);
+    const std::uint32_t a = w.elevation.index_of(20, 20);
+    const std::uint32_t b = w.elevation.index_of(25, 20);
+
+    SpiritEye eye;
+    eye.vein = 0;
+    eye.node = 0;
+    eye.cell = a;
+    eye.flow = 100;
+    eye.depleted = true;
+    w.eyes.push_back(eye);
+    eye.cell = b;
+    w.eyes.push_back(eye);
+
+    make_historical_scars(w);
+
+    // 两处环都落下：每只枯眼的所在格都挂着枯眼疤。
+    CHECK(w.scar_kind.at(a) == Scar::depleted_eye);
+    CHECK(w.scar_kind.at(b) == Scar::depleted_eye);
+    // 环心压制取满值。后落的那处环在环心处只给出 200 * 5/10 = 100，
+    // 若按覆写处理，先落的那处的 200 会被削掉。
+    CHECK_EQ(w.spirit_suppression.at(a), 200u);
+    CHECK_EQ(w.spirit_suppression.at(b), 200u);
 }
 
 TEST(scars_are_deterministic)
@@ -5508,6 +5647,12 @@ TEST(sinkhole_scars_sit_on_low_flat_ground)
 ///
 /// 这条不变式设计 §3.5 与计划 Task 6 都明列着，此前只靠「中心压制量」
 /// 间接兜底——而中心压制量只在重叠恰好盖住某个疤中心时才报警。
+///
+/// 唯一的例外是**同类枯眼疤**：两只枯眼挨得近时，它们各自的死地环都要
+/// 落下——「枯眼周边成死地」是抽干的必然后果，不是可选项。不相交这条
+/// 不变式的理由是「重叠会让同一格挂上两种疤」，而两处枯眼疤是同一种，
+/// 挂上去的种类不冲突，压制量由 stamp_scar 取两者的较大者。异类疤之间
+/// 仍然一律不相交。
 TEST(scars_never_overlap)
 {
     bool ok = true;
@@ -5518,6 +5663,11 @@ TEST(scars_never_overlap)
         {
             for (std::size_t j = i + 1; j < w.scars.size(); ++j)
             {
+                if (w.scars[i].kind == Scar::depleted_eye
+                    && w.scars[j].kind == Scar::depleted_eye)
+                {
+                    continue;
+                }
                 const std::int64_t dx =
                     static_cast<std::int64_t>(w.scars[i].cell % width)
                     - static_cast<std::int64_t>(w.scars[j].cell % width);
@@ -5562,7 +5712,7 @@ TEST(scar_targets_are_valid_indices_or_sentinels)
 /// 浊域的回归哨兵：沸海是设定 4.2 点名的具名地貌，每个世界都得有。
 ///
 /// 浊域提前放置之后，它的处数对半径与选点方式都不敏感（半径 14 与 20、
-/// greedy 与 uniform 都落在 39 处），所以这条用例顺带把浊域的半径与
+/// greedy 与 uniform 都落在同一处数上），所以这条用例顺带把浊域的半径与
 /// 「按流量降序取点」钉住——只有这两条规格能挡住那两类回归。
 TEST(every_world_has_at_least_one_turbid_scar)
 {
@@ -5718,7 +5868,11 @@ TEST(tribulation_scars_take_free_candidates)
     }
     CHECK(ok);
     // 总量是第二道防线：抽中即丢会把渡劫名额白白消耗掉（实测 99 -> 96）。
-    CHECK(tribulations >= 98u);
+    //
+    // 基线随地脉网络重算：择序第三条由「高程低」改成「埋深浅」之后，
+    // 厚域/福地面积与被疤覆盖的比例都变了，自由候选随之变少，21 个世界
+    // 的渡劫疤总量从 99 落到 97。下界取 96，仍留 1 处的余量。
+    CHECK(tribulations >= 96u);
 }
 
 /// `World::scars` 的顺序契约：枯眼疤 → 浊域疤 → 沉陷疤 → 渡劫疤。
