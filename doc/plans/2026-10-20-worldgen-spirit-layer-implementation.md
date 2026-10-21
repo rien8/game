@@ -10,7 +10,9 @@
 `doc/2026-10-20-worldview-xianxia.md` 的设定。
 
 **Architecture:** 七个新阶段以 11..17 追加在既有十阶段之后，单向读取既有输出，
-不回写既有字段。每个字段只有一个写入者：凡是「先发生的事导致后发生的结果」，
+不回写既有字段。（2026-10-21 拍板追加阶段 18「渡劫场」，见本文末尾 Task 11；
+阶段总数因此为 18，编排顺序见 Task 11 的 Step 5。）
+每个字段只有一个写入者：凡是「先发生的事导致后发生的结果」，
 都让先发生的那一步在更早的阶段完成（越采标记在阶段 13、塌陷在阶段 15）。
 地脉用**显式有向图**（`LeyChannel` / `LeyNode`）承载拓扑，另建**栅格镜像**
 （`Grid<T>`）供空间查询；镜像由图单向导出。地脉节点图是一张 DAG（`next`
@@ -7852,7 +7854,7 @@ Expected: 同样打印地貌与洞天统计，但洞天为 0 处。
 **先确认潮位再动手。** 谷底期福地为 0 是**设计如此**，不是待修的问题——
 潮位是纯乘子，谷底期字节是灵潮末的三分之一，字节上限 255 决定了
 「谷底期有福地」与「灵潮期末福地 ≤ 6%」不可兼得（设计 §3.4 步骤 4、
-§9 未决问题 6）。在没有 `--year 9300` 对照的情况下调阈值，会把一个
+§9.1 第 6 条）。在没有 `--year 9300` 对照的情况下调阈值，会把一个
 正确的状态「修」坏。
 
 调完再跑一次 demo，确认地貌分布看起来合理：**福地应当成片地落在山地**，
@@ -7879,5 +7881,419 @@ git add include/gamev2/world/spirit_tables.hpp
 ```
 
 调参若改了 `spirit_tables.hpp` 里的常量，一并暂存。
+
+---
+
+### Task 11: 阶段 18：渡劫场
+
+2026-10-21 拍板追加（设计文档 §9.1 第 5 条）。规格见设计文档 §3.8。
+
+**Files:**
+- Create: `src/world/tribulation.cpp`
+- Create: `tests/test_world_tribulation.cpp`
+- Modify: `include/gamev2/world/spirit.hpp`（`TribulationSite` 类型）
+- Modify: `include/gamev2/world/world.hpp`（`tribulation_site` 网格与 `tribulation_sites` 列表）
+- Modify: `include/gamev2/world/generate.hpp`（阶段 18 声明）
+- Modify: `include/gamev2/world/spirit_tables.hpp`（常量）
+- Modify: `src/world/generate.cpp`（编排接线）
+- Modify: `CMakeLists.txt`
+- Modify: `src/demo/main.cpp`（导出与统计）
+- Modify: `tests/test_world_determinism.cpp`（逐字段比较）
+
+**Interfaces:**
+- Consumes:
+  - `World::land_type`（`Grid<LandType>`）——只读，阶段 16 的产出
+  - `World::domain_grade`（`Grid<DomainGrade>`）——只读，阶段 14 的产出
+  - `World::domain_concentration`（`Grid<std::uint8_t>`）——只读，阶段 14 的产出
+  - `World::scar_kind`（`Grid<Scar>`）——只读，阶段 15 的产出
+  - `World::params()`——读 `width`、`height`、`seed`
+- Produces:
+  - `void gamev2::world::make_tribulation_sites(World& world)`
+  - `World::tribulation_site`（`Grid<bool>`）——阶段 18 的唯一写入者
+  - `World::tribulation_sites`（`std::vector<TribulationSite>`）——阶段 18 的唯一
+    写入者
+  - 常量（`include/gamev2/world/spirit_tables.hpp`）：
+    - `kTribulationRadius = 8`（劫云半径，格；= 百里）
+    - `kTribulationSpacing = 16`（两个劫心的中心距下限，= 2 × 半径）
+  - **没有浓度门槛常量**：福地（`domain_grade == blessed`）本身要求浓度
+    ≥ `kBlessedThreshold`（120），再加一道阈值是死代码。浓度的差别由选点
+    规则承担——按浓度降序取。
+  - 不变式：`tribulation_site` 网格上为真的格数 == `tribulation_sites.size()`
+  - 不变式：每个渡劫场的 `land_type == LandType::blessed`
+  - 不变式：每个渡劫场的 `scar_kind == Scar::none`
+  - 不变式：两个渡劫场的中心距 ≥ `kTribulationSpacing`（欧氏距离，与阶段 15
+    的疤痕、阶段 17 的洞天同一口径）
+  - 不变式：每个渡劫场的 `radius == kTribulationRadius`
+
+**注意**：`kTribulationRadius` 与 `src/world/land.cpp` 里阶段 15 的同名常量是
+**同一个物理量**（渡劫失败的死地半径 = 劫云半径 = 百里）。实现时应当把阶段 15
+那个常量也改成从 `spirit_tables.hpp` 取，否则两处会各调各的。改的时候不要动
+它的数值。
+
+- [ ] **Step 1: 写失败的测试**
+
+创建 `tests/test_world_tribulation.cpp`：
+
+```cpp
+#include "gamev2/world/generate.hpp"
+#include "gamev2/world/spirit.hpp"
+#include "test_framework.hpp"
+
+#include <cstddef>
+#include <cstdint>
+
+namespace {
+
+using gamev2::world::LandType;
+using gamev2::world::Scar;
+using gamev2::world::TribulationSite;
+using gamev2::world::World;
+using gamev2::world::WorldParams;
+using gamev2::world::make_tribulation_sites;
+
+WorldParams params(std::uint64_t seed, std::uint32_t year)
+{
+    WorldParams p;
+    p.width = 256;
+    p.height = 256;
+    p.seed = seed;
+    p.spirit_year = year;
+    return p;
+}
+
+/// 阶段 18 的前置状态。
+World build_world(std::uint64_t seed, std::uint32_t year)
+{
+    World w(params(seed, year));
+    gamev2::world::make_spirit_tide(w);
+    gamev2::world::make_elevation(w);
+    gamev2::world::make_rainfall(w);
+    gamev2::world::make_temperature(w);
+    gamev2::world::make_hydrology(w);
+    gamev2::world::make_biomes(w);
+    gamev2::world::make_strata(w);
+    gamev2::world::make_ley_network(w);
+    gamev2::world::make_spirit_veins(w);
+    gamev2::world::make_spirit_domains(w);
+    gamev2::world::make_historical_scars(w);
+    gamev2::world::make_land_types(w);
+    make_tribulation_sites(w);
+    return w;
+}
+
+/// 灵潮期末：福地最多，渡劫场候选最足。
+constexpr std::uint32_t kTideEndYear = 9300;
+/// 谷底期：当代。没有福地，渡劫场必然为空。
+constexpr std::uint32_t kNadirYear = 8914;
+
+TEST(tribulation_sites_only_sit_on_blessed_ground)
+{
+    const World w = build_world(3, kTideEndYear);
+    for (const TribulationSite& site : w.tribulation_sites)
+    {
+        CHECK(w.land_type.at(site.cell) == LandType::blessed);
+    }
+}
+
+TEST(tribulation_sites_avoid_old_scars)
+{
+    const World w = build_world(3, kTideEndYear);
+    for (const TribulationSite& site : w.tribulation_sites)
+    {
+        CHECK(w.scar_kind.at(site.cell) == Scar::none);
+    }
+}
+
+TEST(the_jiyun_reaches_one_hundred_li)
+{
+    const World w = build_world(3, kTideEndYear);
+    for (const TribulationSite& site : w.tribulation_sites)
+    {
+        CHECK_EQ(site.radius, 8u);
+    }
+}
+
+TEST(the_grid_and_the_list_agree)
+{
+    const World w = build_world(3, kTideEndYear);
+    std::size_t marked = 0;
+    for (std::size_t i = 0; i < w.tribulation_site.size(); ++i)
+    {
+        if (w.tribulation_site.at(i))
+        {
+            ++marked;
+        }
+    }
+    CHECK_EQ(marked, w.tribulation_sites.size());
+}
+
+TEST(tribulation_sites_keep_their_distance)
+{
+    const World w = build_world(3, kTideEndYear);
+    for (std::size_t i = 0; i < w.tribulation_sites.size(); ++i)
+    {
+        for (std::size_t j = i + 1; j < w.tribulation_sites.size(); ++j)
+        {
+            const double d = cell_distance(w, w.tribulation_sites[i].cell,
+                                           w.tribulation_sites[j].cell);
+            CHECK(d >= static_cast<double>(
+                           gamev2::world::kTribulationSpacing));
+        }
+    }
+}
+
+TEST(the_tide_end_offers_tribulation_sites)
+{
+    // 灵潮期末福地成片，渡劫场应当真的排得出来——否则阶段 18 是个空壳。
+    const World w = build_world(3, kTideEndYear);
+    CHECK(!w.tribulation_sites.empty());
+}
+
+TEST(the_nadir_has_no_tribulation_site)
+{
+    // 谷底期没有福地，设定 2.6 说福地随灵潮出现而扩张。
+    const World w = build_world(3, kNadirYear);
+    CHECK(w.tribulation_sites.empty());
+    CHECK_EQ(w.tribulation_site.size(), w.params().width * w.params().height);
+}
+
+TEST(the_sites_are_deterministic)
+{
+    const World a = build_world(7, kTideEndYear);
+    const World b = build_world(7, kTideEndYear);
+    CHECK_EQ(a.tribulation_sites.size(), b.tribulation_sites.size());
+    for (std::size_t i = 0; i < a.tribulation_sites.size(); ++i)
+    {
+        CHECK_EQ(a.tribulation_sites[i].cell, b.tribulation_sites[i].cell);
+        CHECK_EQ(a.tribulation_sites[i].radius, b.tribulation_sites[i].radius);
+        CHECK_EQ(a.tribulation_sites[i].vein, b.tribulation_sites[i].vein);
+    }
+}
+
+}  // namespace
+```
+
+**距离用欧氏距离**（`cell_distance` 辅助函数），口径与阶段 15 的疤痕、
+阶段 17 的洞天一致——三处各用各的会让"间距"这个词失去意义。
+
+其余用例应当直接通过。若不通过，先查选址三步（福地 → 无旧疤 → 浓度降序
+取）是否按顺序执行。
+
+- [ ] **Step 2: 加类型与容器**
+
+在 `include/gamev2/world/spirit.hpp` 的 `CaveHeaven` 之后加：
+
+```cpp
+/// 渡劫场。设定 5.2：天地抽走方圆百里灵气形成劫云。
+///
+/// 劫云半径恒为百里，与阶段 15 的渡劫废墟半径同一把尺（见设计文档 3.8）。
+struct TribulationSite
+{
+    std::uint32_t cell = 0;    ///< 劫心
+    std::uint32_t radius = 0;  ///< 劫云半径，格（= 百里）
+    std::uint32_t vein = 0;    ///< 关联的灵脉编号
+};
+```
+
+在 `include/gamev2/world/world.hpp` 的 `cave_heaven` 网格之后加：
+
+```cpp
+    /// 是否为渡劫场的劫心。
+    Grid<bool>          tribulation_site;
+```
+
+在非网格成员区加：
+
+```cpp
+    std::vector<TribulationSite> tribulation_sites;
+```
+
+- [ ] **Step 3: 加常量**
+
+在 `include/gamev2/world/spirit_tables.hpp` 的常量区加：
+
+```cpp
+/// 劫云半径，格。= 百里。
+///
+/// 换算依据：`kSinkholeRadius = 24` 对应设定 4.2 的「三百里地陷」，
+/// 于是 1 格 ≈ 12.5 里，百里 = 8 格。阶段 15 的渡劫废墟半径用同一个值。
+inline constexpr std::uint32_t kTribulationRadius = 8;
+
+/// 渡劫场的浓度门槛。低于它抽不动灵气，渡不了劫。调参项。
+inline constexpr std::uint8_t kTribulationMinConcentration = 120;
+
+/// 两个渡劫场的中心距下限。= 2 × 半径：劫云不重叠。
+inline constexpr std::uint32_t kTribulationSpacing = 2 * kTribulationRadius;
+```
+
+- [ ] **Step 4: 实现阶段 18**
+
+创建 `src/world/tribulation.cpp`。骨架：
+
+```cpp
+#include "gamev2/world/generate.hpp"
+#include "gamev2/world/spirit_tables.hpp"
+
+#include <algorithm>
+#include <cstdint>
+#include <vector>
+
+namespace gamev2::world {
+namespace {
+
+/// 该格与已放置的渡劫场中心距是否小于给定间距。
+///
+/// 距离口径与阶段 17 的洞天、阶段 15 的疤痕一致：欧氏距离。
+[[nodiscard]] bool too_close_to(const std::vector<TribulationSite>& placed,
+                                std::uint32_t cell, std::uint32_t gap,
+                                const WorldParams& p) noexcept
+{
+    const std::int64_t cx = static_cast<std::int64_t>(cell % p.width);
+    const std::int64_t cy = static_cast<std::int64_t>(cell / p.width);
+    for (const TribulationSite& site : placed)
+    {
+        const std::int64_t dx =
+            cx - static_cast<std::int64_t>(site.cell % p.width);
+        const std::int64_t dy =
+            cy - static_cast<std::int64_t>(site.cell / p.width);
+        if (dx * dx + dy * dy
+            < static_cast<std::int64_t>(gap) * static_cast<std::int64_t>(gap))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+}  // namespace
+
+void make_tribulation_sites(World& world)
+{
+    const WorldParams& p = world.params();
+    world.tribulation_sites.clear();
+    world.tribulation_site = Grid<bool>(p.width, p.height, false);
+
+    // 候选：福地，且没有旧伤疤。
+    std::vector<std::uint32_t> candidates;
+    for (std::uint32_t y = 0; y < p.height; ++y)
+    {
+        for (std::uint32_t x = 0; x < p.width; ++x)
+        {
+            const std::uint32_t i = world.elevation.index_of(x, y);
+            if (world.land_type.at(i) != LandType::blessed)
+            {
+                continue;
+            }
+            if (world.scar_kind.at(i) != Scar::none)
+            {
+                continue;
+            }
+            candidates.push_back(i);
+        }
+    }
+    if (candidates.empty())
+    {
+        return;
+    }
+
+    // 按浓度降序排。同浓度时保留下标次序，排序结果因此稳定。
+    std::ranges::stable_sort(candidates, [&world](std::uint32_t a,
+                                                  std::uint32_t b) {
+        return world.domain_concentration.at(a)
+               > world.domain_concentration.at(b);
+    });
+
+    // 间距不够就跳过这个候选看下一个，而不是只在一小块池子里选址。
+    for (const std::uint32_t cell : candidates)
+    {
+        if (too_close_to(world.tribulation_sites, cell, kTribulationSpacing, p))
+        {
+            continue;
+        }
+        world.tribulation_sites.push_back(TribulationSite{
+            cell, kTribulationRadius, world.vein_id.at(cell)});
+        world.tribulation_site.at(cell) = true;
+    }
+}
+
+}  // namespace gamev2::world
+```
+
+`cell % p.width` 与 `cell / p.width` 是 `Grid` 的行主序寻址，与阶段 15、
+阶段 17 的既有写法一致，不要另起一套换算。
+
+- [ ] **Step 5: 接线 `generate_world()`**
+
+在 `include/gamev2/world/generate.hpp` 的 `make_cave_heavens` 声明之后加：
+
+```cpp
+/// 阶段 18。读 land_type、domain_grade、domain_concentration、scar_kind，
+/// 写 tribulation_site、tribulation_sites。渡劫场只落在无旧疤的福地上。
+void make_tribulation_sites(World& world);
+```
+
+在 `src/world/generate.cpp` 的编排里，`make_cave_heavens(world);` 之后加：
+
+```cpp
+    make_tribulation_sites(world);
+```
+
+并把 `generate.hpp` 顶部的 doxygen「世界生成的十七个阶段」改成「十八个阶段」。
+
+- [ ] **Step 6: demo 导出与统计**
+
+在 `src/demo/main.cpp`：
+
+- 新增 PPM 导出 `tribulation_site.ppm`（分类配色：劫心与普通格两色）
+- 在 `print_spirit_stats` 里加一行：渡劫场数量
+- 在导出的统计里写明**图幅尺寸**——2026-10-21 拍板第 7 条要求调用方知道自己
+  拿的是哪一口径的统计量（设计文档 §9.2）
+
+- [ ] **Step 7: 确定性测试扩展**
+
+在 `tests/test_world_determinism.cpp` 的逐字段比较里加：
+
+```cpp
+    CHECK(a.tribulation_sites.size() == b.tribulation_sites.size());
+    for (std::size_t i = 0; i < a.tribulation_sites.size(); ++i)
+    {
+        CHECK(a.tribulation_sites[i].cell == b.tribulation_sites[i].cell);
+        CHECK(a.tribulation_sites[i].radius == b.tribulation_sites[i].radius);
+        CHECK(a.tribulation_sites[i].vein == b.tribulation_sites[i].vein);
+    }
+```
+
+并把 `tribulation_site` 网格纳入逐格比较。
+
+- [ ] **Step 8: 跑全量测试**
+
+```powershell
+cmake --build build
+./build/worldgen_tests.exe
+```
+
+Expected: 全部测试通过。**尤其注意** `vein_counts_match_the_setting_exactly`
+（1 龙 / 9 主 / 40 支）——阶段 18 只读不写，不应影响灵脉数量。若它挂了，
+说明阶段 18 写回了不该写的字段。
+
+- [ ] **Step 9: 向用户报告并等待提交指令**
+
+**不得执行 `git commit`。** 供用户参考的暂存命令：
+
+```powershell
+git add src/world/tribulation.cpp
+git add include/gamev2/world/spirit.hpp
+git add include/gamev2/world/world.hpp
+git add include/gamev2/world/generate.hpp
+git add include/gamev2/world/spirit_tables.hpp
+git add src/world/generate.cpp
+git add src/world/land.cpp
+git add src/demo/main.cpp
+git add tests/test_world_tribulation.cpp
+git add tests/test_world_determinism.cpp
+```
+
+`src/world/land.cpp` 在列，是因为阶段 15 的渡劫半径常量改从
+`spirit_tables.hpp` 取（数值不变）。
 
 ---
