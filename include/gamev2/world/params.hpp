@@ -19,15 +19,23 @@ struct WorldParams
     /// 目标海洋面积占比，海平面由高程分位数反解，因此海陆比不随种子漂移。
     std::uint8_t ocean_percent = 60;
 
+    /// 灵历年。世界的「年」以第一轮灵潮之始为元年。
+    /// 当代为灵历 8914 年（谷底期第一百一十三年）。
+    std::uint32_t spirit_year = 8914;
+
     /// 只拦下会让分配或下标计算失去意义的参数，其余字段一律放行。
     [[nodiscard]] constexpr bool is_valid() const noexcept
     {
         return width > 0 && height > 0 && z_levels > 0
-               && z_cell_depth > 0 && ocean_percent <= 100;
+               && z_cell_depth > 0 && ocean_percent <= 100
+               && spirit_year >= 1;
     }
 };
 
 /// 参数非法。分配失败走 bad_alloc，不归到这里。
+///
+/// 灵气层不引入新的失败模式：灵脉数量凑不齐是退化而不是错误（设计文档
+/// §5），缺口由 vein_census() 报出。
 enum class WorldError
 {
     invalid_params,

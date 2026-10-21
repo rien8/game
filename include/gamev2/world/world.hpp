@@ -6,6 +6,7 @@
 #include "gamev2/world/enums.hpp"
 #include "gamev2/world/grid.hpp"
 #include "gamev2/world/params.hpp"
+#include "gamev2/world/spirit.hpp"
 
 #include <cstdint>
 #include <vector>
@@ -56,11 +57,35 @@ public:
     Grid<std::uint8_t>  soil_depth;
     Grid<std::uint8_t>  aquifer_top;
 
+    // ── 灵气层，地表量 ──
+    Grid<std::uint8_t>  ley_strength;
+    Grid<std::uint8_t>  ley_depth;
+    Grid<Element>       ley_element;
+    Grid<VeinRank>      vein_rank;
+    Grid<std::uint32_t> vein_id;
+    Grid<std::uint32_t> eye_flow;
+    Grid<std::uint8_t>  domain_concentration;
+    Grid<DomainGrade>   domain_grade;
+    Grid<Scar>          scar_kind;
+    Grid<std::uint8_t>  spirit_suppression;
+    Grid<LandType>      land_type;
+    Grid<std::uint8_t>  eye_purity;
+    Grid<bool>          cave_heaven;
+
     /// 地下量，每 z 层一份同构网格。
     std::vector<Grid<Stone>>   stone;
     std::vector<Grid<Deposit>> deposit;
     std::vector<Grid<bool>>    cavern;
     std::vector<Grid<bool>>    aquifer;
+
+    // ── 灵气层，非网格量 ──
+    SpiritTide spirit_tide;
+    std::vector<LeyChannel>  ley_channels;
+    std::vector<LeyNode>     ley_nodes;
+    std::vector<SpiritVein>  veins;
+    std::vector<SpiritEye>   eyes;
+    std::vector<ScarSite>    scars;
+    std::vector<CaveHeaven>  cave_heavens;
 
 private:
     std::uint8_t sea_level_ = 0;

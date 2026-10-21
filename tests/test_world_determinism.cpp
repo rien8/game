@@ -15,6 +15,19 @@ using gamev2::world::Stone;
 using gamev2::world::World;
 using gamev2::world::WorldParams;
 
+using gamev2::world::CaveHeaven;
+using gamev2::world::DomainGrade;
+using gamev2::world::Element;
+using gamev2::world::LandType;
+using gamev2::world::LeyChannel;
+using gamev2::world::LeyNode;
+using gamev2::world::Scar;
+using gamev2::world::ScarSite;
+using gamev2::world::SpiritEye;
+using gamev2::world::SpiritTide;
+using gamev2::world::SpiritVein;
+using gamev2::world::TidePhase;
+using gamev2::world::VeinRank;
 /// 逐格比较两张网格。返回首个不一致的字段名；一致时返回 sofar。
 /// 尺寸也必须比：格数相同但宽高不同（80x48 与 48x80）不是同一张图。
 ///
@@ -68,6 +81,81 @@ std::string_view first_diff(std::string_view label,
     return sofar;
 }
 
+/// 灵气层的非网格数据也要逐字段比。结构体没有 operator==，
+/// 因此这里逐字段写——漏一个字段就会漏掉一类不确定性。
+bool same_node(const LeyNode& a, const LeyNode& b)
+{
+    return a.cell == b.cell && a.depth == b.depth && a.flow == b.flow
+           && a.next == b.next && a.merges == b.merges
+           && a.element == b.element;
+}
+
+bool same_channel(const LeyChannel& a, const LeyChannel& b)
+{
+    return a.nodes == b.nodes;
+}
+
+bool same_vein(const SpiritVein& a, const SpiritVein& b)
+{
+    return a.id == b.id && a.rank == b.rank && a.channel == b.channel
+           && a.first_node == b.first_node && a.last_node == b.last_node
+           && a.element == b.element && a.reserve == b.reserve
+           && a.stability == b.stability && a.eye == b.eye
+           && a.overmined == b.overmined;
+}
+
+bool same_eye(const SpiritEye& a, const SpiritEye& b)
+{
+    return a.vein == b.vein && a.node == b.node && a.cell == b.cell
+           && a.flow == b.flow && a.depleted == b.depleted;
+}
+
+bool same_scar(const ScarSite& a, const ScarSite& b)
+{
+    return a.kind == b.kind && a.cell == b.cell && a.radius == b.radius
+           && a.target == b.target;
+}
+
+bool same_heaven(const CaveHeaven& a, const CaveHeaven& b)
+{
+    return a.cell == b.cell && a.capacity == b.capacity
+           && a.upkeep == b.upkeep;
+}
+
+bool same_tide(const SpiritTide& a, const SpiritTide& b)
+{
+    return a.year == b.year && a.cycle == b.cycle && a.phase == b.phase
+           && a.year_in_phase == b.year_in_phase
+           && a.years_to_next_tide == b.years_to_next_tide
+           && a.level == b.level && a.peak == b.peak;
+}
+
+/// 逐项比较两个向量。比较器由调用方给——灵气层的结构体没有
+/// operator==，逐字段比较也更容易看出漏了哪个字段。
+template<typename T, typename Eq>
+std::string_view first_diff(std::string_view label,
+                            const std::vector<T>& a,
+                            const std::vector<T>& b, Eq eq,
+                            std::string_view sofar)
+{
+    if (!sofar.empty())
+    {
+        return sofar;
+    }
+    if (a.size() != b.size())
+    {
+        return label;
+    }
+    for (std::size_t i = 0; i < a.size(); ++i)
+    {
+        if (!eq(a[i], b[i]))
+        {
+            return label;
+        }
+    }
+    return sofar;
+}
+
 /// 按阶段顺序逐字段比较，返回首个不一致的字段名。
 ///
 /// 字段的排列顺序就是阶段的先后顺序，因此报出来的名字直接指出
@@ -90,6 +178,36 @@ std::string_view world_diff(const World& a, const World& b)
     d = first_diff("cavern", a.cavern, b.cavern, d);
     d = first_diff("deposit", a.deposit, b.deposit, d);
     d = first_diff("aquifer", a.aquifer, b.aquifer, d);
+    // 灵气层排在既有字段之后：字段的排列顺序就是阶段的先后顺序，
+    // 报出来的名字因此直接指出最先跑偏的阶段。
+    d = first_diff("ley_strength", a.ley_strength, b.ley_strength, d);
+    d = first_diff("ley_depth", a.ley_depth, b.ley_depth, d);
+    d = first_diff("ley_element", a.ley_element, b.ley_element, d);
+    d = first_diff("vein_rank", a.vein_rank, b.vein_rank, d);
+    d = first_diff("vein_id", a.vein_id, b.vein_id, d);
+    d = first_diff("eye_flow", a.eye_flow, b.eye_flow, d);
+    d = first_diff("domain_concentration", a.domain_concentration,
+                   b.domain_concentration, d);
+    d = first_diff("domain_grade", a.domain_grade, b.domain_grade, d);
+    d = first_diff("scar_kind", a.scar_kind, b.scar_kind, d);
+    d = first_diff("spirit_suppression", a.spirit_suppression,
+                   b.spirit_suppression, d);
+    d = first_diff("land_type", a.land_type, b.land_type, d);
+    d = first_diff("eye_purity", a.eye_purity, b.eye_purity, d);
+    d = first_diff("cave_heaven", a.cave_heaven, b.cave_heaven, d);
+    d = first_diff("ley_channels", a.ley_channels, b.ley_channels,
+                   same_channel, d);
+    d = first_diff("ley_nodes", a.ley_nodes, b.ley_nodes, same_node, d);
+    d = first_diff("veins", a.veins, b.veins, same_vein, d);
+    d = first_diff("eyes", a.eyes, b.eyes, same_eye, d);
+    d = first_diff("scars", a.scars, b.scars, same_scar, d);
+    d = first_diff("cave_heavens", a.cave_heavens, b.cave_heavens,
+                   same_heaven, d);
+    if (d.empty() && !same_tide(a.spirit_tide, b.spirit_tide))
+    {
+        return "spirit_tide";
+    }
+
     // sea_level 是高程直方图的分位数，所以「海平面不同」必然蕴含「高程不同」。
     // 它排在最后，报出来的才是**原因**而不是派生出来的结果；放在最前会
     // 把最早跑偏的阶段遮住。
@@ -268,7 +386,16 @@ TEST(the_field_comparison_catches_every_writable_field)
     // 首格」这种循环边界写错的比较实现照样能让本用例通过——末格上的真实
     // 差异会被它漏掉，而那种实现配合落在非首格上的不确定性，整套用例仍然
     // 全绿（实测过：只比首格 + 不确定性注入在 elevation[5] → 7/0 全绿）。
-    const WorldParams p = params_of(16, 16, 3, 909);
+    // 灵气层需要一张足够大的图才有内容：16x16 的陆地凑不出山骨源点，
+    // 地脉、灵脉、灵眼全会是空的。
+    //
+    // 还要取**灵潮期末**：谷底期（当代灵历 8914）没有福地，洞天是空的。
+    // 那条 `if (!w.cave_heavens.empty())` 守卫会把扰动整段跳过，于是
+    // 两个世界一模一样，断言「必须不相等」就成了假的。256x256 + 灵历
+    // 9300（潮位 99）能产出洞天（种子 909 实测 1 座），扰动才真的落在
+    // 非空向量上。
+    WorldParams p = params_of(256, 256, 2, 909);
+    p.spirit_year = 9300;
 
     const auto base = generate_world(p);
     CHECK(base.has_value());
@@ -369,7 +496,143 @@ TEST(the_field_comparison_catches_every_writable_field)
         w.aquifer[deep].at(last) = !w.aquifer[deep].at(last);
         check_differs(*base, w, "aquifer");
     }
-}
+    // 灵气层的网格：逐个扰动。
+    {
+        World w = *base;
+        w.ley_strength.at(last) =
+            static_cast<std::uint8_t>(w.ley_strength.at(last) ^ 0xFFu);
+        check_differs(*base, w, "ley_strength");
+    }
+    {
+        World w = *base;
+        w.ley_depth.at(last) =
+            static_cast<std::uint8_t>(w.ley_depth.at(last) ^ 0xFFu);
+        check_differs(*base, w, "ley_depth");
+    }
+    {
+        World w = *base;
+        w.ley_element.at(last) = w.ley_element.at(last) == Element::metal
+                                    ? Element::fire
+                                    : Element::metal;
+        check_differs(*base, w, "ley_element");
+    }
+    {
+        World w = *base;
+        w.vein_rank.at(last) = w.vein_rank.at(last) == VeinRank::none
+                                   ? VeinRank::branch
+                                   : VeinRank::none;
+        check_differs(*base, w, "vein_rank");
+    }
+    {
+        World w = *base;
+        w.vein_id.at(last) = w.vein_id.at(last) ^ 0xFFFFFFFFu;
+        check_differs(*base, w, "vein_id");
+    }
+    {
+        World w = *base;
+        w.eye_flow.at(last) = w.eye_flow.at(last) ^ 0xFFFFFFFFu;
+        check_differs(*base, w, "eye_flow");
+    }
+    {
+        World w = *base;
+        w.domain_concentration.at(last) =
+            static_cast<std::uint8_t>(w.domain_concentration.at(last) ^ 0xFFu);
+        check_differs(*base, w, "domain_concentration");
+    }
+    {
+        World w = *base;
+        w.domain_grade.at(last) =
+            w.domain_grade.at(last) == DomainGrade::barren
+                ? DomainGrade::thick
+                : DomainGrade::barren;
+        check_differs(*base, w, "domain_grade");
+    }
+    {
+        World w = *base;
+        w.scar_kind.at(last) = w.scar_kind.at(last) == Scar::none
+                                   ? Scar::sinkhole
+                                   : Scar::none;
+        check_differs(*base, w, "scar_kind");
+    }
+    {
+        World w = *base;
+        w.spirit_suppression.at(last) =
+            static_cast<std::uint8_t>(w.spirit_suppression.at(last) ^ 0xFFu);
+        check_differs(*base, w, "spirit_suppression");
+    }
+    {
+        World w = *base;
+        w.land_type.at(last) = w.land_type.at(last) == LandType::mundane
+                                   ? LandType::dead
+                                   : LandType::mundane;
+        check_differs(*base, w, "land_type");
+    }
+    {
+        World w = *base;
+        w.eye_purity.at(last) =
+            static_cast<std::uint8_t>(w.eye_purity.at(last) ^ 0xFFu);
+        check_differs(*base, w, "eye_purity");
+    }
+    {
+        World w = *base;
+        w.cave_heaven.at(last) = !w.cave_heaven.at(last);
+        check_differs(*base, w, "cave_heaven");
+    }
+    // 灵气层的非网格数据：逐个扰动。
+    {
+        World w = *base;
+        w.spirit_tide.level =
+            static_cast<std::uint8_t>(w.spirit_tide.level ^ 0xFFu);
+        check_differs(*base, w, "spirit_tide");
+    }
+    {
+        World w = *base;
+        if (!w.ley_channels.empty())
+        {
+            w.ley_channels[0].nodes.push_back(12345u);
+        }
+        check_differs(*base, w, "ley_channels");
+    }
+    {
+        World w = *base;
+        if (!w.ley_nodes.empty())
+        {
+            w.ley_nodes[0].depth ^= 1u;
+        }
+        check_differs(*base, w, "ley_nodes");
+    }
+    {
+        World w = *base;
+        if (!w.veins.empty())
+        {
+            w.veins[0].reserve ^= 0xFFFFFFFFu;
+        }
+        check_differs(*base, w, "veins");
+    }
+    {
+        World w = *base;
+        if (!w.eyes.empty())
+        {
+            w.eyes[0].flow ^= 0xFFFFFFFFu;
+        }
+        check_differs(*base, w, "eyes");
+    }
+    {
+        World w = *base;
+        if (!w.scars.empty())
+        {
+            w.scars[0].radius ^= 0xFFFFFFFFu;
+        }
+        check_differs(*base, w, "scars");
+    }
+    {
+        World w = *base;
+        if (!w.cave_heavens.empty())
+        {
+            w.cave_heavens[0].upkeep ^= 0xFFFFFFFFu;
+        }
+        check_differs(*base, w, "cave_heavens");
+    }}
 
 TEST(the_comparison_notices_grids_of_a_different_shape)
 {
@@ -388,4 +651,51 @@ TEST(the_comparison_notices_grids_of_a_different_shape)
     CHECK(first_diff("stone", one_layer, two_layers, {}) == "stone");
 }
 
+TEST(the_spirit_tide_is_a_real_parameter)
+{
+    // 同一个 seed，地脉网络必须完全相同——它是地质的，不随潮位变；
+    // 但灵域分等必须变——设定 2.6 的「灵潮期：泉涌、福地扩张」与
+    // 「谷底期：灵脉半死」就是这个区别。这条用例证明灵潮周期不是
+    // 写在文档里的背景，而是一个真的参数。
+    WorldParams trough = params_of(96, 96, 2, 606);
+    trough.spirit_year = 8914;  // 谷底期
+    WorldParams peak = trough;
+    peak.spirit_year = 9300;    // 灵潮期最后一年，浓度峰值
+
+    const auto a = generate_world(trough);
+    const auto b = generate_world(peak);
+    CHECK(a.has_value());
+    CHECK(b.has_value());
+    if (!a || !b)
+    {
+        return;
+    }
+
+    CHECK_EQ(a->ley_nodes.size(), b->ley_nodes.size());
+    for (std::size_t i = 0; i < a->ley_nodes.size(); ++i)
+    {
+        CHECK_EQ(a->ley_nodes[i].cell, b->ley_nodes[i].cell);
+        CHECK_EQ(a->ley_nodes[i].depth, b->ley_nodes[i].depth);
+        CHECK_EQ(a->ley_nodes[i].flow, b->ley_nodes[i].flow);
+    }
+    for (std::uint32_t i = 0; i < a->ley_strength.size(); ++i)
+    {
+        CHECK_EQ(a->ley_strength.at(i), b->ley_strength.at(i));
+    }
+
+    CHECK(a->spirit_tide.phase == TidePhase::trough);
+    CHECK(b->spirit_tide.phase == TidePhase::tide);
+    CHECK(a->spirit_tide.level < b->spirit_tide.level);
+
+    bool grade_changed = false;
+    for (std::uint32_t i = 0; i < a->domain_grade.size(); ++i)
+    {
+        if (a->domain_grade.at(i) != b->domain_grade.at(i))
+        {
+            grade_changed = true;
+            break;
+        }
+    }
+    CHECK(grade_changed);
+}
 }  // namespace

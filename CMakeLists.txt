@@ -56,6 +56,11 @@ set(WORLDGEN_SOURCES
     src/world/strata.cpp
     src/world/caverns.cpp
     src/world/deposits.cpp
+    src/world/ley.cpp
+    src/world/veins.cpp
+    src/world/domains.cpp
+    src/world/land.cpp
+    src/world/heavens.cpp
 )
 add_library(worldgen STATIC ${WORLDGEN_SOURCES})
 target_include_directories(worldgen PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -73,6 +78,13 @@ set(WORLDGEN_TEST_SOURCES
     tests/test_world_caverns.cpp
     tests/test_world_deposits.cpp
     tests/test_world_determinism.cpp
+    tests/test_world_spirit_tide.cpp
+    tests/test_world_ley.cpp
+    tests/test_world_veins.cpp
+    tests/test_world_domains.cpp
+    tests/test_world_land.cpp
+    tests/test_world_heavens.cpp
+    tests/test_world_pipeline.cpp
 )
 add_executable(worldgen_tests ${WORLDGEN_TEST_SOURCES})
 target_link_libraries(worldgen_tests PRIVATE worldgen)

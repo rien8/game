@@ -26,6 +26,17 @@ using gamev2::world::World;
 using gamev2::world::WorldParams;
 using gamev2::world::generate_world;
 
+using gamev2::world::CaveHeaven;
+using gamev2::world::DomainGrade;
+using gamev2::world::LandType;
+using gamev2::world::Scar;
+using gamev2::world::SpiritEye;
+using gamev2::world::SpiritTide;
+using gamev2::world::SpiritVein;
+using gamev2::world::TidePhase;
+using gamev2::world::VeinRank;
+using gamev2::world::kLandTypeCount;
+
 constexpr std::array<std::string_view, kBiomeCount> kBiomeNames{
     "ocean", "lake", "mountain", "marshland", "swamp",
     "temperate_coniferous", "temperate_broadleaf", "tropical_coniferous",
@@ -51,6 +62,23 @@ constexpr std::array<std::array<std::uint8_t, 3>, kBiomeCount> kBiomeColor{{
     {150, 130, 110}, {170, 110, 90}, {200, 210, 210}, {235, 240, 245},
 }};
 static_assert(kBiomeColor.size() == kBiomeCount);
+
+/// 六类地貌的配色。与群系配色分开：两者正交，叠加显示会把地脉压掉。
+constexpr std::array<std::array<std::uint8_t, 3>, kLandTypeCount> kLandTypeColor{{
+    {240, 220, 120},  // blessed 福地
+    {120, 180, 90},   // miasma 瘴域
+    {90, 70, 120},    // yin 阴地
+    {30, 30, 30},     // dead 死地
+    {110, 150, 200},  // turbid 浊域
+    {205, 205, 205},  // mundane 凡地
+}};
+static_assert(kLandTypeColor.size() == kLandTypeCount);
+
+constexpr std::array<std::string_view, kLandTypeCount> kLandTypeNames{
+    "blessed", "miasma", "yin", "dead", "turbid", "mundane",
+};
+static_assert(kLandTypeNames.size() == kLandTypeCount);
+static_assert(kLandTypeNames[static_cast<std::size_t>(LandType::dead)] == "dead");
 
 constexpr std::array<std::string_view, 12> kStoneNames{
     "sandstone", "shale", "limestone", "granite", "basalt", "slate",
@@ -367,6 +395,73 @@ void print_underground_stats(const World& world)
                  100.0 * aquifer_cells / total);
 }
 
+std::string_view phase_name(TidePhase phase)
+{
+    switch (phase)
+    {
+    case TidePhase::tide:
+        return "灵潮期";
+    case TidePhase::decline:
+        return "衰退期";
+    case TidePhase::trough:
+        return "谷底期";
+    }
+    return "未知";
+}
+
+void print_spirit_stats(const World& world)
+{
+    const SpiritTide& tide = world.spirit_tide;
+    std::println("灵潮：灵历 {} 年，第 {} 轮，{}第 {} 年，距下轮 {} 年",
+                 tide.year, tide.cycle + 1, phase_name(tide.phase),
+                 tide.year_in_phase, tide.years_to_next_tide);
+    std::println("  浓度 {} / 峰值 {}", tide.level, tide.peak);
+
+    std::array<std::uint32_t, 5> ranks{};
+    std::uint32_t eye_flow_total = 0;
+    std::uint32_t depleted = 0;
+    for (const SpiritVein& v : world.veins)
+    {
+        ++ranks[static_cast<std::size_t>(v.rank)];
+    }
+    for (const SpiritEye& e : world.eyes)
+    {
+        eye_flow_total += e.flow;
+        if (e.depleted)
+        {
+            ++depleted;
+        }
+    }
+    std::println("灵脉：龙 {}，主 {}，支 {}，荒 {}", ranks[4], ranks[3],
+                 ranks[2], ranks[1]);
+    std::println("灵眼：{} 个（枯眼 {}），总流量 {}", world.eyes.size(),
+                 depleted, eye_flow_total);
+
+    std::array<std::uint32_t, kLandTypeCount> lands{};
+    for (std::uint32_t i = 0; i < world.land_type.size(); ++i)
+    {
+        ++lands[static_cast<std::size_t>(world.land_type.at(i))];
+    }
+    std::println("地貌面积占比：");
+    for (std::size_t i = 0; i < kLandTypeCount; ++i)
+    {
+        if (lands[i] == 0)
+        {
+            continue;
+        }
+        std::println("  {:<10} {:>8} 格  {:>5.1f}%", kLandTypeNames[i], lands[i],
+                     100.0 * lands[i] / world.land_type.size());
+    }
+
+    std::uint32_t upkeep_total = 0;
+    for (const CaveHeaven& h : world.cave_heavens)
+    {
+        upkeep_total += h.upkeep;
+    }
+    std::println("洞天：{} 处，年耗灵石合计 {}", world.cave_heavens.size(),
+                 upkeep_total);
+}
+
 void export_biome(const World& world, const std::filesystem::path& dir)
 {
     Rgb rgb;
@@ -380,6 +475,39 @@ void export_biome(const World& world, const std::filesystem::path& dir)
     }
     write_ppm(dir / "biome.ppm", world.params().width, world.params().height,
               rgb);
+}
+
+void export_land_type(const World& world, const std::filesystem::path& dir)
+{
+    Rgb rgb;
+    rgb.reserve(static_cast<std::size_t>(world.land_type.size()) * 3);
+    for (std::uint32_t i = 0; i < world.land_type.size(); ++i)
+    {
+        const auto& c =
+            kLandTypeColor[static_cast<std::size_t>(world.land_type.at(i))];
+        rgb.push_back(c[0]);
+        rgb.push_back(c[1]);
+        rgb.push_back(c[2]);
+    }
+    write_ppm(dir / "land_type.ppm", world.params().width,
+              world.params().height, rgb);
+}
+
+/// 绝对刻度导出。灵气层这两张网格本来就是 0..255 的字节，浓度的分档
+/// 阈值（8/24/60/120）有意义；按最大值归一化会把潮位差与阈值关系一起
+/// 抹掉，那张图就再也分不出灵潮期与谷底期。
+void export_bytes(const World& world, const std::filesystem::path& dir,
+                  std::string_view label, const Grid<std::uint8_t>& grid)
+{
+    Rgb rgb;
+    rgb.reserve(static_cast<std::size_t>(grid.size()) * 3);
+    for (std::uint32_t i = 0; i < grid.size(); ++i)
+    {
+        const Rgb px = ramp(grid.at(i));
+        rgb.insert(rgb.end(), px.begin(), px.end());
+    }
+    write_ppm(dir / (std::string(label) + ".ppm"), world.params().width,
+              world.params().height, rgb);
 }
 
 }  // namespace
@@ -403,16 +531,22 @@ int main(int argc, char** argv)
                 params.width = std::stoul(argv[++i]);
                 params.height = params.width;
             }
+            else if (arg == "--year" && i + 1 < argc)
+            {
+                params.spirit_year = std::stoul(argv[++i]);
+            }
             else
             {
-                std::println(stderr, "用法: worldgen_demo [--seed N] [--size N]");
+                std::println(stderr,
+                             "用法: worldgen_demo [--seed N] [--size N] [--year N]");
                 return 2;
             }
         }
     }
     catch (const std::exception&)
     {
-        std::println(stderr, "用法: worldgen_demo [--seed N] [--size N]");
+        std::println(stderr,
+                     "用法: worldgen_demo [--seed N] [--size N] [--year N]");
         return 2;
     }
 
@@ -442,6 +576,7 @@ int main(int argc, char** argv)
 
     print_surface_stats(world);
     print_underground_stats(world);
+    print_spirit_stats(world);
 
     export_scalars(world, dir, "elevation", world.elevation);
     export_scalars(world, dir, "rainfall", world.rainfall);
@@ -449,6 +584,10 @@ int main(int argc, char** argv)
     export_scalars(world, dir, "drainage", world.drainage);
     export_scalars(world, dir, "flow", world.flow);
     export_biome(world, dir);
+    export_land_type(world, dir);
+    export_bytes(world, dir, "ley_strength", world.ley_strength);
+    export_bytes(world, dir, "domain_concentration",
+                 world.domain_concentration);
     export_layers(world, dir);
 
     // 输出目录是相对路径，取决于从哪儿启动。打印绝对路径，调用方才知道

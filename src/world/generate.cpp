@@ -20,6 +20,13 @@ std::expected<World, WorldError> generate_world(const WorldParams& params)
     make_caverns(world);
     make_deposits(world);
     finalize_aquifers(world);
+    make_spirit_tide(world);
+    make_ley_network(world);
+    make_spirit_veins(world);
+    make_spirit_domains(world);
+    make_historical_scars(world);
+    make_land_types(world);
+    make_cave_heavens(world);
     return world;
 }
 
