@@ -61,6 +61,7 @@ set(WORLDGEN_SOURCES
     src/world/domains.cpp
     src/world/land.cpp
     src/world/heavens.cpp
+    src/world/tribulation.cpp
 )
 add_library(worldgen STATIC ${WORLDGEN_SOURCES})
 target_include_directories(worldgen PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -84,6 +85,7 @@ set(WORLDGEN_TEST_SOURCES
     tests/test_world_domains.cpp
     tests/test_world_land.cpp
     tests/test_world_heavens.cpp
+    tests/test_world_tribulation.cpp
     tests/test_world_pipeline.cpp
 )
 add_executable(worldgen_tests ${WORLDGEN_TEST_SOURCES})

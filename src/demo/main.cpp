@@ -36,6 +36,7 @@ using gamev2::world::SpiritVein;
 using gamev2::world::TidePhase;
 using gamev2::world::VeinRank;
 using gamev2::world::kLandTypeCount;
+using gamev2::world::kTribulationRadius;
 
 constexpr std::array<std::string_view, kBiomeCount> kBiomeNames{
     "ocean", "lake", "mountain", "marshland", "swamp",
@@ -460,6 +461,14 @@ void print_spirit_stats(const World& world)
     }
     std::println("洞天：{} 处，年耗灵石合计 {}", world.cave_heavens.size(),
                  upkeep_total);
+
+    std::println("渡劫场：{} 处，劫云半径 {} 格（= 百里）",
+                 world.tribulation_sites.size(), kTribulationRadius);
+
+    // 图幅随行：灵气层的浓度场统计量只在默认图幅下可比（设计文档 §9.2），
+    // 不写图幅，读者就不知道自己拿的是哪一口径的数。
+    std::println("图幅：{} x {}（灵气层统计量只在 256 x 256 默认图幅下可比）",
+                 world.params().width, world.params().height);
 }
 
 void export_biome(const World& world, const std::filesystem::path& dir)
@@ -490,6 +499,25 @@ void export_land_type(const World& world, const std::filesystem::path& dir)
         rgb.push_back(c[2]);
     }
     write_ppm(dir / "land_type.ppm", world.params().width,
+              world.params().height, rgb);
+}
+
+/// 渡劫场的劫心。两色即可：劫心是点状目标，位置比颜色重要。
+void export_tribulation_site(const World& world,
+                             const std::filesystem::path& dir)
+{
+    constexpr std::array<std::uint8_t, 3> kPlain{45, 45, 55};
+    constexpr std::array<std::uint8_t, 3> kSite{230, 70, 45};
+    Rgb rgb;
+    rgb.reserve(static_cast<std::size_t>(world.tribulation_site.size()) * 3);
+    for (std::uint32_t i = 0; i < world.tribulation_site.size(); ++i)
+    {
+        const auto& c = world.tribulation_site.at(i) ? kSite : kPlain;
+        rgb.push_back(c[0]);
+        rgb.push_back(c[1]);
+        rgb.push_back(c[2]);
+    }
+    write_ppm(dir / "tribulation_site.ppm", world.params().width,
               world.params().height, rgb);
 }
 
@@ -588,6 +616,7 @@ int main(int argc, char** argv)
     export_bytes(world, dir, "ley_strength", world.ley_strength);
     export_bytes(world, dir, "domain_concentration",
                  world.domain_concentration);
+    export_tribulation_site(world, dir);
     export_layers(world, dir);
 
     // 输出目录是相对路径，取决于从哪儿启动。打印绝对路径，调用方才知道

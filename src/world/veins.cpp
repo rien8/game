@@ -357,6 +357,7 @@ VeinCensus vein_census(const World& world)
     const auto target = vein_targets(p.width * p.height);
 
     VeinCensus census;
+    census.map_area = p.width * p.height;
     census.dragon.expected = target.dragon;
     census.main.expected = target.main;
     census.branch.expected = target.branch;

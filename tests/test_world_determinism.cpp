@@ -27,6 +27,7 @@ using gamev2::world::SpiritEye;
 using gamev2::world::SpiritTide;
 using gamev2::world::SpiritVein;
 using gamev2::world::TidePhase;
+using gamev2::world::TribulationSite;
 using gamev2::world::VeinRank;
 /// 逐格比较两张网格。返回首个不一致的字段名；一致时返回 sofar。
 /// 尺寸也必须比：格数相同但宽高不同（80x48 与 48x80）不是同一张图。
@@ -122,6 +123,11 @@ bool same_heaven(const CaveHeaven& a, const CaveHeaven& b)
            && a.upkeep == b.upkeep;
 }
 
+bool same_tribulation_site(const TribulationSite& a, const TribulationSite& b)
+{
+    return a.cell == b.cell && a.radius == b.radius && a.vein == b.vein;
+}
+
 bool same_tide(const SpiritTide& a, const SpiritTide& b)
 {
     return a.year == b.year && a.cycle == b.cycle && a.phase == b.phase
@@ -195,6 +201,8 @@ std::string_view world_diff(const World& a, const World& b)
     d = first_diff("land_type", a.land_type, b.land_type, d);
     d = first_diff("eye_purity", a.eye_purity, b.eye_purity, d);
     d = first_diff("cave_heaven", a.cave_heaven, b.cave_heaven, d);
+    d = first_diff("tribulation_site", a.tribulation_site, b.tribulation_site,
+                   d);
     d = first_diff("ley_channels", a.ley_channels, b.ley_channels,
                    same_channel, d);
     d = first_diff("ley_nodes", a.ley_nodes, b.ley_nodes, same_node, d);
@@ -203,6 +211,8 @@ std::string_view world_diff(const World& a, const World& b)
     d = first_diff("scars", a.scars, b.scars, same_scar, d);
     d = first_diff("cave_heavens", a.cave_heavens, b.cave_heavens,
                    same_heaven, d);
+    d = first_diff("tribulation_sites", a.tribulation_sites,
+                   b.tribulation_sites, same_tribulation_site, d);
     if (d.empty() && !same_tide(a.spirit_tide, b.spirit_tide))
     {
         return "spirit_tide";
@@ -578,6 +588,11 @@ TEST(the_field_comparison_catches_every_writable_field)
         w.cave_heaven.at(last) = !w.cave_heaven.at(last);
         check_differs(*base, w, "cave_heaven");
     }
+    {
+        World w = *base;
+        w.tribulation_site.at(last) = !w.tribulation_site.at(last);
+        check_differs(*base, w, "tribulation_site");
+    }
     // 灵气层的非网格数据：逐个扰动。
     {
         World w = *base;
@@ -632,6 +647,14 @@ TEST(the_field_comparison_catches_every_writable_field)
             w.cave_heavens[0].upkeep ^= 0xFFFFFFFFu;
         }
         check_differs(*base, w, "cave_heavens");
+    }
+    {
+        World w = *base;
+        if (!w.tribulation_sites.empty())
+        {
+            w.tribulation_sites[0].radius ^= 0xFFFFFFFFu;
+        }
+        check_differs(*base, w, "tribulation_sites");
     }}
 
 TEST(the_comparison_notices_grids_of_a_different_shape)

@@ -44,6 +44,7 @@ World::World(WorldParams params)
       land_type(params.width, params.height, LandType::mundane),
       eye_purity(params.width, params.height, 0),
       cave_heaven(params.width, params.height, false),
+      tribulation_site(params.width, params.height, false),
       stone(make_layers(params, Stone::granite)),
       deposit(make_layers(params, Deposit::none)),
       cavern(make_layers(params, false)),

@@ -77,6 +77,8 @@ public:
     Grid<LandType>      land_type;
     Grid<std::uint8_t>  eye_purity;
     Grid<bool>          cave_heaven;
+    /// 是否为渡劫场的劫心。阶段 18 的格级镜像。
+    Grid<bool>          tribulation_site;
 
     /// 地下量，每 z 层一份同构网格。
     std::vector<Grid<Stone>>   stone;
@@ -92,6 +94,7 @@ public:
     std::vector<SpiritEye>   eyes;
     std::vector<ScarSite>    scars;
     std::vector<CaveHeaven>  cave_heavens;
+    std::vector<TribulationSite> tribulation_sites;
 
 private:
     std::uint8_t sea_level_ = 0;

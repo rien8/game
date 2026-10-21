@@ -50,6 +50,16 @@ inline constexpr double kDomainRadius = 16.0;
 /// 浓度场盖章的最大半径。超过它的贡献按 0 计。
 inline constexpr std::uint32_t kDomainMaxRadius = 64;
 
+/// 劫云半径，格。= 百里。
+///
+/// 换算依据：阶段 15 的沉陷疤半径 24 格对应设定 4.2 的「三百里地陷」，
+/// 于是 1 格 ≈ 12.5 里，百里 = 8 格。阶段 15 的渡劫废墟半径用同一个值，
+/// 免得两处各调各的。
+inline constexpr std::uint32_t kTribulationRadius = 8;
+
+/// 两个渡劫场的中心距下限，格。= 2 × 半径：劫云不重叠。
+inline constexpr std::uint32_t kTribulationSpacing = 2 * kTribulationRadius;
+
 /// 地脉埋深的上下界，单位是格。
 inline constexpr std::uint32_t kMinLeyDepth = 2;
 inline constexpr std::uint32_t kMaxLeyDepth = 64;

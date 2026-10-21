@@ -163,4 +163,15 @@ struct CaveHeaven
     std::uint32_t upkeep = 0;    ///< 年耗灵石
 };
 
+/// 渡劫场。设定 5.2：天地抽走方圆百里灵气形成劫云。
+///
+/// 劫云半径恒为百里，与阶段 15 的渡劫废墟半径同一把尺（见
+/// spirit_tables.hpp 的 kTribulationRadius）。
+struct TribulationSite
+{
+    std::uint32_t cell = 0;    ///< 劫心
+    std::uint32_t radius = 0;  ///< 劫云半径，格（= 百里）
+    std::uint32_t vein = 0;    ///< 关联的灵脉编号
+};
+
 }  // namespace gamev2::world

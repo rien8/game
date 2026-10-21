@@ -27,6 +27,7 @@ std::expected<World, WorldError> generate_world(const WorldParams& params)
     make_historical_scars(world);
     make_land_types(world);
     make_cave_heavens(world);
+    make_tribulation_sites(world);
     return world;
 }
 

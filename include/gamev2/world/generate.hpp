@@ -1,5 +1,5 @@
 /// @file generate.hpp
-/// @brief 世界生成的十七个阶段与编排入口。
+/// @brief 世界生成的十八个阶段与编排入口。
 ///
 /// 阶段之间是严格的单向依赖，而编排顺序只写在 generate_world() 一处：
 /// 调换顺序不会报错，只会静默产出错误世界。因此每个阶段的 doxygen 都写明
@@ -84,6 +84,9 @@ struct VeinCensus
     std::uint32_t barren = 0;  ///< 荒脉：数量不可考，只报实得
     std::uint32_t eyes = 0;    ///< 灵眼数：有品阶的脉各一眼
     VeinCount depleted;  ///< 枯眼：应得数随灵眼数定
+    /// 图幅面积（格）。灵脉定额按面积相对它缩放，而浓度场的统计量
+    /// 只在默认图幅下可比——调用方要靠这个数知道自己拿的是哪一口径。
+    std::uint32_t map_area = 0;
 
     /// 灵脉定额的缺口合计。零表示龙、主、支三条定额都凑齐了。
     [[nodiscard]] std::uint32_t total_shortfall() const noexcept
@@ -115,6 +118,10 @@ void make_land_types(World& world);
 /// 阶段 17。读 land_type、domain_grade、veins、domain_concentration，
 /// 写 cave_heaven、cave_heavens。洞天只落在福地上。
 void make_cave_heavens(World& world);
+
+/// 阶段 18。读 land_type、domain_concentration、scar_kind，
+/// 写 tribulation_site、tribulation_sites。渡劫场只落在无旧疤的福地上。
+void make_tribulation_sites(World& world);
 
 /// 汇流量超过该阈值即为河道。调参项，见设计文档 11.2。
 inline constexpr std::uint32_t kRiverThreshold = 200;

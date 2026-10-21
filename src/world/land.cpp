@@ -18,7 +18,6 @@ constexpr std::uint32_t kSinkholeRadius = 24;
 constexpr std::uint32_t kSinkholeMaxRelief = 20;
 /// 渡劫废墟的处数。高阶修士才渡得起劫，疤因此小而多。
 constexpr std::uint32_t kTribulationCount = 6;
-constexpr std::uint32_t kTribulationRadius = 8;
 /// 浊域的处数。沸海式的灵潮搅动区。
 constexpr std::uint32_t kTurbidCount = 2;
 /// 浊域的半径，格。两处浊域要求中心距不低于两半径之和，半径直接决定
