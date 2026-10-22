@@ -295,6 +295,13 @@ inline constexpr std::uint8_t kVeinThresholdFloor = 4;
 /// 越采削储量，枯眼压稳定年限。设定 2.3 说抽干后只剩枯眼、不可复生。
 inline constexpr std::uint32_t kStabilityMined = 30;
 
+/// 被越采后储量的削减比例（百分比）。
+///
+/// 搬到这里是因为时序层要靠它反推 8300 年的承载上限：越采脉的
+/// reserve = floor(original * (100 - 它) / 100)，反推区间的宽度由它决定。
+/// 两侧各写一份的话，worldgen 改了这个数，台账会静默错位。
+inline constexpr std::uint32_t kOverminePenalty = 60;
+
 /// 候选段被越采的概率。设定没给数，这是经验值。
 inline constexpr double kOverminedChance = 0.15;
 

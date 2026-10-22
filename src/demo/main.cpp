@@ -1,6 +1,7 @@
 /// @file main.cpp
 /// @brief 世界生成的统计与 PPM 导出。生成器的阈值是经验值，只能看着图调，
 ///        这个程序就是那条反馈回路。
+#include "gamev2/history/ledger.hpp"
 #include "gamev2/world/generate.hpp"
 #include "gamev2/world/tables.hpp"
 
@@ -471,6 +472,85 @@ void print_spirit_stats(const World& world)
                  world.params().width, world.params().height);
 }
 
+/// UTF-8 串的终端显示宽度。
+///
+/// 汉字占两个终端列，而 `{:10}` 之类按码点数补位——补出来的表头会随
+/// 名字长短错开。所以自己数：UTF-8 的续字节（10xxxxxx）不占码位，
+/// 每个码位按两个终端列算。
+std::size_t display_width(std::string_view text)
+{
+    std::size_t code_points = 0;
+    for (const char byte : text)
+    {
+        if ((static_cast<unsigned char>(byte) & 0xC0u) != 0x80u)
+        {
+            ++code_points;
+        }
+    }
+    return code_points * 2u;
+}
+
+/// 按显示宽度左对齐补空格。宽度够了就不再补。
+std::string pad_to_width(std::string_view text, std::size_t width)
+{
+    std::string padded(text);
+    const std::size_t used = display_width(text);
+    if (used < width)
+    {
+        padded.append(width - used, ' ');
+    }
+    return padded;
+}
+
+void print_ledger_stats(const gamev2::history::Ledger& ledger,
+                        const gamev2::history::LedgerDiagnostics& diagnostics)
+{
+    // 跨度可能为负（now < epoch）：与导出同一套钳位，别让 demo 印出
+    // 一个巨大的年数。
+    const std::uint32_t span =
+        (ledger.now > ledger.epoch) ? (ledger.now - ledger.epoch) : 0u;
+    std::println("灵脉台账：纪元 {} —— 当代 {}（{} 年）",
+                 ledger.epoch, ledger.now, span);
+    // 荒脉没有灵眼、不可采，不进台账：台账的脉数比世界的脉数少，
+    // 差额在这里说出来，读者才不会以为台账漏了账。
+    std::println("  脉 {} 条（荒脉 {} 条不入账），事件 {} 笔，未登记开采 {}",
+                 ledger.veins.size(), diagnostics.barren_veins,
+                 ledger.events.size(), ledger.unregistered_extracted);
+    std::println("七宗与无主配额与当代余额：");
+    // 宗门名按终端列宽补位，不按码点数：汉字占两列，按码点数补出来的
+    // 表头会随名字长短错开。
+    constexpr std::size_t kNameWidth = 10u;
+    for (const auto& sect : ledger.sects)
+    {
+        std::println("  {} 配额 {:>6}  当代 {:>6}  配额与余额差 {:>7}  越采 {:>5}",
+                     pad_to_width(gamev2::history::sect_name(sect.sect),
+                                  kNameWidth),
+                     sect.quota_total, sect.current_total,
+                     sect.deviation_total, sect.overmined_amount);
+    }
+    std::println("  口径差 {}，越采差 {}", ledger.structural_deviation,
+                 ledger.overmining_deviation);
+    // 诊断量是台账与 worldgen 之间的接缝：对不上就报出来，不藏。
+    if (diagnostics.depletion_claim_unbacked > 0u
+        || diagnostics.depletion_unmarked > 0u
+        || diagnostics.missing_yin_vein > 0u
+        || diagnostics.short_main_veins > 0u
+        || diagnostics.overmine_before_epoch > 0u
+        || diagnostics.flow_conversion_collapsed > 0u
+        || diagnostics.span_too_large > 0u)
+    {
+        std::println("  诊断：枯眼无账 {}，枯竭未标 {}，缺阴脉 {}，主脉缺 {}，"
+                     "越采早于纪元 {}，换算塌缩 {}，跨度超限 {}",
+                     diagnostics.depletion_claim_unbacked,
+                     diagnostics.depletion_unmarked,
+                     diagnostics.missing_yin_vein,
+                     diagnostics.short_main_veins,
+                     diagnostics.overmine_before_epoch,
+                     diagnostics.flow_conversion_collapsed,
+                     diagnostics.span_too_large);
+    }
+}
+
 void export_biome(const World& world, const std::filesystem::path& dir)
 {
     Rgb rgb;
@@ -605,6 +685,17 @@ int main(int argc, char** argv)
     print_surface_stats(world);
     print_underground_stats(world);
     print_spirit_stats(world);
+
+    gamev2::history::LedgerDiagnostics diagnostics;
+    const gamev2::history::Ledger ledger =
+        gamev2::history::build_ledger(world, diagnostics);
+    print_ledger_stats(ledger, diagnostics);
+    if (!gamev2::history::export_ledger(ledger, diagnostics,
+                                        dir / "ledger.txt"))
+    {
+        std::println(stderr, "写不了 {}", (dir / "ledger.txt").string());
+        ++g_write_failures;
+    }
 
     export_scalars(world, dir, "elevation", world.elevation);
     export_scalars(world, dir, "rainfall", world.rainfall);

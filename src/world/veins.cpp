@@ -22,9 +22,6 @@ constexpr std::uint32_t kConfluenceBonus = 2;
 constexpr std::uint32_t kStabilityBase = 100;
 constexpr std::uint32_t kStabilityPerNode = 50;
 
-/// 被越采后储量的削减比例（百分比）。
-constexpr std::uint32_t kOverminePenalty = 60;
-
 /// 一段候选灵脉：某条通道上的一段连续节点。
 struct Segment
 {

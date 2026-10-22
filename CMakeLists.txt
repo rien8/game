@@ -91,8 +91,22 @@ set(WORLDGEN_TEST_SOURCES
 add_executable(worldgen_tests ${WORLDGEN_TEST_SOURCES})
 target_link_libraries(worldgen_tests PRIVATE worldgen)
 
+set(HISTORY_SOURCES
+    src/history/ledger.cpp
+)
+add_library(history STATIC ${HISTORY_SOURCES})
+target_include_directories(history PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(history PUBLIC worldgen)
+
+set(HISTORY_TEST_SOURCES
+    tests/main.cpp
+    tests/test_history_ledger.cpp
+)
+add_executable(history_tests ${HISTORY_TEST_SOURCES})
+target_link_libraries(history_tests PRIVATE history)
+
 add_executable(worldgen_demo src/demo/main.cpp)
-target_link_libraries(worldgen_demo PRIVATE worldgen)
+target_link_libraries(worldgen_demo PRIVATE history)
 
 # Opt-in sanitizer build. Off by default so the pinned build stays untouched;
 # the `active_` invariant in ThreadPool is a lifetime race that no ordinary
