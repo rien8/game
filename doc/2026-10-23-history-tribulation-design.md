@@ -145,6 +145,9 @@ struct Ledger
     std::vector<TribulationEvent> tribulation_events;
     /// 第三类偏差：劫损合计。与越采差同形——都是逐脉字段的 Σ。
     std::int64_t tribulation_deviation = 0;
+    /// 失败的渡劫次数。入账的是它的一部分（空圈失败只计数、不入账），
+    /// 所以 demo 要用它才能说出「试了几次」——只看事件数会误以为试得少。
+    std::uint32_t tribulation_failed = 0;
 };
 ```
 
@@ -247,6 +250,18 @@ loss_i  = balance × covered / total     // 先乘后除，整数截断
 **取整是截断、不用定点余数累加**：第一刀对逐年流量用定点余数，是因为同一条
 脉要连续六百年累加，截断会把枯竭年挤成悬崖；劫损每一笔都独立，不跨年累加，
 截断的偏差不会积累。
+
+**正常开采的配额余量必须一并减掉劫损**：
+
+```
+旧：quota_left = surveyed_total − extracted
+新：quota_left = surveyed_total − extracted − tribulation_loss
+```
+
+否则劫损那年之后的开采仍按原配额扣满：`surveyed = 100、已采 40、劫损 30`
+时余额只剩 30，而 `quota_left = 60`，采满就把 `balance` 打成负数——无符号
+回绕成一个巨大正数，整本账静默错乱。**这是防下溢的修正，不是口径调整**：
+`tribulation_loss = 0` 时它与旧式逐字相同，既有行为一字未改。
 
 - **覆盖比 1.00 时整条脉被抽干**——实测 seed 3 有这种脉，与设定「抽干方图
   百里」一致。
@@ -392,6 +407,9 @@ inline constexpr double kTribulationFailChance = 0.3;
 | 5 | `the_export_carries_the_tribulation_toll` | 劫损行与渡劫事件清单真的进了导出文件 |
 | 6 | `the_toll_takes_the_post_overmining_balance` | 每笔劫损 == `(上年末余额 − 该年越采) × 覆盖比` |
 
+第 4 条还断言 `tribulation_failed ≥ tribulation_events.size()`：入账的是失败里
+落在**有脉圈内**的那部分，所以失败数只能多、不能少；反过来只有计数写错才可能。
+
 第 6 条要在测试里从 `World` 反算覆盖比（§3.4 的公式），照的是
 `overmined_vein_reserve_is_the_penalised_score_sum` 的先例：**基数写在账里，
 但基数由谁提供要靠测试自己从世界反推**。它同时钉住次序的两端——基数里含
@@ -440,15 +458,16 @@ CHECK(ledger.structural_deviation >= ledger.tribulation_deviation);
 | 文件 | 职责 |
 |---|---|
 | `include/gamev2/history/ledger.hpp` | 新类型、新字段（见下）、`kTribulationFailChance` |
-| `src/history/ledger.cpp` | 池派生、排期与成败、损失与次序、第三类偏差、导出 |
+| `src/history/ledger.cpp` | 池派生、排期与成败、损失与次序、第三类偏差、导出、诊断 |
 | `tests/test_history_ledger.cpp` | §6.2 新增 6 条、§6.3 改 6 条、§6.4 招牌断言升级 |
 | `include/gamev2/world/enums.hpp` | `Stream::tribulation = 18`，`kStreamIds` 扩到 19 |
 | `src/demo/main.cpp` | 三类偏差并排打印、渡劫统计 |
 
 `ledger.hpp` 新增的全部符号：`TribulationEvent`、`QuotaEntry::tribulation_loss`、
 `SectLedger::tribulation_loss`、`Ledger::tribulation_events`、
-`Ledger::tribulation_deviation`、`LedgerDiagnostics::tribulation_no_vein`、
-`kTribulationFailChance`。
+`Ledger::tribulation_deviation`、`Ledger::tribulation_failed`、
+`LedgerDiagnostics::tribulation_no_vein`、`kTribulationFailChance`、
+`epoch_tribulation_sites`。
 
 **不改**：`include/gamev2/world/` 下任何既有头文件的**行为**（`enums.hpp` 只
 登记新流，那是它自己写明的规矩）；`src/world/` 全部不动。
@@ -513,15 +532,17 @@ CHECK(ledger.structural_deviation >= ledger.tribulation_deviation);
 
 任务切分：
 
-1. **Task 1**：类型骨架、`Stream::tribulation` 登记、`kTribulationFailChance`、CMake 与既有测试的红态
+1. **Task 1**：类型骨架、`Stream::tribulation` 登记、`kTribulationFailChance`、
+   把要验劫损的既有测试换到 128² 并加守卫（守卫此刻应当红）
 2. **Task 2**：纪元候选池派生 + 「派生 == 完整重生成」的钉子测试
-3. **Task 3**：排期与成败抽样（每处至多一次，年份窗口）
-4. **Task 4**：损失计算与年内次序接线，改写恒等式 1 与 3
-5. **Task 5**：第三类偏差与逐宗汇总，招牌断言升级
-6. **Task 6**：导出、demo 与诊断
-7. **Task 7**：全量测试、**复验越采仍足额认领**、变异战役
+3. **Task 3**：排期、损失计算与年内次序，改写恒等式 1 与 3（排期与损失合一个任务：只有排期没有可观察输出，单独成任务交付不了可测的东西）
+4. **Task 4**：第三类偏差与逐宗汇总，招牌断言升级
+5. **Task 5**：诊断、导出与 demo
+6. **Task 6**：全量测试，**复验越采仍足额认领**
+7. **Task 7**：变异战役（§6.5 那张表逐条跑）
 
 任务 1..6 每个都遵循既有节奏：先写失败的测试，再写实现，最后向用户报告并
 等待提交指令（**不执行 `git commit`**）。
 
-**Task 7 是硬关卡**：§8.3 那条既有行为风险只有在那里能验出来。
+**Task 6 是硬关卡**：§8.3 那条既有行为风险只有在那里能验出来；Task 7
+接着在绿色基线上做变异战役。
