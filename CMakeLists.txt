@@ -5,12 +5,43 @@ set(CMAKE_CXX_COMPILER clang++)
 
 project(gamev2 LANGUAGES CXX)
 
+# 默认构建类型：Debug。
+#
+# 不写这一段时，空的 CMAKE_BUILD_TYPE 会让配置结果依赖缓存里的历史状态——
+# 缓存一旦被重置（换编译器、换生成器），构建口径就悄悄变了：少了 -O0、
+# 少了 -g，也少了 _ITERATOR_DEBUG_LEVEL 的检查。后者在本机是真的：
+# clang++ 用的是 MSVC 的 STL 头文件，Debug/Release 会改这个值——
+# 手工编译单个文件时，链接器会因它与库里的值不匹配而拒绝链接。
+# 这段把它固定下来。
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Debug CACHE STRING "构建类型" FORCE)
+endif()
+
 # The VS generator selects cl.exe before this file is read, and silently
 # overrides the pin above; without this guard the compiler constraint fails
 # unnoticed instead of stopping the build.
 if(NOT CMAKE_CXX_COMPILER_ID MATCHES "^Clang")
     message(FATAL_ERROR "clang++ is mandated, got ${CMAKE_CXX_COMPILER_ID} "
         "(${CMAKE_CXX_COMPILER}); configure with -G \"Unix Makefiles\"")
+endif()
+
+# 归档工具与链接器必须与编译器同源。这台机器上别处还装着 GNU ar
+# （Strawberry Perl 自带一个 2.25），CMake 探测到它时 lld-link 读不出
+# 符号索引，链接会炸出上百条「符号未定义」——错在哪很难一眼看出。
+#
+# 这段必须在 project() 之后：之前 CMAKE_CXX_COMPILER 只是字面量
+# clang++，推导不出目录。
+#
+# 找不到 llvm-ar / llvm-ranlib 时**退回 CMake 自带的探测**，不要硬报错：
+# 换一套不带这两个工具的 clang 发行版时，configure 直接失败比构建失败
+# 更难查（失败点在配置期，离真正的原因很远）。本机满足，钉住同源工具
+# 仍然是首选——上面那段 GNU ar 的坑就是这么避开的。
+get_filename_component(_compiler_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+if(EXISTS "${_compiler_dir}/llvm-ar.exe")
+    set(CMAKE_AR "${_compiler_dir}/llvm-ar.exe")
+endif()
+if(EXISTS "${_compiler_dir}/llvm-ranlib.exe")
+    set(CMAKE_RANLIB "${_compiler_dir}/llvm-ranlib.exe")
 endif()
 
 set(CMAKE_CXX_STANDARD 23)
@@ -93,6 +124,7 @@ target_link_libraries(worldgen_tests PRIVATE worldgen)
 
 set(HISTORY_SOURCES
     src/history/ledger.cpp
+    src/history/quota.cpp
 )
 add_library(history STATIC ${HISTORY_SOURCES})
 target_include_directories(history PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -105,8 +137,28 @@ set(HISTORY_TEST_SOURCES
 add_executable(history_tests ${HISTORY_TEST_SOURCES})
 target_link_libraries(history_tests PRIVATE history)
 
+set(FACTION_SOURCES
+    src/faction/setup.cpp
+    src/faction/era.cpp
+    src/faction/economy.cpp
+    src/faction/systems.cpp
+    src/faction/resolve.cpp
+)
+add_library(faction STATIC ${FACTION_SOURCES})
+target_include_directories(faction PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(faction PUBLIC history ecs)
+
+set(FACTION_TEST_SOURCES
+    tests/main.cpp
+    tests/test_faction_economy.cpp
+    tests/test_faction_era.cpp
+    tests/test_faction_determinism.cpp
+)
+add_executable(faction_tests ${FACTION_TEST_SOURCES})
+target_link_libraries(faction_tests PRIVATE faction)
+
 add_executable(worldgen_demo src/demo/main.cpp)
-target_link_libraries(worldgen_demo PRIVATE history)
+target_link_libraries(worldgen_demo PRIVATE faction)
 
 # Opt-in sanitizer build. Off by default so the pinned build stays untouched;
 # the `active_` invariant in ThreadPool is a lifetime race that no ordinary

@@ -1,6 +1,7 @@
 /// @file main.cpp
 /// @brief 世界生成的统计与 PPM 导出。生成器的阈值是经验值，只能看着图调，
 ///        这个程序就是那条反馈回路。
+#include "gamev2/faction/era.hpp"
 #include "gamev2/history/ledger.hpp"
 #include "gamev2/world/generate.hpp"
 #include "gamev2/world/tables.hpp"
@@ -551,6 +552,55 @@ void print_ledger_stats(const gamev2::history::Ledger& ledger,
     }
 }
 
+void print_era_stats(const gamev2::faction::EraReport& era,
+                     const gamev2::faction::FactionDiagnostics& diagnostics)
+{
+    std::println("当代格局：纪元 {} —— 当代 {}（{} 年）", era.epoch, era.now,
+                 era.years_simulated);
+    std::println("  脉 {} 条，事件 {} 笔，格局变化 {} 条，当代潮位 {}",
+                 era.veins.size(), era.events.size(), era.owner_changes,
+                 era.current_level);
+    // 逐宗这一行混两种口径，说清楚：「持有脉」「余额」是**当代**名下脉的
+    // 名义——格局变过（公有化、转让），账跟着变；「开采」「越采」是**六
+    // 百年累计**，含后来转出或公有化的脉上的旧账，所以它可以大于当代配
+    // 额。看到「开采 > 配额」不要判定模型坏了——同一个坑在导出的格局文
+    // 档里踩过一次，那里的口径注写得更全。
+    //
+    // 初始持有与表决权重锚在 8300，它们在导出的对照表里，不在这里。
+    std::println("各宗当代持有：");
+    constexpr std::size_t kNameWidth = 10u;
+    for (const auto& faction : era.factions)
+    {
+        std::println("  {} 持有脉 {:>3}  余额 {:>6}  开采 {:>6}  越采 {:>5}",
+                     pad_to_width(gamev2::history::sect_name(faction.sect),
+                                  kNameWidth),
+                     faction.vein_count, faction.balance, faction.extracted,
+                     faction.overmined);
+    }
+    // 重勘的三种结局各有多少次。空转（提了案却既没通过也没被否）是
+    // 「清单是空的，没有东西可投」——它是这三种里唯一在台账上看不见的。
+    std::println("  重勘：通过 {}，否决 {}，空转 {}", diagnostics.redraft_passed,
+                 diagnostics.redraft_rejected, diagnostics.redraft_empty);
+    // 退化量：只在非零时印。simulate 退化时返回的是一份**空报告**（脉
+    // 0 条、事件 0 笔、格局变化 0 条）——不印这些量，那份空报告看上去
+    // 与一次健康的推演一模一样。stdout 是使用者的反馈回路，退化不能
+    // 从这里静悄悄过去。
+    if (diagnostics.no_baseline != 0u
+        || diagnostics.conversion_collapsed != 0u
+        || diagnostics.span_too_large != 0u
+        || diagnostics.public_release_mismatch != 0u
+        || diagnostics.conservation_broken != 0u)
+    {
+        std::println("  诊断：无基线 {}，换算塌缩 {}，跨度超限 {}，"
+                     "公有化残留 {}，守恒破坏 {}",
+                     diagnostics.no_baseline,
+                     diagnostics.conversion_collapsed,
+                     diagnostics.span_too_large,
+                     diagnostics.public_release_mismatch,
+                     diagnostics.conservation_broken);
+    }
+}
+
 void export_biome(const World& world, const std::filesystem::path& dir)
 {
     Rgb rgb;
@@ -694,6 +744,16 @@ int main(int argc, char** argv)
                                         dir / "ledger.txt"))
     {
         std::println(stderr, "写不了 {}", (dir / "ledger.txt").string());
+        ++g_write_failures;
+    }
+
+    gamev2::faction::FactionDiagnostics fdiag;
+    const gamev2::faction::EraReport era =
+        gamev2::faction::simulate(world, ledger, fdiag);
+    print_era_stats(era, fdiag);
+    if (!gamev2::faction::export_era(era, fdiag, dir / "era.txt"))
+    {
+        std::println(stderr, "写不了 {}", (dir / "era.txt").string());
         ++g_write_failures;
     }
 

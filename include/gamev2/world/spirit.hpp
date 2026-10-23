@@ -85,6 +85,10 @@ inline constexpr std::uint32_t kNoVein = 0xFFFFFFFFu;
 inline constexpr std::uint32_t kNoNode = 0xFFFFFFFFu;
 inline constexpr std::uint32_t kNoEye = 0xFFFFFFFFu;
 
+/// 洞天编号的哨兵值。仿 kNoVein / kNoEye：不用 optional，
+/// 因为它是与洞天表一一对应的稠密索引。
+inline constexpr std::uint32_t kNoCaveHeaven = 0xFFFFFFFFu;
+
 /// 灵潮周期状态。世界的「年」以第一轮灵潮之始为元年。
 struct SpiritTide
 {

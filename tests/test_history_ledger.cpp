@@ -1,4 +1,5 @@
 #include "gamev2/history/ledger.hpp"
+#include "gamev2/history/quota.hpp"
 #include "gamev2/world/generate.hpp"
 #include "gamev2/world/spirit_tables.hpp"
 #include "test_framework.hpp"
@@ -1751,6 +1752,233 @@ TEST(the_export_separates_a_disputed_vein_from_a_drained_one)
             CHECK_EQ(std::stoul(fields[8]), std::size_t{0});
         }
     }
+}
+
+TEST(the_shared_primitives_match_their_golden_values)
+{
+    // 原语层的 golden：固定输入 → 固定期望值。
+    //
+    // 这一层抓的是「原语内部算错」：区间端点取错、潮位求和漏一年、
+    // 或者 quota_conversion 里的 255 被写成 256，这里立刻红。端到端
+    // 那层抓的是「原语组合起来的结果变了」，两层抓的错不一样。
+    //
+    // 期望值不是凭记忆写的：按潮位公式独立算过一遍（逐年的 level 求
+    // 和），再与实现的输出交叉核对，两边一致。
+    CHECK_EQ(gamev2::history::tide_integral(8300, 8300), 0u);
+    CHECK_EQ(gamev2::history::tide_integral(8300, 8301), 110u);
+    CHECK_EQ(gamev2::history::tide_integral(8300, 8310), 1093u);
+    CHECK_EQ(gamev2::history::tide_integral(8300, 8914), 39552u);
+    CHECK_EQ(gamev2::history::tide_integral(8301, 8914), 39442u);
+    CHECK_EQ(gamev2::history::tide_integral(1, 2), 77u);
+
+    // 换算系数：分子分母同时给，期望值是这一步除法的整数部分。
+    CHECK_EQ(gamev2::history::quota_conversion(1000, 100, 1000), 167116u);
+    CHECK_EQ(gamev2::history::quota_conversion(1147, 3900, 39552), 124u);
+    // 退化：潮位积分全零、流速全零、储量全零，一律给 0（不除零）。
+    CHECK_EQ(gamev2::history::quota_conversion(1000, 100, 0), 0u);
+    CHECK_EQ(gamev2::history::quota_conversion(1000, 0, 1000), 0u);
+    CHECK_EQ(gamev2::history::quota_conversion(0, 100, 1000), 0u);
+
+    // 余数累加器：小数余数跨年累加，整数部分才不会被逐年截没。
+    //
+    // 每年 1000×128×124 的有效流量小于分母，第一年取 0；攒到第二年够
+    // 一个整数量级，于是取 1。reset() 把余数清零，取值回到 0。
+    gamev2::history::QuotaRemainder remainder;
+    CHECK_EQ(remainder.take(1000u, 128u, 124u), 0u);
+    CHECK_EQ(remainder.take(1000u, 128u, 124u), 1u);
+    CHECK_EQ(remainder.take(1000u, 128u, 124u), 1u);
+    remainder.reset();
+    CHECK_EQ(remainder.take(1000u, 128u, 124u), 0u);
+}
+
+TEST(the_shared_conversion_matches_the_ledger_extraction)
+{
+    // 台账与派系演化层必须用同一套原语，否则两套推演的数字不可比，
+    // 对照表会变成「说不清的差」。这一条用台账自己的推演结果反过来
+    // 验共享原语：共享原语算出的逐年开采量，必须与台账记的账一致。
+    WorldParams p;
+    p.width = 64;
+    p.height = 64;
+    p.z_levels = 3;
+    p.seed = 7;
+    const auto generated = generate_world(p);
+    CHECK(generated.has_value());
+    if (!generated)
+    {
+        return;
+    }
+    const World& w = *generated;
+    LedgerDiagnostics diagnostics;
+    const Ledger ledger = gamev2::history::build_ledger(w, diagnostics);
+    CHECK(!ledger.veins.empty());
+
+    std::uint64_t sum_total = 0;
+    std::uint64_t sum_rate = 0;
+    for (const auto& entry : ledger.veins)
+    {
+        sum_total += entry.surveyed_total;
+        sum_rate += entry.surveyed_rate;
+    }
+    const std::uint64_t integral =
+        gamev2::history::tide_integral(ledger.epoch, ledger.now);
+    CHECK(integral > 0u);
+    const std::uint64_t conversion =
+        gamev2::history::quota_conversion(sum_total, sum_rate, integral);
+    CHECK(conversion > 0u);
+
+    // 用共享原语重算每一条非越采脉的累计开采。
+    //
+    // 越采脉必须跳过：台账最终记下的 extracted 含越采那一笔，而这里
+    // 重算的是不含越采的正常开采，两者必然不等——那是台账的另一条
+    // 分支，不是共享原语对不对。跳过越采脉，这条测试的绿就只取决于
+    // 原语。
+    std::size_t checked = 0;
+    for (const auto& entry : ledger.veins)
+    {
+        if (entry.overmined_amount != 0u)
+        {
+            continue;
+        }
+        gamev2::history::QuotaRemainder remainder;
+        std::uint64_t extracted = 0;
+        for (std::uint32_t y = ledger.epoch; y < ledger.now; ++y)
+        {
+            const std::uint32_t level =
+                gamev2::world::compute_spirit_tide(y).level;
+            const std::uint64_t eff =
+                remainder.take(entry.surveyed_rate, level, conversion);
+            const std::uint32_t quota_left =
+                entry.surveyed_total - static_cast<std::uint32_t>(extracted);
+            const std::uint32_t take =
+                (eff >= quota_left) ? quota_left : static_cast<std::uint32_t>(eff);
+            extracted += take;
+            if (eff >= quota_left)
+            {
+                remainder.reset();
+            }
+        }
+        CHECK_EQ(extracted, entry.extracted);
+        ++checked;
+    }
+    CHECK(checked > 0u);
+}
+
+TEST(the_ledger_numbers_are_pinned)
+{
+    // 端到端的 golden：把这个世界（64x64/seed 7/当代灵历 8914）的台账
+    // 数字钉住。
+    //
+    // 这些数字是「搬家前」的值：标定系数、阴脉判定、有效流速三样原语
+    // 从台账里搬进公共头之前，跑出来的就是它们。它们是「数值一字不变」
+    // 在仓库内唯一的守卫——worldgen 的生成结果若变了，或者原语被改坏
+    // 了，这条会红。那是故意的：数值变了就该有人看见，而不是悄悄过去。
+    //
+    // 期望值不是凭记忆写的：搬家前的台账源码单独编译成一份 dump 程序，
+    // 跑同一个世界导出的台账文本与逐脉数值转储，与这里的期望值
+    // 逐字节比过。
+    WorldParams p;
+    p.width = 64;
+    p.height = 64;
+    p.z_levels = 3;
+    p.seed = 7;
+    const auto generated = generate_world(p);
+    CHECK(generated.has_value());
+    if (!generated)
+    {
+        return;
+    }
+    const World& w = *generated;
+    LedgerDiagnostics diagnostics;
+    const Ledger ledger = gamev2::history::build_ledger(w, diagnostics);
+
+    CHECK_EQ(ledger.epoch, 8300u);
+    CHECK_EQ(ledger.now, 8914u);
+    CHECK_EQ(ledger.veins.size(), 5u);
+    CHECK_EQ(ledger.events.size(), 848u);
+    CHECK_EQ(ledger.unregistered_extracted, 0u);
+    CHECK_EQ(ledger.structural_deviation, 801);
+    CHECK_EQ(ledger.overmining_deviation, 90);
+
+    // 标定系数：这个世界的 kNum。两个数一钉，原语层与端到端层就对上了。
+    std::uint64_t sum_total = 0;
+    std::uint64_t sum_rate = 0;
+    for (const auto& entry : ledger.veins)
+    {
+        sum_total += entry.surveyed_total;
+        sum_rate += entry.surveyed_rate;
+    }
+    CHECK_EQ(sum_total, 1147u);
+    CHECK_EQ(sum_rate, 3900u);
+    CHECK_EQ(gamev2::history::tide_integral(ledger.epoch, ledger.now), 39552u);
+    CHECK_EQ(gamev2::history::quota_conversion(sum_total, sum_rate, 39552u),
+             124u);
+
+    // 前两条脉的累计开采与当代余额。脉编号与世界一一对应。
+    CHECK_EQ(ledger.veins[0].vein, 0u);
+    CHECK_EQ(ledger.veins[0].extracted, 322u);
+    CHECK_EQ(ledger.veins[0].balance, 129u);
+    CHECK_EQ(ledger.veins[1].vein, 1u);
+    CHECK_EQ(ledger.veins[1].extracted, 264u);
+    CHECK_EQ(ledger.veins[1].balance, 81u);
+}
+
+TEST(the_shared_yin_vein_matches_the_ledger_assignment)
+{
+    // 阴脉判定必须只有一份实现：台账按「这条脉占的格子里有没有阴地」
+    // 判，本层也要按同一条规则判。两边各判一次，寒江剑府拿到的
+    // 可能就不是同一条脉。
+    //
+    // fixture 选 256x256/seed 7：九条主脉里只有一条占着阴地，而它排
+    // 在太玄的槽位上，台账要把它对调给寒江。小图幅的主脉不够六条，
+    // 寒江连脉都分不到，这条断言就落空了。
+    WorldParams p;
+    p.width = 256;
+    p.height = 256;
+    p.z_levels = 3;
+    p.seed = 7;
+    const auto generated = generate_world(p);
+    CHECK(generated.has_value());
+    if (!generated)
+    {
+        return;
+    }
+    const World& w = *generated;
+    LedgerDiagnostics diagnostics;
+    const Ledger ledger = gamev2::history::build_ledger(w, diagnostics);
+
+    // 共享原语认出的阴脉主脉。
+    std::uint32_t yin_main = 0;
+    std::uint32_t yin_mains = 0;
+    for (const auto& vein : w.veins)
+    {
+        if (vein.rank != VeinRank::main)
+        {
+            continue;
+        }
+        if (gamev2::history::is_yin_vein(w, vein.id))
+        {
+            ++yin_mains;
+            yin_main = vein.id;
+        }
+    }
+    CHECK_EQ(yin_mains, 1u);
+
+    // 拿到了阴脉，就不该再报「缺阴脉」。
+    CHECK_EQ(diagnostics.missing_yin_vein, 0u);
+
+    // 台账分给寒江剑府的那条脉，必须就是共享原语认出的那条阴脉。
+    std::uint32_t hanjiang_vein = 0;
+    std::uint32_t hanjiang_count = 0;
+    for (const auto& entry : ledger.veins)
+    {
+        if (entry.holder == Sect::hanjiang)
+        {
+            ++hanjiang_count;
+            hanjiang_vein = entry.vein;
+        }
+    }
+    CHECK_EQ(hanjiang_count, 1u);
+    CHECK_EQ(hanjiang_vein, yin_main);
 }
 
 }  // namespace
