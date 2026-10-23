@@ -121,7 +121,7 @@ cmake --build build
   - `enum class WorldError { invalid_params }`
   - `class World`，构造 `explicit World(WorldParams)`，成员见下方代码
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `tests/test_world_grid.cpp`：
 
@@ -205,7 +205,7 @@ TEST(biome_enum_matches_declared_count)
 }  // namespace
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```powershell
 cmake -S . -B build -G "Unix Makefiles" -DCMAKE_CXX_COMPILER=clang++
@@ -214,7 +214,7 @@ cmake --build build
 
 Expected: 编译失败，报 `gamev2/world/world.hpp` 不存在。
 
-- [ ] **Step 3: 写 `grid.hpp`**
+- [x] **Step 3: 写 `grid.hpp`**
 
 创建 `include/gamev2/world/grid.hpp`：
 
@@ -376,7 +376,7 @@ TEST(grid_of_bool_supports_assignment_through_both_accessors)
 此时只构造不索引），但任务 11 与 12 一写 `world.cavern[z](x, y) = true`
 就会编译失败。
 
-- [ ] **Step 4: 写 `enums.hpp`**
+- [x] **Step 4: 写 `enums.hpp`**
 
 创建 `include/gamev2/world/enums.hpp`：
 
@@ -492,7 +492,7 @@ inline constexpr std::uint8_t kGlacierDrainage = 75;
 }  // namespace gamev2::world
 ```
 
-- [ ] **Step 5: 写 `params.hpp`**
+- [x] **Step 5: 写 `params.hpp`**
 
 创建 `include/gamev2/world/params.hpp`：
 
@@ -535,7 +535,7 @@ enum class WorldError
 }  // namespace gamev2::world
 ```
 
-- [ ] **Step 6: 写 `world.hpp`**
+- [x] **Step 6: 写 `world.hpp`**
 
 创建 `include/gamev2/world/world.hpp`：
 
@@ -607,7 +607,7 @@ private:
 }  // namespace gamev2::world
 ```
 
-- [ ] **Step 7: 写 `world.cpp`**
+- [x] **Step 7: 写 `world.cpp`**
 
 创建 `src/world/world.cpp`：
 
@@ -671,7 +671,7 @@ bool World::is_ocean(std::uint32_t x, std::uint32_t y) const noexcept
 }  // namespace gamev2::world
 ```
 
-- [ ] **Step 8: 在 CMakeLists 中登记目标**
+- [x] **Step 8: 在 CMakeLists 中登记目标**
 
 修改 `CMakeLists.txt`，在 `add_executable(ecs_tests ...)` 之后追加：
 
@@ -693,7 +693,7 @@ target_link_libraries(worldgen_tests PRIVATE worldgen)
 不要把 `worldgen` 加进 ASan 子目录：那个子目录的源文件列表写死了 `ecs`，
 扩它属于本轮范围外。
 
-- [ ] **Step 9: 构建并运行测试确认通过**
+- [x] **Step 9: 构建并运行测试确认通过**
 
 ```powershell
 cmake -S . -B build -G "Unix Makefiles" -DCMAKE_CXX_COMPILER=clang++
@@ -703,7 +703,7 @@ cmake --build build
 
 Expected: `7 test(s), 0 failed`
 
-- [ ] **Step 10: 提交**
+- [x] **Step 10: 提交**
 
 ```bash
 git add include/gamev2/world src/world tests/test_world_grid.cpp CMakeLists.txt
@@ -735,7 +735,7 @@ agent 自行 commit）。
   - `double fbm3(uint64_t, double x, double y, double z, int octaves,
     double lacunarity, double gain)`，返回 `[-1, 1]`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `tests/test_world_rng.cpp`：
 
@@ -843,7 +843,7 @@ TEST(fbm_stays_within_unit_range)
 }  // namespace
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 cmake --build build
@@ -851,7 +851,7 @@ cmake --build build
 
 Expected: 编译失败，报 `gamev2/world/rng.hpp` 不存在。
 
-- [ ] **Step 3: 写 `rng.hpp`**
+- [x] **Step 3: 写 `rng.hpp`**
 
 创建 `include/gamev2/world/rng.hpp`：
 
@@ -904,7 +904,7 @@ private:
 }  // namespace gamev2::world
 ```
 
-- [ ] **Step 4: 写 `rng.cpp`**
+- [x] **Step 4: 写 `rng.cpp`**
 
 创建 `src/world/rng.cpp`：
 
@@ -1096,12 +1096,12 @@ double fbm3(std::uint64_t seed, double x, double y, double z, int octaves,
 }  // namespace gamev2::world
 ```
 
-- [ ] **Step 5: 在 CMakeLists 中登记新文件**
+- [x] **Step 5: 在 CMakeLists 中登记新文件**
 
 在 `set(WORLDGEN_SOURCES ...)` 内追加 `src/world/rng.cpp`，在
 `set(WORLDGEN_TEST_SOURCES ...)` 内追加 `tests/test_world_rng.cpp`。
 
-- [ ] **Step 6: 构建并运行测试确认通过**
+- [x] **Step 6: 构建并运行测试确认通过**
 
 ```powershell
 cmake -S . -B build -G "Unix Makefiles" -DCMAKE_CXX_COMPILER=clang++
@@ -1111,7 +1111,7 @@ cmake --build build
 
 Expected: `12 test(s), 0 failed`
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add include/gamev2/world/rng.hpp src/world/rng.cpp \
@@ -1138,7 +1138,7 @@ git add include/gamev2/world/rng.hpp src/world/rng.cpp \
   - `std::expected<World, WorldError> gamev2::world::generate_world(
     const WorldParams&)`，本任务只调用 `make_elevation`，后续任务逐步追加
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `tests/test_world_elevation.cpp`：
 
@@ -1229,7 +1229,7 @@ TEST(generate_world_rejects_degenerate_params)
 }  // namespace
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 cmake --build build
@@ -1237,7 +1237,7 @@ cmake --build build
 
 Expected: 编译失败，报 `gamev2/world/generate.hpp` 不存在。
 
-- [ ] **Step 3: 写 `generate.hpp`**
+- [x] **Step 3: 写 `generate.hpp`**
 
 创建 `include/gamev2/world/generate.hpp`：
 
@@ -1270,7 +1270,7 @@ generate_world(const WorldParams& params);
 }  // namespace gamev2::world
 ```
 
-- [ ] **Step 4: 写 `terrain.cpp` 的高程部分**
+- [x] **Step 4: 写 `terrain.cpp` 的高程部分**
 
 创建 `src/world/terrain.cpp`：
 
@@ -1354,7 +1354,7 @@ void make_elevation(World& world)
 }  // namespace gamev2::world
 ```
 
-- [ ] **Step 5: 写 `generate.cpp`**
+- [x] **Step 5: 写 `generate.cpp`**
 
 创建 `src/world/generate.cpp`：
 
@@ -1378,12 +1378,12 @@ std::expected<World, WorldError> generate_world(const WorldParams& params)
 }  // namespace gamev2::world
 ```
 
-- [ ] **Step 6: 在 CMakeLists 中登记新文件**
+- [x] **Step 6: 在 CMakeLists 中登记新文件**
 
 `WORLDGEN_SOURCES` 追加 `src/world/terrain.cpp` 与 `src/world/generate.cpp`；
 `WORLDGEN_TEST_SOURCES` 追加 `tests/test_world_elevation.cpp`。
 
-- [ ] **Step 7: 构建并运行测试确认通过**
+- [x] **Step 7: 构建并运行测试确认通过**
 
 ```powershell
 cmake -S . -B build -G "Unix Makefiles" -DCMAKE_CXX_COMPILER=clang++
@@ -1393,7 +1393,7 @@ cmake --build build
 
 Expected: `15 test(s), 0 failed`
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add include/gamev2/world/generate.hpp src/world \
@@ -1417,7 +1417,7 @@ git add include/gamev2/world/generate.hpp src/world \
 - Consumes: `elevation`、`is_ocean`、`sea_level`（Task 3 产出）
 - Produces: `void gamev2::world::make_rainfall(World&)`，写 `rainfall`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `tests/test_world_rainfall.cpp`：
 
@@ -1493,7 +1493,7 @@ TEST(rainfall_is_deterministic)
 }  // namespace
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 cmake --build build
@@ -1501,7 +1501,7 @@ cmake --build build
 
 Expected: 编译失败，报 `make_rainfall` 未声明。
 
-- [ ] **Step 3: 在 `generate.hpp` 声明该阶段**
+- [x] **Step 3: 在 `generate.hpp` 声明该阶段**
 
 在 `void make_elevation(World& world);` 之后追加：
 
@@ -1510,7 +1510,7 @@ Expected: 编译失败，报 `make_rainfall` 未声明。
 void make_rainfall(World& world);
 ```
 
-- [ ] **Step 4: 在 `terrain.cpp` 实现该阶段**
+- [x] **Step 4: 在 `terrain.cpp` 实现该阶段**
 
 在匿名命名空间内追加常量：
 
@@ -1616,7 +1616,7 @@ void make_rainfall(World& world)
 }
 ```
 
-- [ ] **Step 5: 在 `generate.cpp` 接入编排**
+- [x] **Step 5: 在 `generate.cpp` 接入编排**
 
 在 `make_elevation(world);` 之后追加一行：
 
@@ -1624,11 +1624,11 @@ void make_rainfall(World& world)
     make_rainfall(world);
 ```
 
-- [ ] **Step 6: 在 CMakeLists 中登记测试文件**
+- [x] **Step 6: 在 CMakeLists 中登记测试文件**
 
 `WORLDGEN_TEST_SOURCES` 追加 `tests/test_world_rainfall.cpp`。
 
-- [ ] **Step 7: 构建并运行测试确认通过**
+- [x] **Step 7: 构建并运行测试确认通过**
 
 ```powershell
 cmake -S . -B build -G "Unix Makefiles" -DCMAKE_CXX_COMPILER=clang++
@@ -1638,7 +1638,7 @@ cmake --build build
 
 Expected: `17 test(s), 0 failed`
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add src/world include/gamev2/world tests/test_world_rainfall.cpp \
@@ -1662,7 +1662,7 @@ git add src/world include/gamev2/world tests/test_world_rainfall.cpp \
 - Consumes: `elevation`、`rainfall`、`sea_level`、`is_ocean`（Task 3、4）
 - Produces: `void gamev2::world::make_temperature(World&)`，写 `temperature`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `tests/test_world_temperature.cpp`：
 
@@ -1755,7 +1755,7 @@ TEST(temperature_is_deterministic)
 }  // namespace
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 cmake --build build
@@ -1763,7 +1763,7 @@ cmake --build build
 
 Expected: 编译失败，报 `make_temperature` 未声明。
 
-- [ ] **Step 3: 在 `generate.hpp` 声明该阶段**
+- [x] **Step 3: 在 `generate.hpp` 声明该阶段**
 
 追加：
 
@@ -1772,7 +1772,7 @@ Expected: 编译失败，报 `make_temperature` 未声明。
 void make_temperature(World& world);
 ```
 
-- [ ] **Step 4: 在 `terrain.cpp` 实现该阶段**
+- [x] **Step 4: 在 `terrain.cpp` 实现该阶段**
 
 在匿名命名空间内追加：
 
@@ -1856,15 +1856,15 @@ void make_temperature(World& world)
 }
 ```
 
-- [ ] **Step 5: 在 `generate.cpp` 接入编排**
+- [x] **Step 5: 在 `generate.cpp` 接入编排**
 
 追加一行 `make_temperature(world);`
 
-- [ ] **Step 6: 在 CMakeLists 中登记测试文件**
+- [x] **Step 6: 在 CMakeLists 中登记测试文件**
 
 `WORLDGEN_TEST_SOURCES` 追加 `tests/test_world_temperature.cpp`。
 
-- [ ] **Step 7: 构建并运行测试确认通过**
+- [x] **Step 7: 构建并运行测试确认通过**
 
 ```powershell
 cmake -S . -B build -G "Unix Makefiles" -DCMAKE_CXX_COMPILER=clang++
@@ -1874,7 +1874,7 @@ cmake --build build
 
 Expected: `20 test(s), 0 failed`
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add src/world include/gamev2/world tests/test_world_temperature.cpp \
@@ -1904,7 +1904,7 @@ git add src/world include/gamev2/world tests/test_world_temperature.cpp \
     阶段 4 内部量的载体。刻意不入 `World`：只有阶段 4 自己消费它，
     现在存进去是无人使用的字段（见设计文档 11.6）
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `tests/test_world_hydrology.cpp`：
 
@@ -2039,7 +2039,7 @@ TEST(hydrology_is_deterministic)
 }  // namespace
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 cmake --build build
@@ -2047,7 +2047,7 @@ cmake --build build
 
 Expected: 编译失败，报 `make_hydrology` 未声明。
 
-- [ ] **Step 3: 写 `hydrology.hpp`**
+- [x] **Step 3: 写 `hydrology.hpp`**
 
 创建 `include/gamev2/world/hydrology.hpp`：
 
@@ -2070,7 +2070,7 @@ struct FilledDem
 }  // namespace gamev2::world
 ```
 
-- [ ] **Step 4: 在 `generate.hpp` 声明该阶段**
+- [x] **Step 4: 在 `generate.hpp` 声明该阶段**
 
 追加：
 
@@ -2080,7 +2080,7 @@ struct FilledDem
 void make_hydrology(World& world);
 ```
 
-- [ ] **Step 5: 写 `hydrology.cpp` 的填平与下游**
+- [x] **Step 5: 写 `hydrology.cpp` 的填平与下游**
 
 创建 `src/world/hydrology.cpp`：
 
@@ -2310,16 +2310,16 @@ void make_hydrology(World& world)
 }  // namespace gamev2::world
 ```
 
-- [ ] **Step 6: 在 `generate.cpp` 接入编排**
+- [x] **Step 6: 在 `generate.cpp` 接入编排**
 
 追加一行 `make_hydrology(world);`
 
-- [ ] **Step 7: 在 CMakeLists 中登记新文件**
+- [x] **Step 7: 在 CMakeLists 中登记新文件**
 
 `WORLDGEN_SOURCES` 追加 `src/world/hydrology.cpp`；
 `WORLDGEN_TEST_SOURCES` 追加 `tests/test_world_hydrology.cpp`。
 
-- [ ] **Step 8: 构建并运行测试确认通过**
+- [x] **Step 8: 构建并运行测试确认通过**
 
 ```powershell
 cmake -S . -B build -G "Unix Makefiles" -DCMAKE_CXX_COMPILER=clang++
@@ -2329,7 +2329,7 @@ cmake --build build
 
 Expected: `25 test(s), 0 failed`
 
-- [ ] **Step 9: 提交**
+- [x] **Step 9: 提交**
 
 ```bash
 git add include/gamev2/world src/world tests/test_world_hydrology.cpp \
@@ -2351,7 +2351,7 @@ git add include/gamev2/world src/world tests/test_world_hydrology.cpp \
 - Consumes: `downstream`、`flow`、`elevation`、`river_width`（Task 6）
 - Produces: `lake_depth` 与 `drainage`。`make_hydrology` 签名不变
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 在 `tests/test_world_hydrology.cpp` 的 `TEST(hydrology_is_deterministic)` 之前插入：
 
@@ -2431,7 +2431,7 @@ TEST(drainage_rises_away_from_rivers)
 并在该文件的 `}  // namespace` 之前不需要改动。测试用到 `kNoDownstream`，
 已在文件顶部导入。
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 cmake --build build
@@ -2440,7 +2440,7 @@ cmake --build build
 
 Expected: 失败，`lakes > 0` 不成立（`lake_depth` 全为 0）。
 
-- [ ] **Step 3: 在 `hydrology.cpp` 实现湖泊**
+- [x] **Step 3: 在 `hydrology.cpp` 实现湖泊**
 
 在匿名命名空间内追加：
 
@@ -2526,7 +2526,7 @@ void carve_lakes(World& world, const FilledDem& dem)
 
 在 `hydrology.cpp` 的 include 列表中追加 `<ranges>`。
 
-- [ ] **Step 4: 在 `hydrology.cpp` 实现排水量**
+- [x] **Step 4: 在 `hydrology.cpp` 实现排水量**
 
 在 `carve_lakes` 之后追加：
 
@@ -2611,7 +2611,7 @@ void derive_drainage(World& world)
     derive_drainage(world);
 ```
 
-- [ ] **Step 5: 构建并运行测试确认通过**
+- [x] **Step 5: 构建并运行测试确认通过**
 
 ```powershell
 cmake -S . -B build -G "Unix Makefiles" -DCMAKE_CXX_COMPILER=clang++
@@ -2621,7 +2621,7 @@ cmake --build build
 
 Expected: `28 test(s), 0 failed`
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add src/world/hydrology.cpp tests/test_world_hydrology.cpp
@@ -2652,7 +2652,7 @@ git add src/world/hydrology.cpp tests/test_world_hydrology.cpp
     uint8_t temp)`
   - `void gamev2::world::make_biomes(World&)`，写 `biome`
 
-- [ ] **Step 1: 删除不可达的 `taiga` 枚举**
+- [x] **Step 1: 删除不可达的 `taiga` 枚举**
 
 在 `include/gamev2/world/enums.hpp` 的 `Biome` 中删掉 `taiga,` 一行，并把
 `kBiomeCount` 改为 `20`。
@@ -2660,7 +2660,7 @@ git add src/world/hydrology.cpp tests/test_world_hydrology.cpp
 **理由**：基础群系表与温度覆写都不产生 `taiga`，留着一个没人能生成的枚举值
 会让「枚举即可能取值」这个约定失效。
 
-- [ ] **Step 2: 写失败的测试**
+- [x] **Step 2: 写失败的测试**
 
 创建 `tests/test_world_biomes.cpp`：
 
@@ -2764,7 +2764,7 @@ TEST(wet_and_dry_quadrants_differ)
 using gamev2::world::celsius_of;
 ```
 
-- [ ] **Step 3: 运行测试确认失败**
+- [x] **Step 3: 运行测试确认失败**
 
 ```bash
 cmake --build build
@@ -2772,7 +2772,7 @@ cmake --build build
 
 Expected: 编译失败，报 `gamev2/world/tables.hpp` 不存在。
 
-- [ ] **Step 4: 写 `tables.hpp`**
+- [x] **Step 4: 写 `tables.hpp`**
 
 创建 `include/gamev2/world/tables.hpp`：
 
@@ -2910,7 +2910,7 @@ inline constexpr std::array<std::array<Biome, 8>, 8> kBaseBiome{{
 }  // namespace gamev2::world
 ```
 
-- [ ] **Step 5: 在 `generate.hpp` 声明该阶段**
+- [x] **Step 5: 在 `generate.hpp` 声明该阶段**
 
 追加：
 
@@ -2919,7 +2919,7 @@ inline constexpr std::array<std::array<Biome, 8>, 8> kBaseBiome{{
 void make_biomes(World& world);
 ```
 
-- [ ] **Step 6: 写 `biomes.cpp`**
+- [x] **Step 6: 写 `biomes.cpp`**
 
 创建 `src/world/biomes.cpp`：
 
@@ -2954,16 +2954,16 @@ void make_biomes(World& world)
 }  // namespace gamev2::world
 ```
 
-- [ ] **Step 7: 在 `generate.cpp` 接入编排**
+- [x] **Step 7: 在 `generate.cpp` 接入编排**
 
 追加一行 `make_biomes(world);`
 
-- [ ] **Step 8: 在 CMakeLists 中登记新文件**
+- [x] **Step 8: 在 CMakeLists 中登记新文件**
 
 `WORLDGEN_SOURCES` 追加 `src/world/biomes.cpp`；
 `WORLDGEN_TEST_SOURCES` 追加 `tests/test_world_biomes.cpp`。
 
-- [ ] **Step 9: 构建并运行测试确认通过**
+- [x] **Step 9: 构建并运行测试确认通过**
 
 ```powershell
 cmake -S . -B build -G "Unix Makefiles" -DCMAKE_CXX_COMPILER=clang++
@@ -2973,7 +2973,7 @@ cmake --build build
 
 Expected: `35 test(s), 0 failed`
 
-- [ ] **Step 10: 提交**
+- [x] **Step 10: 提交**
 
 ```bash
 git add include/gamev2/world src/world tests/test_world_biomes.cpp \
@@ -2997,7 +2997,7 @@ git add include/gamev2/world src/world tests/test_world_biomes.cpp \
 - Consumes: `biome`、`rainfall`（Task 5、8）
 - Produces: `void gamev2::world::make_soils(World&)`，写 `soil_depth`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `tests/test_world_strata.cpp`：
 
@@ -3088,7 +3088,7 @@ TEST(wet_forests_carry_the_deepest_soil)
 #include <algorithm>
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 cmake --build build
@@ -3096,7 +3096,7 @@ cmake --build build
 
 Expected: 编译失败，报 `make_soils` 未声明。
 
-- [ ] **Step 3: 在 `generate.hpp` 声明该阶段**
+- [x] **Step 3: 在 `generate.hpp` 声明该阶段**
 
 追加：
 
@@ -3105,7 +3105,7 @@ Expected: 编译失败，报 `make_soils` 未声明。
 void make_soils(World& world);
 ```
 
-- [ ] **Step 4: 写 `strata.cpp` 的土壤部分**
+- [x] **Step 4: 写 `strata.cpp` 的土壤部分**
 
 创建 `src/world/strata.cpp`：
 
@@ -3174,16 +3174,16 @@ void make_soils(World& world)
 }  // namespace gamev2::world
 ```
 
-- [ ] **Step 5: 在 `generate.cpp` 接入编排**
+- [x] **Step 5: 在 `generate.cpp` 接入编排**
 
 追加一行 `make_soils(world);`
 
-- [ ] **Step 6: 在 CMakeLists 中登记新文件**
+- [x] **Step 6: 在 CMakeLists 中登记新文件**
 
 `WORLDGEN_SOURCES` 追加 `src/world/strata.cpp`；
 `WORLDGEN_TEST_SOURCES` 追加 `tests/test_world_strata.cpp`。
 
-- [ ] **Step 7: 构建并运行测试确认通过**
+- [x] **Step 7: 构建并运行测试确认通过**
 
 ```powershell
 cmake -S . -B build -G "Unix Makefiles" -DCMAKE_CXX_COMPILER=clang++
@@ -3193,7 +3193,7 @@ cmake --build build
 
 Expected: `38 test(s), 0 failed`
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add src/world include/gamev2/world tests/test_world_strata.cpp \
@@ -3216,7 +3216,7 @@ git add src/world include/gamev2/world tests/test_world_strata.cpp \
 - Consumes: `biome`、`rainfall`、`elevation`（Task 5、8、9）
 - Produces: `void gamev2::world::make_strata(World&)`，写 `stone` 与 `aquifer_top`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 在 `tests/test_world_strata.cpp` 的 `}  // namespace` 之前插入：
 
@@ -3305,7 +3305,7 @@ TEST(aquifer_top_sits_below_the_shallowest_layer)
     return w;
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 cmake --build build
@@ -3314,7 +3314,7 @@ cmake --build build
 
 Expected: 失败，`w.stone[0]` 仍是构造函数填的 `Stone::granite`。
 
-- [ ] **Step 3: 在 `generate.hpp` 声明该阶段**
+- [x] **Step 3: 在 `generate.hpp` 声明该阶段**
 
 追加：
 
@@ -3324,7 +3324,7 @@ Expected: 失败，`w.stone[0]` 仍是构造函数填的 `Stone::granite`。
 void make_strata(World& world);
 ```
 
-- [ ] **Step 4: 在 `strata.cpp` 实现岩层**
+- [x] **Step 4: 在 `strata.cpp` 实现岩层**
 
 以下代码块整体**替换** `strata.cpp` 现有的匿名命名空间闭合处
 （`}  // namespace` 及其之前的空行），即把该块插到 `soil_depth_of` 之后、
@@ -3492,7 +3492,7 @@ void make_strata(World& world)
 }
 ```
 
-- [ ] **Step 5: 在 `strata.cpp` 实现含水层顶面**
+- [x] **Step 5: 在 `strata.cpp` 实现含水层顶面**
 
 在 `make_strata` 之前插入：
 
@@ -3529,11 +3529,11 @@ void assign_aquifer_top(World& world)
 
 `make_strata` 内的 `assign_aquifer_top(world)` 调用保留。
 
-- [ ] **Step 6: 在 `generate.cpp` 接入编排**
+- [x] **Step 6: 在 `generate.cpp` 接入编排**
 
 追加一行 `make_strata(world);`
 
-- [ ] **Step 7: 构建并运行测试确认通过**
+- [x] **Step 7: 构建并运行测试确认通过**
 
 ```powershell
 cmake -S . -B build -G "Unix Makefiles" -DCMAKE_CXX_COMPILER=clang++
@@ -3543,7 +3543,7 @@ cmake --build build
 
 Expected: `42 test(s), 0 failed`
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add src/world include/gamev2/world tests/test_world_strata.cpp
@@ -3566,7 +3566,7 @@ git add src/world include/gamev2/world tests/test_world_strata.cpp
 - Consumes: 无（只依赖 `WorldParams` 的尺寸与种子）
 - Produces: `void gamev2::world::make_caverns(World&)`，写 `cavern`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `tests/test_world_caverns.cpp`：
 
@@ -3652,7 +3652,7 @@ TEST(caverns_are_deterministic)
 }  // namespace
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 cmake --build build
@@ -3660,7 +3660,7 @@ cmake --build build
 
 Expected: 编译失败，报 `make_caverns` 未声明。
 
-- [ ] **Step 3: 在 `generate.hpp` 声明该阶段**
+- [x] **Step 3: 在 `generate.hpp` 声明该阶段**
 
 追加：
 
@@ -3669,7 +3669,7 @@ Expected: 编译失败，报 `make_caverns` 未声明。
 void make_caverns(World& world);
 ```
 
-- [ ] **Step 4: 写 `caverns.cpp`**
+- [x] **Step 4: 写 `caverns.cpp`**
 
 创建 `src/world/caverns.cpp`：
 
@@ -3850,16 +3850,16 @@ void make_caverns(World& world)
 
 在 include 列表中追加 `<utility>`（`std::move`）。
 
-- [ ] **Step 5: 在 `generate.cpp` 接入编排**
+- [x] **Step 5: 在 `generate.cpp` 接入编排**
 
 追加一行 `make_caverns(world);`
 
-- [ ] **Step 6: 在 CMakeLists 中登记新文件**
+- [x] **Step 6: 在 CMakeLists 中登记新文件**
 
 `WORLDGEN_SOURCES` 追加 `src/world/caverns.cpp`；
 `WORLDGEN_TEST_SOURCES` 追加 `tests/test_world_caverns.cpp`。
 
-- [ ] **Step 7: 构建并运行测试确认通过**
+- [x] **Step 7: 构建并运行测试确认通过**
 
 ```powershell
 cmake -S . -B build -G "Unix Makefiles" -DCMAKE_CXX_COMPILER=clang++
@@ -3869,7 +3869,7 @@ cmake --build build
 
 Expected: `45 test(s), 0 failed`
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add src/world include/gamev2/world tests/test_world_caverns.cpp \
@@ -3897,7 +3897,7 @@ git add src/world include/gamev2/world tests/test_world_caverns.cpp \
   - `void make_deposits(World&)`，写 `deposit`
   - `void finalize_aquifers(World&)`，写 `aquifer`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `tests/test_world_deposits.cpp`：
 
@@ -4054,7 +4054,7 @@ TEST(aquifers_absent_where_the_top_is_zero)
 }  // namespace
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```bash
 cmake --build build
@@ -4062,7 +4062,7 @@ cmake --build build
 
 Expected: 编译失败，报 `kDepositSpecs` 未声明。
 
-- [ ] **Step 3: 把矿脉定义表加进 `tables.hpp`**
+- [x] **Step 3: 把矿脉定义表加进 `tables.hpp`**
 
 在 `tables.hpp` 的 include 列表追加 `#include <span>`，并在
 `}  // namespace gamev2::world` 之前追加：
@@ -4110,7 +4110,7 @@ inline constexpr std::array<DepositSpec, 12> kDepositSpecs{{
 }};
 ```
 
-- [ ] **Step 4: 在 `generate.hpp` 声明两个阶段**
+- [x] **Step 4: 在 `generate.hpp` 声明两个阶段**
 
 追加：
 
@@ -4123,7 +4123,7 @@ void make_deposits(World& world);
 void finalize_aquifers(World& world);
 ```
 
-- [ ] **Step 5: 写 `deposits.cpp`**
+- [x] **Step 5: 写 `deposits.cpp`**
 
 创建 `src/world/deposits.cpp`：
 
@@ -4269,7 +4269,7 @@ void finalize_aquifers(World& world)
 `deposits.cpp` 需要 `#include "gamev2/world/rng.hpp"`（用 `Pcg32` 与
 `stage_seed`），把它加进 include 列表。
 
-- [ ] **Step 6: 在 `generate.cpp` 接入编排**
+- [x] **Step 6: 在 `generate.cpp` 接入编排**
 
 追加两行：
 
@@ -4278,12 +4278,12 @@ void finalize_aquifers(World& world)
     finalize_aquifers(world);
 ```
 
-- [ ] **Step 7: 在 CMakeLists 中登记新文件**
+- [x] **Step 7: 在 CMakeLists 中登记新文件**
 
 `WORLDGEN_SOURCES` 追加 `src/world/deposits.cpp`；
 `WORLDGEN_TEST_SOURCES` 追加 `tests/test_world_deposits.cpp`。
 
-- [ ] **Step 8: 构建并运行测试确认通过**
+- [x] **Step 8: 构建并运行测试确认通过**
 
 ```powershell
 cmake -S . -B build -G "Unix Makefiles" -DCMAKE_CXX_COMPILER=clang++
@@ -4293,7 +4293,7 @@ cmake --build build
 
 Expected: `50 test(s), 0 failed`
 
-- [ ] **Step 9: 提交**
+- [x] **Step 9: 提交**
 
 ```bash
 git add include/gamev2/world/tables.hpp src/world \
@@ -4316,7 +4316,7 @@ git add include/gamev2/world/tables.hpp src/world \
 - Produces: 无。这是设计文档里第 1 条测试，独立成任务是因为它是唯一一条
   能一次覆盖全部阶段的断言，坏掉时能立刻定位到是哪个阶段引入了非确定性
 
-- [ ] **Step 1: 写测试**
+- [x] **Step 1: 写测试**
 
 创建 `tests/test_world_determinism.cpp`：
 
@@ -4426,7 +4426,7 @@ TEST(different_seeds_produce_different_worlds)
 }  // namespace
 ```
 
-- [ ] **Step 2: 运行测试**
+- [x] **Step 2: 运行测试**
 
 ```powershell
 cmake -S . -B build -G "Unix Makefiles" -DCMAKE_CXX_COMPILER=clang++
@@ -4436,11 +4436,11 @@ cmake --build build
 
 Expected: `52 test(s), 0 failed`
 
-- [ ] **Step 3: 在 CMakeLists 中登记测试文件**
+- [x] **Step 3: 在 CMakeLists 中登记测试文件**
 
 `WORLDGEN_TEST_SOURCES` 追加 `tests/test_world_determinism.cpp`。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add tests/test_world_determinism.cpp CMakeLists.txt
@@ -4463,7 +4463,7 @@ git add tests/test_world_determinism.cpp CMakeLists.txt
 **为什么单独成任务**：阈值与分档是经验值，只能看着导出结果调。设计文档
 11.2 把这一步列为既定工作，没有这个 demo 就没有反馈回路。
 
-- [ ] **Step 1: 写 `main.cpp`**
+- [x] **Step 1: 写 `main.cpp`**
 
 创建 `src/demo/main.cpp`：
 
@@ -4798,7 +4798,7 @@ int main(int argc, char** argv)
 }
 ```
 
-- [ ] **Step 2: 在 CMakeLists 中登记 demo**
+- [x] **Step 2: 在 CMakeLists 中登记 demo**
 
 在 `add_executable(worldgen_tests ...)` 之后追加：
 
@@ -4807,7 +4807,7 @@ add_executable(worldgen_demo src/demo/main.cpp)
 target_link_libraries(worldgen_demo PRIVATE worldgen)
 ```
 
-- [ ] **Step 3: 构建并运行 demo**
+- [x] **Step 3: 构建并运行 demo**
 
 ```powershell
 cmake -S . -B build -G "Unix Makefiles" -DCMAKE_CXX_COMPILER=clang++
@@ -4816,7 +4816,7 @@ cmake --build build
 
 Expected: 链接成功，无告警。
 
-- [ ] **Step 4: 运行 demo 并检查输出**
+- [x] **Step 4: 运行 demo 并检查输出**
 
 Run: `./build/worldgen_demo.exe --seed 1`
 
@@ -4830,13 +4830,13 @@ Expected: 打印群系占比、河流湖泊统计、地下岩性与矿脉统计�
 调整 `terrain.cpp` / `hydrology.cpp` 顶部的常量区（设计文档 11.2 列出的
 就是这些），重跑本步。**不要**为了让图好看去改测试断言。
 
-- [ ] **Step 5: 跑全量测试确认仍然全绿**
+- [x] **Step 5: 跑全量测试确认仍然全绿**
 
 Run: `./build/worldgen_tests.exe`
 
 Expected: `52 test(s), 0 failed`
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add src/demo CMakeLists.txt

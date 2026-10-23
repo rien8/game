@@ -111,7 +111,7 @@ scheduler.hpp       ← system.hpp, thread_pool.hpp, world.hpp
   - `test::failures()` 当前用例的失败计数
   - CMake 目标 `ecs`（静态库）与 `ecs_tests`（可执行文件）
 
-- [ ] **Step 1: 创建 CMakeLists.txt**
+- [x] **Step 1: 创建 CMakeLists.txt**
 
 ```cmake
 cmake_minimum_required(VERSION 3.28)
@@ -133,7 +133,7 @@ target_link_libraries(ecs_tests PRIVATE ecs)
 
 后续任务逐个向两个源文件列表追加条目。
 
-- [ ] **Step 2: 创建 tests/test_framework.hpp**
+- [x] **Step 2: 创建 tests/test_framework.hpp**
 
 ```cpp
 #pragma once
@@ -197,7 +197,7 @@ int run_all();
     } while (false)
 ```
 
-- [ ] **Step 3: 创建 tests/main.cpp**
+- [x] **Step 3: 创建 tests/main.cpp**
 
 ```cpp
 #include "test_framework.hpp"
@@ -241,7 +241,7 @@ int main()
 }
 ```
 
-- [ ] **Step 4: 创建 tests/test_smoke.cpp**
+- [x] **Step 4: 创建 tests/test_smoke.cpp**
 
 先写一个必定失败的用例，验证失败计数真的生效：
 
@@ -259,7 +259,7 @@ TEST(deliberate_failure)
 }
 ```
 
-- [ ] **Step 5: 构建并验证失败计数生效**
+- [x] **Step 5: 构建并验证失败计数生效**
 
 Run:
 
@@ -273,7 +273,7 @@ Write-Output ('exit=' + $LASTEXITCODE)
 Expected: `suite_runs` 为 OK，`deliberate_failure` 为 FAIL，
 `2 test(s), 1 failed`，`exit=1`。
 
-- [ ] **Step 6: 删除反向验证用例**
+- [x] **Step 6: 删除反向验证用例**
 
 把 `tests/test_smoke.cpp` 替换为：
 
@@ -291,7 +291,7 @@ TEST(failure_counter_starts_at_zero)
 }
 ```
 
-- [ ] **Step 7: 重新构建，验证全绿**
+- [x] **Step 7: 重新构建，验证全绿**
 
 Run:
 
@@ -326,7 +326,7 @@ Expected: `2 test(s), 0 failed`，`exit=0`。
   - `gamev2::ecs::emit_diagnostic(const Diagnostic&, const DiagnosticHandler&)`
   - `std::hash<gamev2::ecs::EntityId>`
 
-- [ ] **Step 1: 创建 include/gamev2/ecs/entity.hpp**
+- [x] **Step 1: 创建 include/gamev2/ecs/entity.hpp**
 
 ```cpp
 #pragma once
@@ -382,7 +382,7 @@ struct std::hash<gamev2::ecs::EntityId>
 };
 ```
 
-- [ ] **Step 2: 创建 include/gamev2/ecs/diagnostic.hpp**
+- [x] **Step 2: 创建 include/gamev2/ecs/diagnostic.hpp**
 
 ```cpp
 #pragma once
@@ -418,7 +418,7 @@ void emit_diagnostic(const Diagnostic& diag,
 }  // namespace gamev2::ecs
 ```
 
-- [ ] **Step 3: 创建 src/ecs/diagnostic.cpp**
+- [x] **Step 3: 创建 src/ecs/diagnostic.cpp**
 
 ```cpp
 #include "gamev2/ecs/diagnostic.hpp"
@@ -451,7 +451,7 @@ void emit_diagnostic(const Diagnostic& diag,
 }  // namespace gamev2::ecs
 ```
 
-- [ ] **Step 4: 更新 CMakeLists.txt**
+- [x] **Step 4: 更新 CMakeLists.txt**
 
 在**现有列表上追加**，不要用下面的文本整体替换 —— `src/ecs.cpp` 是锚点
 翻译单元，删掉它会让 CMake 因目标无源文件而配置失败：
@@ -469,7 +469,7 @@ add_executable(ecs_tests
 )
 ```
 
-- [ ] **Step 5: 创建 tests/test_entity.cpp**
+- [x] **Step 5: 创建 tests/test_entity.cpp**
 
 ```cpp
 #include "test_framework.hpp"
@@ -518,7 +518,7 @@ TEST(entity_id_is_usable_as_hash_key)
 }
 ```
 
-- [ ] **Step 6: 构建并运行**
+- [x] **Step 6: 构建并运行**
 
 Run:
 
@@ -554,7 +554,7 @@ Expected: `7 test(s), 0 failed`，`exit=0`。
   - `gamev2::ecs::component_id_of<T>()`
   - `gamev2::ecs::kColumnAllocationAlignment`
 
-- [ ] **Step 1: 创建 include/gamev2/ecs/component.hpp**
+- [x] **Step 1: 创建 include/gamev2/ecs/component.hpp**
 
 ```cpp
 #pragma once
@@ -657,7 +657,7 @@ template<typename T>
 }  // namespace gamev2::ecs
 ```
 
-- [ ] **Step 2: 创建 src/ecs/component.cpp**
+- [x] **Step 2: 创建 src/ecs/component.cpp**
 
 ```cpp
 #include "gamev2/ecs/component.hpp"
@@ -701,12 +701,12 @@ ComponentId ComponentRegistry::register_type_info(
 }  // namespace gamev2::ecs
 ```
 
-- [ ] **Step 3: 更新 CMakeLists.txt**
+- [x] **Step 3: 更新 CMakeLists.txt**
 
 `add_library` 源文件列表追加 `src/ecs/component.cpp`，
 `add_executable` 源文件列表追加 `tests/test_component.cpp`。
 
-- [ ] **Step 4: 创建 tests/test_component.cpp**
+- [x] **Step 4: 创建 tests/test_component.cpp**
 
 ```cpp
 #include "test_framework.hpp"
@@ -831,7 +831,7 @@ TEST(component_move_entry_transfers_value)
 }
 ```
 
-- [ ] **Step 5: 构建并运行**
+- [x] **Step 5: 构建并运行**
 
 Run:
 
@@ -870,7 +870,7 @@ Expected: `13 test(s), 0 failed`，`exit=0`。
     - `template<typename T> void move_assign(...)`
     - `void destroy_row(chunk, row)`
 
-- [ ] **Step 1: 创建 include/gamev2/ecs/storage.hpp**
+- [x] **Step 1: 创建 include/gamev2/ecs/storage.hpp**
 
 ```cpp
 #pragma once
@@ -980,7 +980,7 @@ private:
 }  // namespace gamev2::ecs
 ```
 
-- [ ] **Step 2: 创建 src/ecs/storage.cpp**
+- [x] **Step 2: 创建 src/ecs/storage.cpp**
 
 ```cpp
 #include "gamev2/ecs/storage.hpp"
@@ -1045,12 +1045,12 @@ void Column::destroy_row(std::uint32_t chunk, std::uint32_t row)
 }  // namespace gamev2::ecs
 ```
 
-- [ ] **Step 3: 更新 CMakeLists.txt**
+- [x] **Step 3: 更新 CMakeLists.txt**
 
 `add_library` 源文件列表追加 `src/ecs/storage.cpp`，
 `add_executable` 源文件列表追加 `tests/test_storage.cpp`。
 
-- [ ] **Step 4: 创建 tests/test_storage.cpp**
+- [x] **Step 4: 创建 tests/test_storage.cpp**
 
 ```cpp
 #include "test_framework.hpp"
@@ -1175,7 +1175,7 @@ TEST(column_pop_chunk_releases_tail)
 }
 ```
 
-- [ ] **Step 5: 构建并运行**
+- [x] **Step 5: 构建并运行**
 
 Run:
 
@@ -1227,7 +1227,7 @@ Expected: `21 test(s), 0 failed`，`exit=0`。
     - `static void copy_shared(...)`
     - `EntityId fill_hole(Archetype&, std::uint32_t, std::uint32_t)`
 
-- [ ] **Step 1: 在 storage.hpp 的 Column 之后追加**
+- [x] **Step 1: 在 storage.hpp 的 Column 之后追加**
 
 先在文件顶部的 include 区追加：
 
@@ -1410,7 +1410,7 @@ private:
 };
 ```
 
-- [ ] **Step 2: 在 storage.cpp 追加 Archetype 与 Storage 实现**
+- [x] **Step 2: 在 storage.cpp 追加 Archetype 与 Storage 实现**
 
 ```cpp
 Archetype::Archetype(std::vector<ComponentId> ids,
@@ -1578,11 +1578,11 @@ EntityId Storage::fill_hole(Archetype& src, std::uint32_t chunk,
 }
 ```
 
-- [ ] **Step 3: 更新 CMakeLists.txt**
+- [x] **Step 3: 更新 CMakeLists.txt**
 
 本任务复用 Task 4 已加入的 `src/ecs/storage.cpp`，无需新增源文件。
 
-- [ ] **Step 4: 在 tests/test_storage.cpp 追加用例**
+- [x] **Step 4: 在 tests/test_storage.cpp 追加用例**
 
 ```cpp
 #include <algorithm>
@@ -1770,7 +1770,7 @@ TEST(storage_fill_hole_on_last_entity_returns_empty)
 }
 ```
 
-- [ ] **Step 5: 构建并运行**
+- [x] **Step 5: 构建并运行**
 
 Run:
 
@@ -1820,7 +1820,7 @@ Expected: `33 test(s), 0 failed`，`exit=0`。
     - `bool parallelize_allowed() const noexcept`
     - `ThreadPool& parallel_pool() noexcept`
 
-- [ ] **Step 1: 创建 include/gamev2/ecs/thread_pool.hpp**
+- [x] **Step 1: 创建 include/gamev2/ecs/thread_pool.hpp**
 
 ```cpp
 #pragma once
@@ -1874,7 +1874,7 @@ private:
 }  // namespace gamev2::ecs
 ```
 
-- [ ] **Step 2: 创建 src/ecs/thread_pool.cpp**
+- [x] **Step 2: 创建 src/ecs/thread_pool.cpp**
 
 ```cpp
 #include "gamev2/ecs/thread_pool.hpp"
@@ -1979,7 +1979,7 @@ void ThreadPool::worker_loop(std::uint64_t seen)
 }  // namespace gamev2::ecs
 ```
 
-- [ ] **Step 3: 创建 include/gamev2/ecs/world.hpp**
+- [x] **Step 3: 创建 include/gamev2/ecs/world.hpp**
 
 ```cpp
 #pragma once
@@ -2231,7 +2231,7 @@ std::expected<void, EcsError> World::remove(EntityId e)
 }  // namespace gamev2::ecs
 ```
 
-- [ ] **Step 4: 创建 include/gamev2/ecs/view.hpp**
+- [x] **Step 4: 创建 include/gamev2/ecs/view.hpp**
 
 ```cpp
 #pragma once
@@ -2367,7 +2367,7 @@ View<Ts...>::View(World& world)
 > 这样 `World::view()` 的类外声明可见完整的 `View` 类型，而
 > `view.hpp` 又能正常使用已定义的 `World`。
 
-- [ ] **Step 5: 创建 src/ecs/world.cpp**
+- [x] **Step 5: 创建 src/ecs/world.cpp**
 
 ```cpp
 #include "gamev2/ecs/world.hpp"
@@ -2484,13 +2484,13 @@ void World::destroy(EntityId e)
 > 单元可见，声明在 world.cpp 而定义在 world.hpp 会导致链接错误。
 > 它们的定义已随 Step 3 的 world.hpp 一并给出。
 
-- [ ] **Step 6: 更新 CMakeLists.txt**
+- [x] **Step 6: 更新 CMakeLists.txt**
 
 `add_library` 源文件列表追加 `src/ecs/thread_pool.cpp`、
 `src/ecs/world.cpp`，
 `add_executable` 源文件列表追加 `tests/test_world.cpp`。
 
-- [ ] **Step 7: 创建 tests/test_world.cpp**
+- [x] **Step 7: 创建 tests/test_world.cpp**
 
 ```cpp
 #include "test_framework.hpp"
@@ -2704,7 +2704,7 @@ TEST(world_many_entities_survive_churn)
 }
 ```
 
-- [ ] **Step 8: 构建并运行**
+- [x] **Step 8: 构建并运行**
 
 Run:
 
@@ -2729,7 +2729,7 @@ Expected: `46 test(s), 0 failed`，`exit=0`。
   `ThreadPool`（Task 6）
 - Produces: 无新增公开接口，仅验证遍历与并行正确性
 
-- [ ] **Step 1: 创建 tests/test_view.cpp**
+- [x] **Step 1: 创建 tests/test_view.cpp**
 
 ```cpp
 #include "test_framework.hpp"
@@ -2921,11 +2921,11 @@ TEST(view_spans_multiple_archetypes)
 }
 ```
 
-- [ ] **Step 2: 更新 CMakeLists.txt**
+- [x] **Step 2: 更新 CMakeLists.txt**
 
 `add_executable` 源文件列表追加 `tests/test_view.cpp`。
 
-- [ ] **Step 3: 构建并运行**
+- [x] **Step 3: 构建并运行**
 
 Run:
 
@@ -2957,7 +2957,7 @@ Expected: `54 test(s), 0 failed`，`exit=0`。
   - `std::size_t pending() const noexcept`
   - `void flush(World&)`
 
-- [ ] **Step 1: 创建 include/gamev2/ecs/command_buffer.hpp**
+- [x] **Step 1: 创建 include/gamev2/ecs/command_buffer.hpp**
 
 ```cpp
 #pragma once
@@ -3054,7 +3054,7 @@ inline void CommandBuffer::append(CommandBuffer&& other)
 }  // namespace gamev2::ecs
 ```
 
-- [ ] **Step 2: 创建 src/ecs/command_buffer.cpp**
+- [x] **Step 2: 创建 src/ecs/command_buffer.cpp**
 
 ```cpp
 #include "gamev2/ecs/command_buffer.hpp"
@@ -3083,12 +3083,12 @@ void CommandBuffer::flush(World& world)
 }  // namespace gamev2::ecs
 ```
 
-- [ ] **Step 3: 更新 CMakeLists.txt**
+- [x] **Step 3: 更新 CMakeLists.txt**
 
 `add_library` 源文件列表追加 `src/ecs/command_buffer.cpp`，
 `add_executable` 源文件列表追加 `tests/test_command_buffer.cpp`。
 
-- [ ] **Step 4: 创建 tests/test_command_buffer.cpp**
+- [x] **Step 4: 创建 tests/test_command_buffer.cpp**
 
 ```cpp
 #include "test_framework.hpp"
@@ -3243,7 +3243,7 @@ TEST(command_buffer_many_commands)
 }
 ```
 
-- [ ] **Step 5: 构建并运行**
+- [x] **Step 5: 构建并运行**
 
 Run:
 
@@ -3280,7 +3280,7 @@ Expected: `61 test(s), 0 failed`，`exit=0`。
     - `void run(World&, CommandBuffer&)`
     - `std::size_t batch_count() const noexcept`
 
-- [ ] **Step 1: 创建 include/gamev2/ecs/system.hpp**
+- [x] **Step 1: 创建 include/gamev2/ecs/system.hpp**
 
 ```cpp
 #pragma once
@@ -3414,7 +3414,7 @@ template<typename S>
 }  // namespace gamev2::ecs
 ```
 
-- [ ] **Step 2: 创建 include/gamev2/ecs/scheduler.hpp**
+- [x] **Step 2: 创建 include/gamev2/ecs/scheduler.hpp**
 
 ```cpp
 #pragma once
@@ -3476,7 +3476,7 @@ void Scheduler::add(S& system)
 }  // namespace gamev2::ecs
 ```
 
-- [ ] **Step 3: 创建 src/ecs/scheduler.cpp**
+- [x] **Step 3: 创建 src/ecs/scheduler.cpp**
 
 ```cpp
 #include "gamev2/ecs/scheduler.hpp"
@@ -3592,12 +3592,12 @@ void Scheduler::run(World& world, CommandBuffer& cmd)
 }  // namespace gamev2::ecs
 ```
 
-- [ ] **Step 4: 更新 CMakeLists.txt**
+- [x] **Step 4: 更新 CMakeLists.txt**
 
 `add_library` 源文件列表追加 `src/ecs/scheduler.cpp`，
 `add_executable` 源文件列表追加 `tests/test_scheduler.cpp`。
 
-- [ ] **Step 5: 创建 tests/test_scheduler.cpp**
+- [x] **Step 5: 创建 tests/test_scheduler.cpp**
 
 ```cpp
 #include "test_framework.hpp"
@@ -3855,7 +3855,7 @@ TEST(scheduler_independent_chains_stay_separate)
 }
 ```
 
-- [ ] **Step 6: 构建并运行**
+- [x] **Step 6: 构建并运行**
 
 Run:
 
@@ -3879,7 +3879,7 @@ Expected: `70 test(s), 0 failed`，`exit=0`。
 - Consumes: `World`、`Scheduler`、`CommandBuffer`（Task 6、8、9）
 - Produces: 无新增公开接口，仅验证模块整体可用
 
-- [ ] **Step 1: 创建 tests/test_integration.cpp**
+- [x] **Step 1: 创建 tests/test_integration.cpp**
 
 ```cpp
 #include "test_framework.hpp"
@@ -4076,11 +4076,11 @@ TEST(integration_command_buffer_defers_to_frame_end)
 }
 ```
 
-- [ ] **Step 2: 更新 CMakeLists.txt**
+- [x] **Step 2: 更新 CMakeLists.txt**
 
 `add_executable` 源文件列表追加 `tests/test_integration.cpp`。
 
-- [ ] **Step 3: 构建并运行**
+- [x] **Step 3: 构建并运行**
 
 Run:
 

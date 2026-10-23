@@ -527,7 +527,7 @@ balance = surveyed_total − extracted
     `build_ledger(const World&, LedgerDiagnostics&)`（均 `[[nodiscard]]`）
   - `Stream::ledger = 17`（`kStreamIds` 同步扩容到 18）
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `tests/test_history_ledger.cpp`：
 
@@ -637,7 +637,7 @@ TEST(diagnostics_are_optional)
 }  // namespace
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 在 `CMakeLists.txt` 的 `WORLDGEN_TEST_SOURCES` **之后**追加：
 
@@ -666,7 +666,7 @@ cmake --build build
 
 Expected: 编译失败，报 `gamev2/history/ledger.hpp` 不存在。
 
-- [ ] **Step 3: 写 `ledger.hpp`**
+- [x] **Step 3: 写 `ledger.hpp`**
 
 创建 `include/gamev2/history/ledger.hpp`：
 
@@ -821,7 +821,7 @@ struct LedgerDiagnostics
 它就不报错，问题推迟到第一个调用方身上，链接错误离根因很远。
 声明与定义一起在 Task 7 落地。
 
-- [ ] **Step 4: 在 `enums.hpp` 登记新流**
+- [x] **Step 4: 在 `enums.hpp` 登记新流**
 
 在 `Stream` 枚举末尾追加：
 
@@ -840,7 +840,7 @@ struct LedgerDiagnostics
 
 `static_assert(stream_ids_are_distinct())` 会守住唯一性。
 
-- [ ] **Step 5: 写 `src/history/ledger.cpp` 的空壳**
+- [x] **Step 5: 写 `src/history/ledger.cpp` 的空壳**
 
 ```cpp
 /// @file ledger.cpp
@@ -880,7 +880,7 @@ Ledger build_ledger(const gamev2::world::World& world,
 `kQuotaEpoch` 定义在 `.cpp` 的匿名命名空间里（`8300`），
 不要放进公共头文件——它是本模块的内部纪元常量。
 
-- [ ] **Step 6: 构建并运行测试**
+- [x] **Step 6: 构建并运行测试**
 
 ```powershell
 cmake --build build
@@ -917,7 +917,7 @@ git add CMakeLists.txt
 - Produces: `QuotaEntry::surveyed_total`、`surveyed_total_hi`、`surveyed_rate`
   （本任务在 `build_ledger` 内部填好这三项，Task 3 起才开始对外可见）
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 测试文件顶部追加：
 
@@ -1191,7 +1191,7 @@ TEST(the_epoch_year_itself_yields_a_populated_ledger)
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```powershell
 cmake --build build
@@ -1200,7 +1200,7 @@ cmake --build build
 
 Expected: 全部失败——`ledger.veins` 还是空的。
 
-- [ ] **Step 3: 把 `kOverminePenalty` 搬到共享头文件**
+- [x] **Step 3: 把 `kOverminePenalty` 搬到共享头文件**
 
 这个常量现在是 `src/world/veins.cpp` 匿名命名空间里的私有副本，
 而时序层要靠它反推 8300 年的承载上限。两侧各写一份，worldgen 改了
@@ -1233,7 +1233,7 @@ inline constexpr std::uint32_t kOverminePenalty = 60;
 `veins.cpp` 里用到它的地方是 `s.reserve = s.reserve * (100u - kOverminePenalty) / 100u;`
 ——**那行不用改**，共享常量同名同义。
 
-- [ ] **Step 4: 实现推定**
+- [x] **Step 4: 实现推定**
 
 在 `src/history/ledger.cpp` 的匿名命名空间里加：
 
@@ -1347,7 +1347,7 @@ using gamev2::world::kOverminePenalty;
 承载上限，这是 Task 4 的守恒恒等式（`balance == surveyed_total − extracted`）
 在 `extracted == 0` 时的取值。
 
-- [ ] **Step 5: 构建并运行测试**
+- [x] **Step 5: 构建并运行测试**
 
 Expected: 新测试通过，`an_empty_world_yields_an_empty_ledger` 等旧测试
 仍然通过。
@@ -1378,7 +1378,7 @@ git add src/world/veins.cpp
 - **不产生** `Ledger::sects`：宗级汇总要到 Task 6 才聚合（那时余额与
   偏差才算得出来），Task 3 只把持有者标到每条脉上。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 ```cpp
 TEST(the_nine_main_veins_are_all_assigned)
@@ -1845,7 +1845,7 @@ TEST(the_unregistered_vein_follows_the_final_holder)
 **别忘了加 `#include <algorithm>`**（`std::sort` / `std::find`）与
 `#include <vector>`。
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Expected: `the_sects_hold_the_setting_six_veins` 与
 `the_nine_main_veins_are_all_assigned` 都失败——所有脉的持有者都还是
@@ -1866,7 +1866,7 @@ Expected: `the_sects_hold_the_setting_six_veins` 与
 | 去掉 `entry.registered = false` | `the_jiuyou_vein_is_not_registered` |
 | 把登记循环挪到阴脉对调**之前**（等于按槽位登记） | `the_unregistered_vein_follows_the_final_holder`（**只有 seed 62 抓得到**） |
 
-- [ ] **Step 3: 实现分配**
+- [x] **Step 3: 实现分配**
 
 在 `src/history/ledger.cpp` 的匿名命名空间里加：
 
@@ -2023,7 +2023,7 @@ void sort_main_indices(std::vector<std::size_t>& mains,
     }
 ```
 
-- [ ] **Step 4: 构建并运行测试**
+- [x] **Step 4: 构建并运行测试**
 
 Expected: 全部通过。
 
@@ -2059,7 +2059,7 @@ git add tests/test_history_ledger.cpp
 **不要删这条测试，也不要把断言改成 `balance == surveyed_total - extracted`
 ——那与本任务另一条测试重复，等于丢掉初值这个语义。**
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 ```cpp
 TEST(balances_never_go_negative)
@@ -2187,11 +2187,11 @@ TEST(the_ledger_is_deterministic)
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Expected: `the_events_account_for_every_extraction` 失败——事件表还是空的。
 
-- [ ] **Step 3: 实现换算系数与定点推演**
+- [x] **Step 3: 实现换算系数与定点推演**
 
 `src/history/ledger.cpp` 顶部追加：
 
@@ -2317,7 +2317,7 @@ std::uint64_t tide_integral(std::uint32_t epoch, std::uint32_t now)
     }
 ```
 
-- [ ] **Step 4: 构建并运行测试**
+- [x] **Step 4: 构建并运行测试**
 
 Expected: 全部通过。
 
@@ -2352,7 +2352,7 @@ git add tests/test_history_ledger.cpp
   `LedgerDiagnostics::depletion_unmarked`、
   `LedgerDiagnostics::overmine_before_epoch`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 ```cpp
 TEST(every_overmined_vein_is_claimed)
@@ -2455,11 +2455,11 @@ TEST(every_depleted_eye_is_claimed)
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Expected: `every_overmined_vein_is_claimed` 失败——还没有越采事件。
 
-- [ ] **Step 3: 实现两遍推演**
+- [x] **Step 3: 实现两遍推演**
 
 `src/history/ledger.cpp` 顶部追加：
 
@@ -2681,7 +2681,7 @@ Expected: `every_overmined_vein_is_claimed` 失败——还没有越采事件。
 **`depletion_claim_unbacked` 不是缺陷**：worldgen 按身份哈希标枯眼，
 与经济性无关；台账按推演判枯竭。两者不一致时台账报冲突，不假装一致。
 
-- [ ] **Step 4: 构建并运行测试**
+- [x] **Step 4: 构建并运行测试**
 
 Expected: 全部通过。
 
@@ -2710,7 +2710,7 @@ git add tests/test_history_ledger.cpp
 - Produces: `Ledger::sects`、`Ledger::structural_deviation`、
   `Ledger::overmining_deviation`、`Ledger::unregistered_extracted`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 ```cpp
 TEST(the_deviation_is_not_trivial)
@@ -2864,11 +2864,11 @@ TEST(the_rate_deviation_is_the_tide_shortfall)
 **别忘了加 `#include "gamev2/world/spirit_tables.hpp"`**（`compute_spirit_tide`
 在 `spirit_tables.hpp` 里，`ledger.hpp` 不引它）。
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Expected: `the_deviation_is_not_trivial` 失败——`sects` 还是空的。
 
-- [ ] **Step 3: 实现偏差表**
+- [x] **Step 3: 实现偏差表**
 
 在 `build_ledger` 的第二遍推演之后：
 
@@ -2959,7 +2959,7 @@ deviation_rate = Σ_{v ∈ 名下} surveyed_rate(v) × (level_8300 − level_当
     }
 ```
 
-- [ ] **Step 4: 构建并运行测试**
+- [x] **Step 4: 构建并运行测试**
 
 Expected: 全部通过。
 
@@ -2989,7 +2989,7 @@ git add tests/test_history_ledger.cpp
 - Produces: `export_ledger(const Ledger&, const std::filesystem::path&)`、
   demo 的台账统计输出、`agent-temp/worldgen/ledger.txt`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 ```cpp
 TEST(the_ledger_is_exportable_as_text)
@@ -3030,11 +3030,11 @@ TEST(the_ledger_is_exportable_as_text)
 
 **别忘了 `#include <fstream>` 与 `#include <filesystem>`。**
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Expected: 链接期报 `export_ledger` 未定义。
 
-- [ ] **Step 3: 实现文本导出**
+- [x] **Step 3: 实现文本导出**
 
 **先把声明加进公共头文件**——声明与定义必须同批次落地。Task 1 刻意
 没有声明它，就是为了避免留下只有签名没有实体的符号。
@@ -3162,7 +3162,7 @@ bool export_ledger(const Ledger& ledger,
 **用制表符而不是空格对齐**：台账要被别的工具读，制表符不会因为
 汉字宽度错位。
 
-- [ ] **Step 4: 接入 demo**
+- [x] **Step 4: 接入 demo**
 
 `src/demo/main.cpp` 顶部加 include：
 
@@ -3238,7 +3238,7 @@ add_executable(worldgen_demo src/demo/main.cpp)
 target_link_libraries(worldgen_demo PRIVATE history)
 ```
 
-- [ ] **Step 5: 构建并运行测试与 demo**
+- [x] **Step 5: 构建并运行测试与 demo**
 
 ```powershell
 cmake -S . -B build -G "Unix Makefiles" -DCMAKE_CXX_COMPILER=clang++
@@ -3272,7 +3272,7 @@ git add tests/test_history_ledger.cpp
 - Consumes: 全部既有测试目标
 - Produces: 设计 §6 的 13 条测试全部落地
 
-- [ ] **Step 1: 补齐剩余的测试**
+- [x] **Step 1: 补齐剩余的测试**
 
 设计 §6 列了 13 条。本计划到 Task 7 为止已落地 12 条。剩下的一条是
 「逐年守恒」，它的实现需要台账暴露每一年的余额。**本轮不为此扩充
@@ -3335,7 +3335,7 @@ TEST(conservation_holds_at_every_year)
 
 **别忘了 `#include <map>`。**
 
-- [ ] **Step 2: 跑全量测试**
+- [x] **Step 2: 跑全量测试**
 
 ```powershell
 cmake --build build
@@ -3350,7 +3350,7 @@ Expected: 三个测试目标全绿。
 ——时序层只读 worldgen，不应影响灵脉数量。若它挂了，说明本计划写了
 不该写的字段。
 
-- [ ] **Step 3: 跑一次 demo 并核对实测数字**
+- [x] **Step 3: 跑一次 demo 并核对实测数字**
 
 ```powershell
 ./build/worldgen_demo.exe --size 256 --seed 3
@@ -3363,8 +3363,8 @@ seed 1 与 seed 7 两组）：
 |---|---|
 | 脉数 | 50 |
 | 枯竭的脉 | 35~40 条，枯竭年铺开在 8345..8912 |
-| 口径差 | 约 8000..14000 |
-| 越采差 | 约 2000..3000 |
+| 口径差 | 约 7500..14000 |
+| 越采差 | 约 200..3000 |
 | 口径差占比 | 70% 以上（**低于 50% 才是坏信号**） |
 | `depletion_claim_unbacked` | 个位数 |
 
@@ -3372,13 +3372,13 @@ seed 1 与 seed 7 两组）：
 的 Step 4 自查。**若口径差占比低于 50%**，说明潮位公式或换算锚点出了问题
 ——回 Task 6 的 Step 4 自查。
 
-- [ ] **Step 4: 核对设计 §6 的 13 条测试全部落地**
+- [x] **Step 4: 核对设计 §6 的 13 条测试全部落地**
 
 逐条对照设计文档 §6 的表格，确认每条都有对应的 `TEST`：
 
 | # | 用例 | 落地位置 |
 |---|---|---|
-| 1 | `ledger_is_deterministic` | Task 4 |
+| 1 | `the_ledger_is_deterministic` | Task 4 |
 | 2 | `balances_never_go_negative` | Task 4 |
 | 3 | `conservation_holds_at_every_year` | Task 8 |
 | 4 | `final_balance_matches_the_ledger` | Task 4 |

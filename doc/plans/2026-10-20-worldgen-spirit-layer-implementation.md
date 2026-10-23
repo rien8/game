@@ -181,7 +181,7 @@ cmake --build build
   - `Stream` 新增七条：`tide = 10, ley = 11, vein = 12, domain = 13,
     scar = 14, heaven = 15, land = 16`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `tests/test_world_spirit_tide.cpp`：
 
@@ -359,7 +359,7 @@ TEST(world_carries_the_spirit_layer_containers)
 }  // namespace
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```powershell
 cmake -S . -B build -G "Unix Makefiles" -DCMAKE_CXX_COMPILER=clang++
@@ -368,7 +368,7 @@ cmake --build build
 
 Expected: 编译失败，报 `gamev2/world/spirit.hpp` 不存在。
 
-- [ ] **Step 3: 写 `spirit.hpp`**
+- [x] **Step 3: 写 `spirit.hpp`**
 
 创建 `include/gamev2/world/spirit.hpp`：
 
@@ -541,7 +541,7 @@ struct CaveHeaven
 }  // namespace gamev2::world
 ```
 
-- [ ] **Step 4: 写 `spirit_tables.hpp`**
+- [x] **Step 4: 写 `spirit_tables.hpp`**
 
 创建 `include/gamev2/world/spirit_tables.hpp`：
 
@@ -723,7 +723,7 @@ struct VeinTarget
 }  // namespace gamev2::world
 ```
 
-- [ ] **Step 5: 给 `enums.hpp` 扩容 `Stream`**
+- [x] **Step 5: 给 `enums.hpp` 扩容 `Stream`**
 
 在 `include/gamev2/world/enums.hpp` 的 `Stream` 枚举尾部追加：
 
@@ -756,7 +756,7 @@ struct VeinTarget
 
 `static_assert(stream_ids_are_distinct())` 保持原样，它会自动拦住重复流号。
 
-- [ ] **Step 6: 给 `params.hpp` 加灵历年**
+- [x] **Step 6: 给 `params.hpp` 加灵历年**
 
 在 `include/gamev2/world/params.hpp` 的 `WorldParams` 里，`ocean_percent` 之后追加：
 
@@ -779,7 +779,7 @@ struct VeinTarget
 
 灵历 0 会让 `(year - 1) / 1000` 下溢，必须在同一道关口拦下。
 
-- [ ] **Step 7: 给 `world.hpp` 加灵气层字段**
+- [x] **Step 7: 给 `world.hpp` 加灵气层字段**
 
 在 `include/gamev2/world/world.hpp` 里：
 
@@ -816,7 +816,7 @@ struct VeinTarget
     std::vector<CaveHeaven>  cave_heavens;
 ```
 
-- [ ] **Step 8: 在 `world.cpp` 里初始化新网格**
+- [x] **Step 8: 在 `world.cpp` 里初始化新网格**
 
 把 `src/world/world.cpp` 的构造函数初始化列表改成（新增行夹在 `aquifer_top`
 与 `stone` 之间，末尾追加灵气层网格）：
@@ -859,7 +859,7 @@ World::World(WorldParams params)
 **成员声明顺序必须与初始化列表顺序一致**，否则 `-Wreorder` 会报警。Step 7
 的插入位置就是为此。
 
-- [ ] **Step 9: 在 `generate.hpp` 声明七个阶段**
+- [x] **Step 9: 在 `generate.hpp` 声明七个阶段**
 
 在 `include/gamev2/world/generate.hpp` 的 `finalize_aquifers` 声明之后追加：
 
@@ -895,7 +895,7 @@ void make_cave_heavens(World& world);
 此时这些函数只有声明没有定义。`generate_world()` 还没调用它们，因此不会
 产生链接错误——Task 9 才接线。
 
-- [ ] **Step 10: 把新文件加进 CMakeLists**
+- [x] **Step 10: 把新文件加进 CMakeLists**
 
 在 `CMakeLists.txt` 的 `WORLDGEN_SOURCES` 里追加：
 
@@ -915,7 +915,7 @@ void make_cave_heavens(World& world);
 
 本任务只加这一个测试文件。后续任务各自追加自己的。
 
-- [ ] **Step 11: 构建并运行测试**
+- [x] **Step 11: 构建并运行测试**
 
 ```powershell
 cmake -S . -B build -G "Unix Makefiles" -DCMAKE_CXX_COMPILER=clang++
@@ -941,7 +941,7 @@ cmake --build build
 
 Expected: 全部测试通过。
 
-- [ ] **Step 12: 向用户报告并等待提交指令**
+- [x] **Step 12: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 报告本任务完成的内容与新增文件，等待用户决定
 提交时机。供用户参考的暂存命令：
@@ -970,7 +970,7 @@ git add tests/test_world_spirit_tide.cpp
   - `constexpr gamev2::world::compute_spirit_tide(std::uint32_t year)
     -> SpiritTide`（纯函数，放在 `spirit_tables.hpp`）
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 在 `tests/test_world_spirit_tide.cpp` 的匿名命名空间内追加：
 
@@ -1092,7 +1092,7 @@ TEST(the_stage_writes_the_same_state_as_the_pure_function)
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```powershell
 cmake --build build
@@ -1100,7 +1100,7 @@ cmake --build build
 
 Expected: 编译失败，报 `compute_spirit_tide` 未声明。
 
-- [ ] **Step 3: 写 `compute_spirit_tide`**
+- [x] **Step 3: 写 `compute_spirit_tide`**
 
 在 `include/gamev2/world/spirit_tables.hpp` 追加（放在 `vein_targets` 之前）：
 
@@ -1201,7 +1201,7 @@ Expected: 编译失败，报 `compute_spirit_tide` 未声明。
 **不要加 `#include <cmath>`**：取整刻意不用 `std::lround`（它要到 C++26 才
 constexpr 化），因此这个头文件用不到任何 `<cmath>` 的东西。
 
-- [ ] **Step 4: 写 `make_spirit_tide`**
+- [x] **Step 4: 写 `make_spirit_tide`**
 
 创建 `src/world/ley.cpp`：
 
@@ -1219,7 +1219,7 @@ void make_spirit_tide(World& world)
 }  // namespace gamev2::world
 ```
 
-- [ ] **Step 5: 构建并运行测试**
+- [x] **Step 5: 构建并运行测试**
 
 ```powershell
 cmake --build build
@@ -1228,7 +1228,7 @@ cmake --build build
 
 Expected: 全部测试通过。
 
-- [ ] **Step 6: 向用户报告并等待提交指令**
+- [x] **Step 6: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 供用户参考的暂存命令：
 
@@ -1262,7 +1262,7 @@ git add tests/test_world_spirit_tide.cpp
     （随面积缩放，故不是常量），以及「通道数不足时逐步放宽源点间距重选」的兜底。
     见设计文档 §3.2 步骤 1
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `tests/test_world_ley.cpp`：
 
@@ -1619,7 +1619,7 @@ TEST(ley_layer_is_deterministic)
 }  // namespace
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 在 `CMakeLists.txt` 的 `WORLDGEN_TEST_SOURCES` 里追加：
 
@@ -1642,7 +1642,7 @@ Expected: 全部测试通过——**因为阶段 12 还没接线，`generate_wor
 更直接的做法：跳过这一步的「确认失败」，在 Step 3 实现完之后 Step 4 的
 「确认通过」会真实验证。但为了守住 TDD 节奏，请按上面的方式先红一次。
 
-- [ ] **Step 3: 把埋深与异质的常量加进 `spirit_tables.hpp`**
+- [x] **Step 3: 把埋深与异质的常量加进 `spirit_tables.hpp`**
 
 在 `include/gamev2/world/spirit_tables.hpp` 的 `kDomainMaxRadius` 之后追加：
 
@@ -1655,7 +1655,7 @@ inline constexpr std::uint32_t kMaxLeyDepth = 64;
 inline constexpr double kHeteroChance = 0.08;
 ```
 
-- [ ] **Step 4: 实现地脉网络**
+- [x] **Step 4: 实现地脉网络**
 
 把 `src/world/ley.cpp` 改成下面这样。**注意：不是整体替换**——Task 2 已经写进去的
 `make_spirit_tide`（阶段 11）必须保留，否则链接期会报未定义符号：Task 3 Step 5 的
@@ -2195,7 +2195,7 @@ void make_ley_network(World& world)
 }  // namespace gamev2::world
 ```
 
-- [ ] **Step 5: 把阶段 12 接进编排**
+- [x] **Step 5: 把阶段 12 接进编排**
 
 在 `src/world/generate.cpp` 的 `finalize_aquifers(world);` 之后追加：
 
@@ -2215,7 +2215,7 @@ void make_ley_network(World& world);
 （Task 1 的 Step 9 已经声明过这七个阶段，因此这里只需确认声明存在；
 若 Task 1 已写好，**不要重复声明**。）
 
-- [ ] **Step 6: 构建并运行测试**
+- [x] **Step 6: 构建并运行测试**
 
 ```powershell
 cmake --build build
@@ -2224,7 +2224,7 @@ cmake --build build
 
 Expected: 全部测试通过。
 
-- [ ] **Step 7: 向用户报告并等待提交指令**
+- [x] **Step 7: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 供用户参考的暂存命令：
 
@@ -2261,7 +2261,7 @@ git add src/world/generate.cpp CMakeLists.txt tests/test_world_ley.cpp
 - 不变式：`WorldError` 只有 `invalid_params` 一个变体。
   灵气层**不引入新的失败模式**
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `tests/test_world_veins.cpp`：
 
@@ -2727,7 +2727,7 @@ TEST(a_complete_vein_layer_reports_no_shortfall)
 }  // namespace
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 在 `CMakeLists.txt` 的 `WORLDGEN_TEST_SOURCES` 里追加：
 
@@ -2743,7 +2743,7 @@ Expected: 编译失败，报 `gamev2::world::VeinRank` 相关断言用到的
 `w.veins` 不存在——实际上 `w.veins` 在 Task 1 就建好了，因此本步的失败
 表现为 `vein_counts_match_the_setting_exactly` 失败（`veins` 为空）。
 
-- [ ] **Step 3: 把切段与稳定年限的常量加进 `spirit_tables.hpp`**
+- [x] **Step 3: 把切段与稳定年限的常量加进 `spirit_tables.hpp`**
 
 在 `include/gamev2/world/spirit_tables.hpp` 追加：
 
@@ -2771,7 +2771,7 @@ inline constexpr double kOverminedChance = 0.15;
 inline constexpr double kDepletedRatio = 0.15;
 ```
 
-- [ ] **Step 4: 实现灵脉切分与灵眼**
+- [x] **Step 4: 实现灵脉切分与灵眼**
 
 创建 `src/world/veins.cpp`：
 
@@ -3186,7 +3186,7 @@ bool veins_complete(const World& world)
 }  // namespace gamev2::world
 ```
 
-- [ ] **Step 5: 把阶段 13 接进编排**
+- [x] **Step 5: 把阶段 13 接进编排**
 
 在 `src/world/generate.cpp` 的 `make_ley_network(world);` 之后追加：
 
@@ -3194,7 +3194,7 @@ bool veins_complete(const World& world)
     make_spirit_veins(world);
 ```
 
-- [ ] **Step 6: 构建并运行测试**
+- [x] **Step 6: 构建并运行测试**
 
 ```powershell
 cmake --build build
@@ -3209,7 +3209,7 @@ Expected: 全部测试通过。
 `kShallownessScale`。**不要把断言改成「至少 1 条」来绕过**——数量是设定
 给的硬约束。
 
-- [ ] **Step 7: 向用户报告并等待提交指令**
+- [x] **Step 7: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 供用户参考的暂存命令：
 
@@ -3251,7 +3251,7 @@ git add src/world/generate.cpp CMakeLists.txt tests/test_world_veins.cpp
   `flow * 潮位 / kReferenceFlow`，最强的一批眼在灵潮期必须越过薄域门槛
 - 阶段 13 必须为**每一个**灵眼（含枯眼）留下 `cell` 与 `flow`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `tests/test_world_domains.cpp`：
 
@@ -3840,7 +3840,7 @@ TEST(the_concentration_field_keeps_its_calibration)
 }  // namespace
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```powershell
 cmake -S . -B build -G "Unix Makefiles" -DCMAKE_CXX_COMPILER=clang++
@@ -3850,7 +3850,7 @@ cmake --build build
 Expected: 编译失败，报 `make_spirit_domains` 未定义（`src/world/domains.cpp` 里
 还没有这个函数），或链接失败报符号缺失。
 
-- [ ] **Step 3: 把测试文件加进 CMakeLists**
+- [x] **Step 3: 把测试文件加进 CMakeLists**
 
 在 `CMakeLists.txt` 的 `WORLDGEN_TEST_SOURCES` 列表**最后一行之后**追加
 一行（源文件 `src/world/domains.cpp` 已在 Task 1 加进 `WORLDGEN_SOURCES`，
@@ -3860,7 +3860,7 @@ Expected: 编译失败，报 `make_spirit_domains` 未定义（`src/world/domain
     tests/test_world_domains.cpp
 ```
 
-- [ ] **Step 4: 写 `src/world/domains.cpp`**
+- [x] **Step 4: 写 `src/world/domains.cpp`**
 
 创建 `src/world/domains.cpp`：
 
@@ -3984,7 +3984,7 @@ void make_spirit_domains(World& world)
 }  // namespace gamev2::world
 ```
 
-- [ ] **Step 5: 构建并运行测试**
+- [x] **Step 5: 构建并运行测试**
 
 ```powershell
 cmake --build build
@@ -3995,7 +3995,7 @@ Expected: 全部测试通过。若 `every_live_eye_sits_in_a_concentrated_cell` 
 `CHECK(eye.flow >= needed)` 失败，说明阶段 13 的眼流量标定低于薄域门槛所需的
 量级——最强的一批眼都越不过门槛，是上游标定偏低，不是本阶段的公式错。
 
-- [ ] **Step 6: 向用户报告并等待提交指令**
+- [x] **Step 6: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 报告本任务完成的内容与新增文件，等待用户决定
 提交时机。供用户参考的暂存命令：
@@ -4049,7 +4049,7 @@ git add tests/test_world_domains.cpp
 - `SpiritVein::id` 等于该灵脉在 `World::veins` 中的下标；`SpiritEye::vein`
   记的是该下标。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `tests/test_world_land.cpp`：
 
@@ -4745,7 +4745,7 @@ TEST(scars_are_grouped_by_kind)
 }  // namespace
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```powershell
 cmake --build build
@@ -4753,7 +4753,7 @@ cmake --build build
 
 Expected: 编译失败，报 `make_historical_scars` 未声明。
 
-- [ ] **Step 3: 把测试文件加进 CMakeLists**
+- [x] **Step 3: 把测试文件加进 CMakeLists**
 
 在 `CMakeLists.txt` 的 `WORLDGEN_TEST_SOURCES` 列表**最后一行之后**追加
 一行（源文件 `src/world/land.cpp` 已在 Task 1 加进 `WORLDGEN_SOURCES`，
@@ -4763,7 +4763,7 @@ Expected: 编译失败，报 `make_historical_scars` 未声明。
     tests/test_world_land.cpp
 ```
 
-- [ ] **Step 4: 写 `src/world/land.cpp`**
+- [x] **Step 4: 写 `src/world/land.cpp`**
 
 创建 `src/world/land.cpp`：
 
@@ -5138,7 +5138,7 @@ void make_historical_scars(World& world)
 （含比较器）逐字等于仓库文件里的同名函数。校验脚本：
 `agent-temp/sdd/tools/check_task6_blocks.py`。
 
-- [ ] **Step 5: 构建并运行测试**
+- [x] **Step 5: 构建并运行测试**
 
 ```powershell
 cmake --build build
@@ -5150,7 +5150,7 @@ Expected: 全部测试通过。若 `overmined_veins_leave_sinkholes` 报
 里没有「被越采的脉 + 低平地势」的组合，测试不会走到那条断言；若 `eligible`
 不为 0 而仍无沉陷疤，那是实现的选址逻辑与测试的触发条件不一致。
 
-- [ ] **Step 6: 向用户报告并等待提交指令**
+- [x] **Step 6: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 报告本任务完成的内容与新增文件，等待用户决定
 提交时机。供用户参考的暂存命令：
@@ -5201,7 +5201,7 @@ git add tests/test_world_land.cpp
   - 不变式：本阶段**不得**改 `domain_grade` 与 `domain_concentration`——
     它们是阶段 14 的唯一写入者的产出，本阶段只读
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 在 `tests/test_world_land.cpp` 的匿名命名空间**内**追加下列测试（放在
 `}  // namespace` 之前），并把 `build_world` 的末尾改成 4 行（末尾多一
@@ -6356,7 +6356,7 @@ TEST(turbid_picks_the_lowest_indexed_eye_when_the_flows_tie)
     return w;
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```powershell
 cmake --build build
@@ -6364,7 +6364,7 @@ cmake --build build
 
 Expected: 编译失败，报 `make_land_types` 未声明。
 
-- [ ] **Step 3: 把 `make_land_types` 写进 `src/world/land.cpp`**
+- [x] **Step 3: 把 `make_land_types` 写进 `src/world/land.cpp`**
 
 先在 `include/gamev2/world/spirit_tables.hpp` 追加纯度扣减表。这张表放共享头
 文件而不是阶段文件，是因为「浊域不降纯度」这条反直觉规则必须让读表的人
@@ -6566,7 +6566,7 @@ void make_land_types(World& world)
 }
 ```
 
-- [ ] **Step 4: 构建并运行测试**
+- [x] **Step 4: 构建并运行测试**
 
 ```powershell
 cmake --build build
@@ -6575,7 +6575,7 @@ cmake --build build
 
 Expected: 全部测试通过。
 
-- [ ] **Step 5: 向用户报告并等待提交指令**
+- [x] **Step 5: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 报告本任务完成的内容与修改文件，等待用户决定
 提交时机。供用户参考的暂存命令：
@@ -6621,7 +6621,7 @@ git add tests/test_world_land.cpp
   - 不变式：`upkeep > 0` 且 `capacity > 0`——福地格浓度 ≥ 福地阈值 120，
     故容量与年耗都必然为正
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `tests/test_world_heavens.cpp`：
 
@@ -6879,7 +6879,7 @@ TEST(cave_heavens_are_deterministic)
 }  // namespace
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```powershell
 cmake --build build
@@ -6887,7 +6887,7 @@ cmake --build build
 
 Expected: 编译失败，报 `make_cave_heavens` 未声明。
 
-- [ ] **Step 3: 把测试文件加进 CMakeLists**
+- [x] **Step 3: 把测试文件加进 CMakeLists**
 
 在 `CMakeLists.txt` 的 `WORLDGEN_TEST_SOURCES` 列表**最后一行之后**追加
 一行（源文件 `src/world/heavens.cpp` 已在 Task 1 加进 `WORLDGEN_SOURCES`，
@@ -6897,7 +6897,7 @@ Expected: 编译失败，报 `make_cave_heavens` 未声明。
     tests/test_world_heavens.cpp
 ```
 
-- [ ] **Step 4: 写 `src/world/heavens.cpp`**
+- [x] **Step 4: 写 `src/world/heavens.cpp`**
 
 创建 `src/world/heavens.cpp`：
 
@@ -7015,7 +7015,7 @@ void make_cave_heavens(World& world)
 }  // namespace gamev2::world
 ```
 
-- [ ] **Step 5: 构建并运行测试**
+- [x] **Step 5: 构建并运行测试**
 
 ```powershell
 cmake --build build
@@ -7027,7 +7027,7 @@ Expected: 全部测试通过。若 `caves_only_sit_on_blessed_ground` 与
 的福地面积为 0——那是阶段 13/14 的标定问题，不是本阶段的问题；`cave_count
 _follows_the_blessed_area` 用合成世界钉死了本阶段的公式。
 
-- [ ] **Step 6: 向用户报告并等待提交指令**
+- [x] **Step 6: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 报告本任务完成的内容与新增文件，等待用户决定
 提交时机。供用户参考的暂存命令：
@@ -7057,7 +7057,7 @@ git add tests/test_world_heavens.cpp
 - Produces: 无新接口。本任务只补齐「确定性」这条覆盖与「潮位是真实参数」
   这条断言。
 
-- [ ] **Step 1: 校验编排顺序**
+- [x] **Step 1: 校验编排顺序**
 
 打开 `src/world/generate.cpp`，确认 `generate_world()` 的调用序列是：
 
@@ -7098,7 +7098,7 @@ git add tests/test_world_heavens.cpp
 阶段与编排入口」——那是读代码的人看到的第一句，数字错了会让人以为漏掉了
 阶段。
 
-- [ ] **Step 2: 给确定性测试加灵气层的比较函数**
+- [x] **Step 2: 给确定性测试加灵气层的比较函数**
 
 在 `tests/test_world_determinism.cpp` 的 `using` 声明之后追加：
 
@@ -7197,7 +7197,7 @@ std::string_view first_diff(std::string_view label,
 }
 ```
 
-- [ ] **Step 3: 把灵气层字段接进 `world_diff`**
+- [x] **Step 3: 把灵气层字段接进 `world_diff`**
 
 在 `world_diff()` 里，`d = first_diff("aquifer", a.aquifer, b.aquifer, d);`
 之后、`sea_level` 那一段之前插入：
@@ -7234,7 +7234,7 @@ std::string_view first_diff(std::string_view label,
     }
 ```
 
-- [ ] **Step 4: 扩展「每个可写字段都要被抓到」那条用例**
+- [x] **Step 4: 扩展「每个可写字段都要被抓到」那条用例**
 
 `the_field_comparison_catches_every_writable_field` 用例的名字声称覆盖了
 **每一个**可写字段。新增了灵气层字段，它就得跟着覆盖，否则这条断言就是
@@ -7397,7 +7397,7 @@ std::string_view first_diff(std::string_view label,
     }
 ```
 
-- [ ] **Step 5: 写「灵潮周期是真实参数」的用例**
+- [x] **Step 5: 写「灵潮周期是真实参数」的用例**
 
 在 `tests/test_world_determinism.cpp` 的匿名命名空间内追加：
 
@@ -7451,7 +7451,7 @@ TEST(the_spirit_tide_is_a_real_parameter)
 }
 ```
 
-- [ ] **Step 6: 补接线顺序的护栏用例**
+- [x] **Step 6: 补接线顺序的护栏用例**
 
 前面的用例**测阶段，不测接线**。`tests/test_world_heavens.cpp` 里的
 `build_world` 自己手工编排阶段来造世界，它把顺序排对了，于是
@@ -7564,7 +7564,7 @@ TEST(the_pipeline_decides_the_land_types_after_the_scars)
     tests/test_world_pipeline.cpp
 ```
 
-- [ ] **Step 7: 构建并运行测试**
+- [x] **Step 7: 构建并运行测试**
 
 ```powershell
 cmake --build build
@@ -7581,7 +7581,7 @@ Expected: 全部测试通过。
 先看是不是 `domain_concentration` 全为零（说明浓度刻度与灵眼流量没接上），
 再核对 `spirit_tide.level` 是否真的不同。
 
-- [ ] **Step 8: 向用户报告并等待提交指令**
+- [x] **Step 8: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 供用户参考的暂存命令：
 
@@ -7602,7 +7602,7 @@ git add tests/test_world_determinism.cpp tests/test_world_pipeline.cpp
 - Consumes: 灵气层的全部网格与列表
 - Produces: 无新接口。产出 `agent-temp/worldgen/` 下的 PPM 与终端统计
 
-- [ ] **Step 1: 给 demo 加灵气的名字表与配色**
+- [x] **Step 1: 给 demo 加灵气的名字表与配色**
 
 在 `src/demo/main.cpp` 的 `using` 声明之后追加：
 
@@ -7640,7 +7640,7 @@ static_assert(kLandTypeNames.size() == kLandTypeCount);
 static_assert(kLandTypeNames[static_cast<std::size_t>(LandType::dead)] == "dead");
 ```
 
-- [ ] **Step 2: 加地貌分类图导出与绝对刻度导出**
+- [x] **Step 2: 加地貌分类图导出与绝对刻度导出**
 
 在 `export_biome` 之后追加两张导出。`export_land_type` 是分类配色；
 `export_bytes` 是**绝对刻度**——灵气层那两张网格本来就是 0..255 的字节，
@@ -7686,7 +7686,7 @@ void export_bytes(const World& world, const std::filesystem::path& dir,
 }
 ```
 
-- [ ] **Step 3: 加灵气统计输出**
+- [x] **Step 3: 加灵气统计输出**
 
 在 `print_underground_stats` 之后追加。`year_in_phase` 本身就是「与
 相位起点的差」（灵历 8914 减谷底期起点 8801 等于 113，设定称「谷底期
@@ -7761,7 +7761,7 @@ void print_spirit_stats(const World& world)
 }
 ```
 
-- [ ] **Step 4: 把新导出与统计接进 `main`**
+- [x] **Step 4: 把新导出与统计接进 `main`**
 
 在 `main` 的参数解析里加 `--year`：灵历年直接决定潮位，而潮位决定福地
 面积与洞天数量。当代 8914 是谷底期，没有福地也就没有洞天；要看福地与
@@ -7808,7 +7808,7 @@ void print_spirit_stats(const World& world)
                  world.domain_concentration);
 ```
 
-- [ ] **Step 5: 构建并跑 demo，看图调参**
+- [x] **Step 5: 构建并跑 demo，看图调参**
 
 ```powershell
 cmake --build build
@@ -7860,7 +7860,7 @@ Expected: 同样打印地貌与洞天统计，但洞天为 0 处。
 调完再跑一次 demo，确认地貌分布看起来合理：**福地应当成片地落在山地**，
 浊域与瘴域应当稀疏，死地应当是小块。
 
-- [ ] **Step 6: 跑全量测试确认调参没有破坏不变量**
+- [x] **Step 6: 跑全量测试确认调参没有破坏不变量**
 
 ```powershell
 cmake --build build
@@ -7871,7 +7871,7 @@ Expected: 全部测试通过。**尤其注意** `vein_counts_match_the_setting_e
 （1 龙 / 9 主 / 40 支）与 `the_spirit_tide_is_a_real_parameter`
 （地脉网络不随潮位变）。若调参把数量改了，说明阈值被调过了头。
 
-- [ ] **Step 7: 向用户报告并等待提交指令**
+- [x] **Step 7: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 供用户参考的暂存命令：
 
@@ -7930,7 +7930,7 @@ git add include/gamev2/world/spirit_tables.hpp
 那个常量也改成从 `spirit_tables.hpp` 取，否则两处会各调各的。改的时候不要动
 它的数值。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `tests/test_world_tribulation.cpp`：
 
@@ -8079,7 +8079,7 @@ TEST(the_sites_are_deterministic)
 其余用例应当直接通过。若不通过，先查选址三步（福地 → 无旧疤 → 浓度降序
 取）是否按顺序执行。
 
-- [ ] **Step 2: 加类型与容器**
+- [x] **Step 2: 加类型与容器**
 
 在 `include/gamev2/world/spirit.hpp` 的 `CaveHeaven` 之后加：
 
@@ -8108,7 +8108,7 @@ struct TribulationSite
     std::vector<TribulationSite> tribulation_sites;
 ```
 
-- [ ] **Step 3: 加常量**
+- [x] **Step 3: 加常量**
 
 在 `include/gamev2/world/spirit_tables.hpp` 的常量区加：
 
@@ -8126,7 +8126,7 @@ inline constexpr std::uint8_t kTribulationMinConcentration = 120;
 inline constexpr std::uint32_t kTribulationSpacing = 2 * kTribulationRadius;
 ```
 
-- [ ] **Step 4: 实现阶段 18**
+- [x] **Step 4: 实现阶段 18**
 
 创建 `src/world/tribulation.cpp`。骨架：
 
@@ -8222,7 +8222,7 @@ void make_tribulation_sites(World& world)
 `cell % p.width` 与 `cell / p.width` 是 `Grid` 的行主序寻址，与阶段 15、
 阶段 17 的既有写法一致，不要另起一套换算。
 
-- [ ] **Step 5: 接线 `generate_world()`**
+- [x] **Step 5: 接线 `generate_world()`**
 
 在 `include/gamev2/world/generate.hpp` 的 `make_cave_heavens` 声明之后加：
 
@@ -8240,7 +8240,7 @@ void make_tribulation_sites(World& world);
 
 并把 `generate.hpp` 顶部的 doxygen「世界生成的十七个阶段」改成「十八个阶段」。
 
-- [ ] **Step 6: demo 导出与统计**
+- [x] **Step 6: demo 导出与统计**
 
 在 `src/demo/main.cpp`：
 
@@ -8249,7 +8249,7 @@ void make_tribulation_sites(World& world);
 - 在导出的统计里写明**图幅尺寸**——2026-10-21 拍板第 7 条要求调用方知道自己
   拿的是哪一口径的统计量（设计文档 §9.2）
 
-- [ ] **Step 7: 确定性测试扩展**
+- [x] **Step 7: 确定性测试扩展**
 
 在 `tests/test_world_determinism.cpp` 的逐字段比较里加：
 
@@ -8265,7 +8265,7 @@ void make_tribulation_sites(World& world);
 
 并把 `tribulation_site` 网格纳入逐格比较。
 
-- [ ] **Step 8: 跑全量测试**
+- [x] **Step 8: 跑全量测试**
 
 ```powershell
 cmake --build build
@@ -8276,7 +8276,7 @@ Expected: 全部测试通过。**尤其注意** `vein_counts_match_the_setting_e
 （1 龙 / 9 主 / 40 支）——阶段 18 只读不写，不应影响灵脉数量。若它挂了，
 说明阶段 18 写回了不该写的字段。
 
-- [ ] **Step 9: 向用户报告并等待提交指令**
+- [x] **Step 9: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 供用户参考的暂存命令：
 
