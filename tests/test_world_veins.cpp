@@ -20,6 +20,7 @@ using gamev2::world::kDepletedRatio;
 using gamev2::world::kNoEye;
 using gamev2::world::kOverminedChance;
 using gamev2::world::kStabilityMined;
+using gamev2::world::raw_score;
 using gamev2::world::vein_targets;
 
 WorldParams big_params(std::uint64_t seed)
@@ -315,6 +316,74 @@ TEST(some_veins_are_overmined)
     CHECK(rate < 0.24);
     // 名义概率本身也要钉住：改小它，这条用例就该红。
     CHECK(kOverminedChance > 0.0);
+}
+
+TEST(overmined_vein_reserve_is_the_penalised_score_sum)
+{
+    // 越采削掉的比例是**定值**（kOverminePenalty），不是「约略削一点」。
+    // 时序层要靠它反推 8300 年的承载上限，那边有一条反推断言；但削减本身
+    // 只有 worldgen 能看见，改这个数必须两侧一起红。
+    //
+    // 储量就是这条脉自己那几个节点的得分和，越采后再乘 (100 − 它)/100，
+    // 所以这里只需复算得分，不必复刻切段与排名：
+    //   未越采：reserve == Σ得分
+    //   越采：  reserve == floor(Σ得分 × (100 − 它) / 100)
+    //
+    // 未越采那一半是另一半的判据：得分复算一旦与实现脱节，先红的是它。
+    const WorldParams p = big_params(2026);
+    const auto generated = gamev2::world::generate_world(p);
+    CHECK(generated.has_value());
+    if (!generated)
+    {
+        return;
+    }
+    const World& w = *generated;
+
+    // 得分归一化与 veins.cpp 一致：raw × 255 ÷ 全图最大值。
+    std::vector<std::uint64_t> raws(w.ley_nodes.size(), 0);
+    std::uint64_t max_raw = 0;
+    for (std::uint32_t i = 0; i < w.ley_nodes.size(); ++i)
+    {
+        raws[i] = raw_score(w.ley_nodes[i]);
+        if (raws[i] > max_raw)
+        {
+            max_raw = raws[i];
+        }
+    }
+    std::vector<std::uint32_t> scores(w.ley_nodes.size(), 0);
+    if (max_raw > 0)
+    {
+        for (std::uint32_t i = 0; i < w.ley_nodes.size(); ++i)
+        {
+            scores[i] = static_cast<std::uint32_t>(raws[i] * 255u / max_raw);
+        }
+    }
+
+    std::uint32_t penalised = 0;
+    for (const SpiritVein& v : w.veins)
+    {
+        const std::vector<std::uint32_t>& nodes =
+            w.ley_channels[v.channel].nodes;
+        std::uint32_t sum = 0;
+        for (std::uint32_t j = v.first_node; j <= v.last_node; ++j)
+        {
+            sum += scores[nodes[j]];
+        }
+        if (v.overmined)
+        {
+            ++penalised;
+            // 40 是字面量，**不是** kOverminePenalty 的别名：引用同一个
+            // 常量算期望值的话，改了它生产与断言一起漂移，这条永远红不了。
+            // 改这个数必须同时改这里与时序层的反推（那边同样是字面量 40）。
+            CHECK_EQ(v.reserve, sum * 40u / 100u);
+        }
+        else
+        {
+            CHECK_EQ(v.reserve, sum);
+        }
+    }
+    // 守卫：fixture 一旦不产出越采脉，前一半断言整条空跑，比例就没人钉。
+    CHECK(penalised > 0);
 }
 
 TEST(vein_grids_agree_with_the_vein_list)

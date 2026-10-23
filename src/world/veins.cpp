@@ -12,12 +12,6 @@
 namespace gamev2::world {
 namespace {
 
-/// 浅埋权重。分越浅，得分越高。
-constexpr std::uint32_t kShallownessScale = 1000;
-
-/// 汇流加成。每多一条通道汇入，浓度跳升一档。
-constexpr std::uint32_t kConfluenceBonus = 2;
-
 /// 稳定年限的基数与每节点增量。浓度持续得越久，这条脉越稳定。
 constexpr std::uint32_t kStabilityBase = 100;
 constexpr std::uint32_t kStabilityPerNode = 50;
@@ -33,17 +27,6 @@ struct Segment
     std::uint32_t peak_node = 0;  ///< 段内得分最高的节点，即灵眼位置
     bool overmined = false;
 };
-
-/// 浓度得分。三个因子相乘：任何一项为零则该格不成脉，
-/// 符合「灵脉是地脉抬升段」的定义。
-std::uint64_t raw_score(const LeyNode& node)
-{
-    const std::uint32_t shallowness =
-        kShallownessScale - node.depth * kShallownessScale / kMaxLeyDepth;
-    const std::uint32_t confluence =
-        1u + static_cast<std::uint32_t>(kConfluenceBonus) * node.merges;
-    return static_cast<std::uint64_t>(node.flow) * shallowness * confluence;
-}
 
 /// 按阈值把每条通道切成若干段。
 std::vector<Segment> segment_channels(const World& world,

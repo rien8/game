@@ -281,6 +281,26 @@ struct VeinTarget
                       scaled(kBranchVeinTotal)};
 }
 
+/// 浓度得分。三个因子相乘：任何一项为零则该格不成脉，
+/// 符合「灵脉是地脉抬升段」的定义。
+///
+/// 挪到本头是因为测试要照同一份公式复算段的储量：留在 veins.cpp 的匿名
+/// 命名空间里，测试就只能抄一份会与实现漂移的副本。
+[[nodiscard]] inline std::uint64_t raw_score(const LeyNode& node) noexcept
+{
+    /// 浅埋权重。分越浅，得分越高。
+    constexpr std::uint32_t kShallownessScale = 1000;
+
+    /// 汇流加成。每多一条通道汇入，浓度跳升一档。
+    constexpr std::uint32_t kConfluenceBonus = 2;
+
+    const std::uint32_t shallowness =
+        kShallownessScale - node.depth * kShallownessScale / kMaxLeyDepth;
+    const std::uint32_t confluence =
+        1u + static_cast<std::uint32_t>(kConfluenceBonus) * node.merges;
+    return static_cast<std::uint64_t>(node.flow) * shallowness * confluence;
+}
+
 /// 灵脉切段阈值（字节刻度）。得分超过它的连续节点算一段。
 /// 下调它会扩大合格集，但也会把原本分开的极大区间并起来，段数因此
 /// 未必单调增加——切段时必须留段数最多的那组，不能只看最后一次。
