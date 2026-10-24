@@ -15,7 +15,7 @@ These rules are non-negotiable. They override any workflow guidance below.
 - Reply to the user in Chinese.
 - Place generated documentation under `doc/`; put temporary files under `agent-temp/`.
 - Do not delete existing comments arbitrarily.
-- Ues `py -3` as python interpreter.
+- Use `py -3` as python interpreter.
 
 ## C++ Standard
 
