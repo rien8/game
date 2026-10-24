@@ -535,7 +535,7 @@ TEST(the_export_names_every_section_and_the_reference_table)
     CHECK_EQ(reference_cell(text, "寒江剑府"), std::string("0/1/0（阴脉）"));
     // 各宗格局的段首要写清每一列的口径：混了五种口径的一行表，读者
     // 会把「开采 > 配额」当成模型坏了。
-    CHECK(text.find("开采/越采/未登记 = 六百年累计") != std::string::npos);
+    CHECK(text.find("开采/越采/未登记/劫损 = 六百年累计") != std::string::npos);
 }
 
 }  // namespace

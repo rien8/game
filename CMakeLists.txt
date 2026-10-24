@@ -153,6 +153,7 @@ set(FACTION_TEST_SOURCES
     tests/test_faction_economy.cpp
     tests/test_faction_era.cpp
     tests/test_faction_determinism.cpp
+    tests/test_faction_tribulation.cpp
 )
 add_executable(faction_tests ${FACTION_TEST_SOURCES})
 target_link_libraries(faction_tests PRIVATE faction)

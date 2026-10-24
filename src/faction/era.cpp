@@ -18,6 +18,10 @@ EraReport simulate(const gamev2::world::World& world,
                    const gamev2::history::Ledger& ledger,
                    FactionDiagnostics& diagnostics)
 {
+    // 诊断量是「本次推演的结果」，不是累计值：调用方复用同一个结构时
+    // 不该看到上一次的计数叠上来（与 build_ledger 同规）。
+    diagnostics = FactionDiagnostics{};
+
     EraReport report;
     report.epoch = ledger.epoch;
     report.now = ledger.now;
@@ -65,7 +69,7 @@ EraReport simulate(const gamev2::world::World& world,
     std::vector<EraEvent> events;
     Simulation sim(world, ledger, config, events);
     sim.seed_entities();
-    sim.run();
+    sim.run(diagnostics);
     sim.collect(report, diagnostics);
     return report;
 }
@@ -196,6 +200,7 @@ constexpr const char* event_label(EraEventKind kind)
     case EraEventKind::vein_publicized:    return "公有化";
     case EraEventKind::overmine_discovered: return "越采败露";
     case EraEventKind::cave_heaven_lost:    return "洞天失效";
+    case EraEventKind::tribulation_toll:    return "劫损";
     case EraEventKind::count:                return "";
     }
     return "";
@@ -246,6 +251,7 @@ std::string event_actor_text(const EraEvent& event)
     {
     case EraEventKind::vein_depleted:
     case EraEventKind::vein_publicized:
+    case EraEventKind::tribulation_toll:
         return "-";
     case EraEventKind::vein_transferred:
         // 主体是**接手方**。列名只说「主体」，不点破就会被读反
@@ -289,6 +295,8 @@ std::string event_amount_text(const EraEvent& event)
         return "试算少采 " + std::to_string(event.amount);
     case EraEventKind::overmine_discovered:
         return "越采 " + std::to_string(event.amount);
+    case EraEventKind::tribulation_toll:
+        return "劫走 " + std::to_string(event.amount);
     default:
         return "-";
     }
@@ -364,12 +372,13 @@ bool export_era(const EraReport& report,
     // 六百年里转过手的脉上的旧账（设计 §8.10：这份文档是给人裁决
     // 哪个格局算数的，读者不能被误导去改模型）。
     out << "（口径：持有脉/配额/余额 = 当代名下脉；初始脉/表决权重 = 8300；"
-        << "开采/越采/未登记 = 六百年累计，含后来转出的脉，可大于当代配额；"
+        << "开采/越采/未登记/劫损 = 六百年累计，含后来转出的脉，可大于当代配额；"
+        << "劫损 = 天地抽走，与台账同名同义，不记在「开采」里；"
         << "未登记 = 落在不登记在册的脉上的开采（与台账同名同义），记在开采"
         << "当时的持有者名下，散修在登记在册的脉上的私采不计这一列；"
         << "用度/供给/缺口 = 当年；洞天 = 8300 归属）\n";
     out << "宗门\t持有脉\t初始脉\t配额\t余额\t用度\t供给\t缺口\t开采\t越采\t"
-        << "未登记\t表决权重\t" << kCaveHeavenColumn << '\n';
+        << "未登记\t劫损\t表决权重\t" << kCaveHeavenColumn << '\n';
     for (const auto& faction : report.factions)
     {
         const bool unbounded = faction.unbounded_demand;
@@ -384,6 +393,7 @@ bool export_era(const EraReport& report,
             << faction.extracted << '\t'
             << faction.overmined << '\t'
             << faction.unregistered << '\t'
+            << faction.tribulation_loss << '\t'
             << faction.vote_weight << '\t'
             << faction.cave_heavens << '\n';
     }
@@ -392,7 +402,7 @@ bool export_era(const EraReport& report,
     // 「阴阳」是脉的物理属性，不进品阶构成：寒江剑府那条阴脉在参照表
     // 里按主脉记，没有这一列读者在本世界一侧认不出它。
     out << "脉\t初始持有者\t当代持有者\t品阶\t阴阳\t配额\t已采\t合法开采\t"
-        << "余额\t枯竭年\t登记\n";
+        << "劫损\t余额\t枯竭年\t登记\n";
     for (const auto& vein : report.veins)
     {
         out << vein.vein << '\t'
@@ -403,6 +413,7 @@ bool export_era(const EraReport& report,
             << vein.quota_total << '\t'
             << vein.extracted << '\t'
             << vein.legal_extracted << '\t'
+            << vein.tribulation_loss << '\t'
             << vein.balance << '\t'
             << depletion_text(vein.depleted_year) << '\t'
             << (vein.registered ? "是" : "否") << '\n';
@@ -473,6 +484,7 @@ bool export_era(const EraReport& report,
     out << "重勘空转\t" << diagnostics.redraft_empty << '\n';
     out << "公有化残留\t" << diagnostics.public_release_mismatch << '\n';
     out << "守恒破坏\t" << diagnostics.conservation_broken << '\n';
+    out << "劫损未足额\t" << diagnostics.tribulation_shortfall << '\n';
     return static_cast<bool>(out);
 }
 

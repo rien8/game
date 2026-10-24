@@ -66,14 +66,21 @@ FactionTable build_faction_table(gamev2::ecs::World& world)
     return table;
 }
 
-/// 剩余配额 = 总量配额 − 累计开采，饱和到 0。
+/// 剩余配额 = 总量配额 − 累计开采 − 累计劫损，饱和到 0。
 ///
 /// 越采会让累计开采超过配额，裸减法会回绕成一个巨大的「剩余」，
 /// 合法开采就会接着从里面扣——守恒恒等式照样成立，账全错。
+///
+/// 劫损也要减：天地抽走的那部分人也采不到了（台账同规）。不减的话，
+/// 被劫过的脉照样能被人采到满配额，劫损就只剩一个不影响任何数字的
+/// 装饰。
 std::uint32_t quota_left_of(const VeinRight& right, const VeinStock& stock)
 {
-    return (stock.extracted < right.quota_total)
-               ? right.quota_total - stock.extracted
+    const std::uint64_t used = static_cast<std::uint64_t>(stock.extracted)
+                               + stock.tribulation_loss;
+    return (used < right.quota_total)
+               ? static_cast<std::uint32_t>(
+                     static_cast<std::uint64_t>(right.quota_total) - used)
                : 0u;
 }
 
@@ -264,6 +271,67 @@ void ClockSystem::execute(gamev2::ecs::World& world,
     }
     ++clock->year;
     clock->level = gamev2::world::compute_spirit_tide(clock->year).level;
+}
+
+TribulateSystem::TribulateSystem(
+    std::vector<Toll> tolls,
+    std::vector<std::pair<gamev2::ecs::EntityId, std::uint32_t>> veins,
+    gamev2::ecs::EntityId clock,
+    std::vector<EraEvent>& events,
+    FactionDiagnostics& diagnostics)
+    : clock_(clock), events_(events), diagnostics_(diagnostics)
+{
+    for (const Toll& toll : tolls)
+    {
+        by_year_[toll.year].push_back(toll);
+    }
+    for (const auto& [entity, vein] : veins)
+    {
+        entity_of_.emplace(vein, entity);
+    }
+}
+
+void TribulateSystem::execute(gamev2::ecs::World& world,
+                              gamev2::ecs::CommandBuffer&)
+{
+    const auto* clock = world.get_if<SimClock>(clock_);
+    if (clock == nullptr)
+    {
+        return;
+    }
+    const auto year = by_year_.find(clock->year);
+    if (year == by_year_.end())
+    {
+        return;
+    }
+    for (const Toll& toll : year->second)
+    {
+        const auto entity = entity_of_.find(toll.vein);
+        if (entity == entity_of_.end())
+        {
+            continue;
+        }
+        auto* stock = world.get_if<VeinStock>(entity->second);
+        if (stock == nullptr || stock->stock == 0u)
+        {
+            // 井已经空了，劫云抽不走什么。台账那边同样不记这笔：它算出的
+            // 损失本来就是零。两层的账因此差这一笔，报出来。
+            ++diagnostics_.tribulation_shortfall;
+            continue;
+        }
+        const std::uint32_t loss = std::min(stock->stock, toll.amount);
+        stock->stock -= loss;
+        stock->tribulation_loss += loss;
+        if (loss < toll.amount)
+        {
+            // 台账记账的那笔抽不动：本层的余额比台账低——多半是本层自己的
+            // 越采先抽走了一部分。报出来，不假装两边一样。
+            ++diagnostics_.tribulation_shortfall;
+        }
+        events_.push_back(EraEvent{EraEventKind::tribulation_toll,
+                                   clock->year, toll.vein, Sect::unowned,
+                                   Sect::unowned, loss});
+    }
 }
 
 AssessSystem::AssessSystem(std::uint64_t conversion)

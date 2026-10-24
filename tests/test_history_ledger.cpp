@@ -1850,14 +1850,18 @@ TEST(the_export_separates_a_disputed_vein_from_a_drained_one)
     }
 
     // 脉级台账：争议脉的枯竭年印 0，与它非零的当代余额自洽。
+    //
+    // 十列：脉、宗门、品阶、8300配额、安全流速、已采、越采、**劫损**、
+    // 当代余额、枯竭年。劫损夹在已采与当代余额之间，读者才能把
+    // 「配额 − 已采 − 劫损 = 余额」对出来。
     for (const auto& line : data_rows(sections, "=== 脉级台账 ==="))
     {
         const auto fields = split_tabs(line);
-        CHECK_EQ(fields.size(), std::size_t{9});
+        CHECK_EQ(fields.size(), std::size_t{10});
         const auto vein = static_cast<std::uint32_t>(std::stoul(fields[0]));
         if (disputed.contains(vein))
         {
-            CHECK_EQ(std::stoul(fields[8]), std::size_t{0});
+            CHECK_EQ(std::stoul(fields[9]), std::size_t{0});
         }
     }
 }

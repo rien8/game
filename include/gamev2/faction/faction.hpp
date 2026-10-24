@@ -169,6 +169,11 @@ struct VeinStock
     std::uint32_t extracted = 0;
     /// 累计合法开采（不含越采）。与台账的对照只能比这一项。
     std::uint32_t legal_extracted = 0;
+    /// 累计劫损：天地抽走的部分。
+    ///
+    /// 它不进 `extracted`：台账的口径是「天地抽走的没有人该负责」，两件事
+    /// 分开记。守恒式因此是「余额 + 开采 + 劫损 == 配额」。
+    std::uint32_t tribulation_loss = 0;
     /// 当年开采量：ExtractSystem 赋值，OvertakeSystem 累加。
     ///
     /// 重勘的试算要拿「这条脉今年被抽了多少」与「转手之后会被抽多少」
@@ -323,6 +328,12 @@ struct FactionDiagnostics
     std::uint32_t public_release_mismatch = 0;
     /// 守恒对账不通过的脉数。
     std::uint32_t conservation_broken = 0;
+    /// 台账记的劫损没有足额施加的笔数。
+    ///
+    /// 台账记账的劫损抽不动：本层的余额比台账低——多半是本层自己的越采
+    /// 先抽走了一部分（散修采尽为止，无主脉上最常见），井空了劫云就
+    /// 抽不走什么。两层对这条脉的余额因此不等，报出来，不假装一样。
+    std::uint32_t tribulation_shortfall = 0;
 };
 
 }  // namespace gamev2::faction

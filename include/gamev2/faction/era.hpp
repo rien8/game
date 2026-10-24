@@ -30,6 +30,10 @@ enum class EraEventKind : std::uint8_t
     vein_publicized,    ///< 枯竭的脉公有化
     overmine_discovered, ///< 越采被发现
     cave_heaven_lost,   ///< 洞天失效
+    /// 劫损：天地抽走的一部分。台账的 `TribulationEvent` 在本层重放。
+    ///
+    /// 它没有主体：劫云不是谁做的事。
+    tribulation_toll,
     count,              ///< 哨兵：种类数，不是事件类型
 };
 
@@ -61,6 +65,12 @@ struct VeinReport
     /// 累计合法开采（不含越采）。与台账的对照只比这一项。
     std::uint32_t legal_extracted = 0;
     std::uint32_t balance = 0;
+    /// 累计劫损：天地抽走的部分。
+    ///
+    /// 与台账的 `QuotaEntry::tribulation_loss` **同名同义**：它不是开采，
+    /// 没有持有者、没有配额，谁也不为它负责。守恒式是
+    /// 「余额 + 开采 + 劫损 == 配额」。
+    std::uint32_t tribulation_loss = 0;
     std::uint32_t depleted_year = 0;
     bool registered = true;
     bool yin = false;
@@ -80,6 +90,8 @@ struct FactionReport
     std::uint32_t extracted = 0;
     std::uint32_t overmined = 0;
     std::uint32_t unregistered = 0;
+    /// 名下脉的累计劫损。与台账的 `SectLedger::tribulation_loss` 同名同义。
+    std::uint32_t tribulation_loss = 0;
     std::uint32_t vote_weight = 0;
     std::uint32_t cave_heavens = 0;
     /// 用度无上限（魔修、散修）。

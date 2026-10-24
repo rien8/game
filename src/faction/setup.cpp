@@ -161,24 +161,28 @@ void Simulation::seed_entities()
                                    SimClock{config_.epoch - 1u, 0u});
 }
 
-void Simulation::run()
+void Simulation::run(FactionDiagnostics& diagnostics)
 {
     // 注册顺序即冲突系统的执行顺序（Scheduler::plan 按注册顺序
-    // 贪心分层）。所以这六行的顺序不能改：ClockSystem 写潮位，
-    // 另五个读它，读者自动落到写者之后的批次；DepleteSystem 还要排在
-    // 开采与越采之后——枯竭年是余额归零的那一年；ResolveSystem 排在
-    // 最后——公有化与归属变更都要看当年的开采结果。
+    // 贪心分层）。所以这七行的顺序不能改：ClockSystem 写潮位，
+    // 另六个读它，读者自动落到写者之后的批次；TribulateSystem 要排在
+    // 开采与评估之前——劫云抽干的那一年，被抽走的配额不该再被采；
+    // DepleteSystem 还要排在开采与越采之后——枯竭年是余额归零的那一年；
+    // ResolveSystem 排在最后——公有化与归属变更都要看当年的开采结果。
     //
     // 工作线程数给 1：本层规模下并行是零收益，而多线程会让
     // View::each_parallel 的行为依赖批内的位置。串行是刻意的选择。
     gamev2::ecs::Scheduler scheduler(1);
     ClockSystem clock(clock_);
+    TribulateSystem tribulate(tolls_of_ledger(), vein_entities(),
+                              clock_, events_, diagnostics);
     AssessSystem assess(config_.conversion);
     ExtractSystem extract(config_.conversion);
     OvertakeSystem overtake(world_.params().seed, config_.epoch, events_);
     DepleteSystem deplete(clock_, events_);
     ResolveSystem resolve(clock_, config_.epoch, events_);
     scheduler.add(clock);
+    scheduler.add(tribulate);
     scheduler.add(assess);
     scheduler.add(extract);
     scheduler.add(overtake);
@@ -191,6 +195,34 @@ void Simulation::run()
     {
         scheduler.run(ecs_world_, cmd);
     }
+}
+
+std::vector<Toll> Simulation::tolls_of_ledger() const
+{
+    // 台账是劫损的唯一来源：候选池、排期与覆盖比例都在那边算完了。
+    // 本层只负责按年施加——重算一遍就是两套模型各说各话。
+    std::vector<Toll> tolls;
+    tolls.reserve(ledger_.tribulation_events.size());
+    for (const auto& event : ledger_.tribulation_events)
+    {
+        tolls.push_back(Toll{event.year, event.vein, event.amount});
+    }
+    return tolls;
+}
+
+std::vector<std::pair<gamev2::ecs::EntityId, std::uint32_t>>
+Simulation::vein_entities() const
+{
+    // 脉实体与台账的脉一一对应（seed_entities 按 ledger.veins 建实体）。
+    // 视图的遍历顺序不保证与脉编号一致，所以脉编号到实体的映射要自己
+    // 记一份。
+    std::vector<std::pair<gamev2::ecs::EntityId, std::uint32_t>> pairs;
+    pairs.reserve(veins_.size());
+    for (std::size_t i = 0; i < veins_.size(); ++i)
+    {
+        pairs.emplace_back(veins_[i], ledger_.veins[i].vein);
+    }
+    return pairs;
 }
 
 void Simulation::collect(EraReport& report, FactionDiagnostics& diagnostics)
@@ -241,6 +273,7 @@ void Simulation::collect(EraReport& report, FactionDiagnostics& diagnostics)
     std::array<std::uint32_t, kFactionCount> initial_vein_count{};
     std::array<std::uint32_t, kFactionCount> quota_total{};
     std::array<std::uint32_t, kFactionCount> balance_total{};
+    std::array<std::uint32_t, kFactionCount> toll_total{};
 
     report.veins.reserve(veins_.size());
     for (const gamev2::ecs::EntityId e : veins_)
@@ -269,6 +302,7 @@ void Simulation::collect(EraReport& report, FactionDiagnostics& diagnostics)
         vein.extracted = stock->extracted;
         vein.legal_extracted = stock->legal_extracted;
         vein.balance = stock->stock;
+        vein.tribulation_loss = stock->tribulation_loss;
         vein.depleted_year = stock->depleted_year;
         vein.registered = right->registered;
         vein.yin = profile->yin;
@@ -283,6 +317,7 @@ void Simulation::collect(EraReport& report, FactionDiagnostics& diagnostics)
         initial_vein_count[initial_index] += 1u;
         quota_total[owner_index] += vein.quota_total;
         balance_total[owner_index] += vein.balance;
+        toll_total[owner_index] += vein.tribulation_loss;
         report.total_extracted += vein.extracted;
         report.total_balance += vein.balance;
 
@@ -292,8 +327,10 @@ void Simulation::collect(EraReport& report, FactionDiagnostics& diagnostics)
             ++report.owner_changes;
         }
 
-        // 守恒：每条脉的余额与开采之和必须等于它的配额。
-        if (vein.balance + vein.extracted != vein.quota_total)
+        // 守恒：余额、开采与劫损之和必须等于配额。劫损是第三项——它不是
+        // 开采，没有持有者，谁也不为它负责，但它确实从余额里走了。
+        if (vein.balance + vein.extracted + vein.tribulation_loss
+            != vein.quota_total)
         {
             ++diagnostics.conservation_broken;
         }
@@ -336,6 +373,7 @@ void Simulation::collect(EraReport& report, FactionDiagnostics& diagnostics)
         faction.extracted = balance->extracted;
         faction.overmined = balance->overmined;
         faction.unregistered = balance->unregistered;
+        faction.tribulation_loss = toll_total[index];
         faction.vote_weight = balance->vote_weight;
         faction.cave_heavens = cave_heavens[index];
         faction.unbounded_demand = balance->unbounded_demand;

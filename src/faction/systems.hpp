@@ -12,9 +12,22 @@
 
 #include <cstdint>
 #include <tuple>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace gamev2::faction {
+
+/// 一次劫损。台账记的：哪一年、哪条脉、抽走多少。
+///
+/// 金额是台账的**记账值**，本层原样重放——劫云抽走多少是既成事实，
+/// 不是本层要重算的量。
+struct Toll
+{
+    std::uint32_t year = 0;
+    std::uint32_t vein = 0;
+    std::uint32_t amount = 0;
+};
 
 /// 推演上下文。
 ///
@@ -40,7 +53,14 @@ public:
     void seed_entities();
 
     /// 推演 [epoch, now) 的每一年。
-    void run();
+    void run(FactionDiagnostics& diagnostics);
+
+    /// 台账记的劫损，按年施加。
+    [[nodiscard]] std::vector<Toll> tolls_of_ledger() const;
+
+    /// 脉实体与脉编号的对应。
+    [[nodiscard]] std::vector<std::pair<gamev2::ecs::EntityId, std::uint32_t>>
+    vein_entities() const;
 
     /// 把实体世界的终态读成报告。
     void collect(EraReport& report, FactionDiagnostics& diagnostics);
@@ -95,6 +115,41 @@ public:
 
 private:
     gamev2::ecs::EntityId clock_;
+};
+
+/// 劫损。天地抽走的一部分，按台账记的账重放一遍。
+///
+/// 它排在时钟之后、评估之前：劫云在年内抽干，抽取要看到被抽干之后的
+/// 余额——台账的年序是「越采 → 劫损 → 正常开采」，本层的越采在开采之后，
+/// 但劫损必须赶在开采之前，否则被抽走的配额还会被人采走。
+class TribulateSystem final : public gamev2::ecs::System
+{
+public:
+    /// `const SimClock` 必须在读集里：调度器只靠读写集判冲突，本 system
+    /// 要读当年的年份，不声明成读，它就会与写钟的 ClockSystem 落进同一批
+    /// 并行跑。
+    using ReadSet = std::tuple<const SimClock, const VeinStock>;
+    using WriteSet = std::tuple<VeinStock>;
+
+    TribulateSystem(
+        std::vector<Toll> tolls,
+        std::vector<std::pair<gamev2::ecs::EntityId, std::uint32_t>> veins,
+        gamev2::ecs::EntityId clock,
+        std::vector<EraEvent>& events,
+        FactionDiagnostics& diagnostics);
+
+    void execute(gamev2::ecs::World& world,
+                 gamev2::ecs::CommandBuffer& cmd) override;
+
+private:
+    /// 按年分桶。年份是稀疏的：有些年没有劫。逐年扫全表是六百多次
+    /// 无谓比较，分桶后每一年一次查找。
+    std::unordered_map<std::uint32_t, std::vector<Toll>> by_year_;
+    /// 脉编号 → 实体。视图的遍历顺序不保证与脉编号一致，只能按编号找。
+    std::unordered_map<std::uint32_t, gamev2::ecs::EntityId> entity_of_;
+    gamev2::ecs::EntityId clock_;
+    std::vector<EraEvent>& events_;
+    FactionDiagnostics& diagnostics_;
 };
 
 /// 评估。对每个派系，扫描它名下的脉，算当年的供给与缺口。

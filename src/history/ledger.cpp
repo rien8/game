@@ -440,16 +440,22 @@ Ledger build_ledger(const gamev2::world::World& world,
         return ledger;
     }
 
-    // 宗级汇总与偏差分解，先算一遍。
+    // 宗级汇总与偏差分解。
     //
-    // now == epoch 时没有任何一年被推演，余额还停在基数上，于是偏差为
-    // 0——这是一个「还没开采过」的世界的实账，而不是空壳。推演之后还要
-    // 再算一遍：推演改写了 balance 与 extracted。
-    aggregate_sects(ledger);
-    compute_deviations(ledger);
+    // 退化路径上只有基数可算（余额还停在 8300 的数上，于是偏差为 0——
+    // 那是一个「还没开采过」的世界的实账，而不是空壳）；正常路径上要等
+    // 推演完再算：推演改写了 balance 与 extracted。
+    //
+    // 收成一处，免得两处各写一遍——两遍里漏掉一处，退化路径就会带着上
+    // 一份账走出去。
+    const auto summarize = [&] {
+        aggregate_sects(ledger);
+        compute_deviations(ledger);
+    };
 
     if (ledger.now <= ledger.epoch)
     {
+        summarize();
         return ledger;
     }
 
@@ -459,6 +465,7 @@ Ledger build_ledger(const gamev2::world::World& world,
     if (years > kMaxSpanYears)
     {
         diagnostics.span_too_large = 1u;
+        summarize();
         return ledger;
     }
 
@@ -480,6 +487,7 @@ Ledger build_ledger(const gamev2::world::World& world,
         // 退化按设计 §5 由诊断量报出，不静默返回一份「什么都没采」的
         // 台账。
         diagnostics.flow_conversion_collapsed = 1u;
+        summarize();
         return ledger;
     }
     // kFlowToStock = sum_total * 255 / (integral * sum_rate)
@@ -492,6 +500,7 @@ Ledger build_ledger(const gamev2::world::World& world,
         // 算不出任何开采量。这是一种退化，按设计 §5 由诊断量报出，
         // 不静默返回一份「什么都没采」的台账。
         diagnostics.flow_conversion_collapsed = 1u;
+        summarize();
         return ledger;
     }
 
@@ -747,8 +756,7 @@ Ledger build_ledger(const gamev2::world::World& world,
 
     // 宗级汇总与偏差分解，推演之后再算一遍：推演改写了 balance 与
     // extracted，余额变了，余量与口径差都得跟着变。
-    aggregate_sects(ledger);
-    compute_deviations(ledger);
+    summarize();
 
     // 未登记开采不计入任何登记宗的余额，只单列一笔。
     //
@@ -876,7 +884,11 @@ bool export_ledger(const Ledger& ledger,
     out << "越采差（人为多采）\t" << ledger.overmining_deviation << '\n';
     out << "劫损（天地抽走）\t" << ledger.tribulation_deviation << '\n';
     out << "\n=== 脉级台账 ===\n";
-    out << "脉\t宗门\t品阶\t8300配额\t安全流速\t已采\t越采\t当代余额\t枯竭年\n";
+    // 「劫损」这一列是当代余额的扣项：余额 = 8300配额 − 已采 − 劫损。
+    // 没有它，读者看着「配额 737、已采 332、余额 0」会以为账算错了——
+    // 中间那 405 无处可查。
+    out << "脉\t宗门\t品阶\t8300配额\t安全流速\t已采\t越采\t劫损\t"
+        << "当代余额\t枯竭年\n";
     for (const auto& entry : ledger.veins)
     {
         // 争议脉的哨兵年不是枯竭年，这里印 0：账上的算法是「没枯」，
@@ -892,6 +904,7 @@ bool export_ledger(const Ledger& ledger,
             << entry.surveyed_rate << '\t'
             << entry.extracted << '\t'
             << entry.overmined_amount << '\t'
+            << entry.tribulation_loss << '\t'
             << entry.balance << '\t'
             << drain_year << '\n';
     }

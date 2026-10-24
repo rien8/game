@@ -524,11 +524,13 @@ void print_ledger_stats(const gamev2::history::Ledger& ledger,
     constexpr std::size_t kNameWidth = 10u;
     for (const auto& sect : ledger.sects)
     {
-        std::println("  {} 配额 {:>6}  当代 {:>6}  配额与余额差 {:>7}  越采 {:>5}",
+        std::println("  {} 配额 {:>6}  当代 {:>6}  配额与余额差 {:>7}  越采 {:>5}"
+                     "  劫损 {:>5}",
                      pad_to_width(gamev2::history::sect_name(sect.sect),
                                   kNameWidth),
                      sect.quota_total, sect.current_total,
-                     sect.deviation_total, sect.overmined_amount);
+                     sect.deviation_total, sect.overmined_amount,
+                     sect.tribulation_loss);
     }
     // 三类并排：口径差压过另两类，这正是「老配额结构性不公」那句话的
     // 三个分量，缺一个就只剩两个可比。
@@ -585,11 +587,12 @@ void print_era_stats(const gamev2::faction::EraReport& era,
     constexpr std::size_t kNameWidth = 10u;
     for (const auto& faction : era.factions)
     {
-        std::println("  {} 持有脉 {:>3}  余额 {:>6}  开采 {:>6}  越采 {:>5}",
+        std::println("  {} 持有脉 {:>3}  余额 {:>6}  开采 {:>6}  越采 {:>5}"
+                     "  劫损 {:>5}",
                      pad_to_width(gamev2::history::sect_name(faction.sect),
                                   kNameWidth),
                      faction.vein_count, faction.balance, faction.extracted,
-                     faction.overmined);
+                     faction.overmined, faction.tribulation_loss);
     }
     // 重勘的三种结局各有多少次。空转（提了案却既没通过也没被否）是
     // 「清单是空的，没有东西可投」——它是这三种里唯一在台账上看不见的。
@@ -603,15 +606,17 @@ void print_era_stats(const gamev2::faction::EraReport& era,
         || diagnostics.conversion_collapsed != 0u
         || diagnostics.span_too_large != 0u
         || diagnostics.public_release_mismatch != 0u
-        || diagnostics.conservation_broken != 0u)
+        || diagnostics.conservation_broken != 0u
+        || diagnostics.tribulation_shortfall != 0u)
     {
         std::println("  诊断：无基线 {}，换算塌缩 {}，跨度超限 {}，"
-                     "公有化残留 {}，守恒破坏 {}",
+                     "公有化残留 {}，守恒破坏 {}，劫损未足额 {}",
                      diagnostics.no_baseline,
                      diagnostics.conversion_collapsed,
                      diagnostics.span_too_large,
                      diagnostics.public_release_mismatch,
-                     diagnostics.conservation_broken);
+                     diagnostics.conservation_broken,
+                     diagnostics.tribulation_shortfall);
     }
 }
 
