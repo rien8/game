@@ -114,12 +114,17 @@ enum class Stream : std::uint32_t
     land = 16,
     /// 时序层的越采年抽样。
     ledger = 17,
+    /// 派系演化层的越采发现抽样。
+    faction = 18,
     /// 时序层的渡劫年份与成败抽样。
-    tribulation = 18,
+    ///
+    /// 与 faction 同源竞争 18 号：派系层先发布，本层让号改占 19。改号会
+    /// 换掉渡劫的抽样结果，所以这条一旦定下就不要再动。
+    tribulation = 19,
 };
 
 /// 全部已占用的流号。清单与枚举必须同步维护。
-inline constexpr std::array<std::uint32_t, 19> kStreamIds{
+inline constexpr std::array<std::uint32_t, 20> kStreamIds{
     static_cast<std::uint32_t>(Stream::elevation),
     static_cast<std::uint32_t>(Stream::rain),
     static_cast<std::uint32_t>(Stream::temperature),
@@ -138,6 +143,7 @@ inline constexpr std::array<std::uint32_t, 19> kStreamIds{
     static_cast<std::uint32_t>(Stream::heaven),
     static_cast<std::uint32_t>(Stream::land),
     static_cast<std::uint32_t>(Stream::ledger),
+    static_cast<std::uint32_t>(Stream::faction),
     static_cast<std::uint32_t>(Stream::tribulation),
 };
 

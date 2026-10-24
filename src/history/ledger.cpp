@@ -1,6 +1,7 @@
 /// @file ledger.cpp
 /// @brief 时序层的推演实现。
 #include "gamev2/history/ledger.hpp"
+#include "gamev2/history/quota.hpp"
 #include "gamev2/world/generate.hpp"
 #include "gamev2/world/rng.hpp"
 #include "gamev2/world/spirit_tables.hpp"
@@ -156,27 +157,6 @@ std::vector<TollPlan> sample_tolls(
     return plans;
 }
 
-/// 阴脉判定：这条脉占的格子里有没有阴地。
-///
-/// 设定 8.1 说寒江剑府握的是「一条阴脉（采出即衰）」，即地貌为阴地的
-/// 那条。地貌是网格属性，所以要按 vein_id 网格反查这条脉的占格。
-bool is_yin_vein(const gamev2::world::World& world,
-                 std::uint32_t vein_id)
-{
-    for (std::uint32_t cell = 0; cell < world.vein_id.size(); ++cell)
-    {
-        if (world.vein_id.at(cell) != vein_id)
-        {
-            continue;
-        }
-        if (world.land_type.at(cell) == gamev2::world::LandType::yin)
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
 /// 主脉下标按 reserve 降序排。同值按脉编号升序——排序必须全序，否则
 /// 同 reserve 的两条脉换个顺序就会换一个持有者。
 void sort_main_indices(std::vector<std::size_t>& mains,
@@ -193,34 +173,6 @@ void sort_main_indices(std::vector<std::size_t>& mains,
                   }
                   return veins[a].vein < veins[b].vein;
               });
-}
-
-/// 定点标度：年度开采量保留 2^16 分之一。
-///
-/// 年度开采量是个小数（rate × level/255 × kFlowToStock，量级 0.05..3），
-/// 直接截断成整数会把绝大多数年份变成 0，分布上出现断崖。所以必须
-/// 保留小数余数逐年累加。
-constexpr std::uint64_t kFixedScale = 1ull << 16;
-
-/// 推演跨度的上限（年）。
-///
-/// 台账逐年推演，跨度就是循环次数：年份是个 uint32，传 UINT32_MAX
-/// 就能要出四十亿次循环，外加一份几百 GB 的余额轨迹。上限把这条岔路
-/// 堵在分配之前——退化由诊断量报出，不是一段崩掉的白屏。
-constexpr std::uint32_t kMaxSpanYears = 100000;
-
-/// 潮位积分：六百年里 level 的总和（level 是 0..255 的字节）。
-///
-/// 换算系数用它做锚点：若无配额封顶，全世界的存量恰好在当代耗尽；
-/// 配额封顶把枯竭摊在六百年里，当代仍有余额。
-std::uint64_t tide_integral(std::uint32_t epoch, std::uint32_t now)
-{
-    std::uint64_t sum = 0;
-    for (std::uint32_t year = epoch; year < now; ++year)
-    {
-        sum += gamev2::world::compute_spirit_tide(year).level;
-    }
-    return sum;
 }
 
 /// 宗级汇总。
@@ -531,9 +483,9 @@ Ledger build_ledger(const gamev2::world::World& world,
         return ledger;
     }
     // kFlowToStock = sum_total * 255 / (integral * sum_rate)
-    //              = kNum / kFixedScale
+    //              = kNum / kQuotaFixedScale
     const std::uint64_t kNum =
-        sum_total * 255ull * kFixedScale / (integral * sum_rate);
+        quota_conversion(sum_total, sum_rate, integral);
     if (kNum == 0)
     {
         // 换算系数被整除成了 0：流速与储量的比例离谱到这个地步，
@@ -553,7 +505,6 @@ Ledger build_ledger(const gamev2::world::World& world,
         sample_tolls(pool, years, world.params().seed, ledger);
 
     // 逐年推演。余额被配额封顶，所以余额与累计开采量都落在 uint32 内。
-    const std::uint64_t den = 255ull * kFixedScale;
 
     // 内部状态：推演过程的可变部分。
     struct VeinState
@@ -570,7 +521,7 @@ Ledger build_ledger(const gamev2::world::World& world,
     const auto advance = [&](std::vector<std::uint32_t>* trace,
                              bool with_overmining)
     {
-        std::vector<std::uint64_t> remainder(ledger.veins.size(), 0);
+        std::vector<QuotaRemainder> remainder(ledger.veins.size());
         for (std::size_t i = 0; i < ledger.veins.size(); ++i)
         {
             ledger.veins[i].extracted = 0;
@@ -649,12 +600,8 @@ Ledger build_ledger(const gamev2::world::World& world,
                         ledger.tribulation_events.push_back(event);
                     }
                 }
-                const std::uint64_t num =
-                    static_cast<std::uint64_t>(entry.surveyed_rate) * level
-                    * kNum;
-                const std::uint64_t total = num + remainder[i];
-                remainder[i] = total % den;
-                const std::uint64_t eff = total / den;
+                const std::uint64_t eff =
+                    remainder[i].take(entry.surveyed_rate, level, kNum);
 
                 // 配额余量要减掉劫损：天地抽走的那部分人也采不到了。
                 // 不减的话，劫损之后那一年仍按原配额扣满，balance 会减成
@@ -669,7 +616,7 @@ Ledger build_ledger(const gamev2::world::World& world,
                 if (eff >= quota_left)
                 {
                     // 被配额卡住：未消费的小数没有意义，余数清零。
-                    remainder[i] = 0;
+                    remainder[i].reset();
                 }
                 entry.extracted += take;
                 entry.balance = entry.surveyed_total
