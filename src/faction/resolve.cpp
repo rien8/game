@@ -56,7 +56,8 @@ struct FactionSnapshot
     FactionIntent intent;
     /// 余力：名下脉的年末余额之和（井里还剩多少）。
     std::uint32_t slack = 0;
-    /// 名下脉的当年有效流速之和。
+    /// 名下**还采得出的**脉的当年有效流速之和。余额为零的脉不算：
+    /// 它分不到份额，也不该占分摊的分母。
     std::uint64_t sum_eff = 0;
 };
 
@@ -97,10 +98,14 @@ std::uint32_t trial_take_after(const VeinSnapshot& vein,
         const std::uint64_t sum_eff = candidate.sum_eff + vein.eff;
         if (sum_eff > 0u)
         {
-            const std::uint64_t share =
-                static_cast<std::uint64_t>(deficit) * vein.eff / sum_eff;
+            // 试算只涉及这一条脉，算不出 C 名下其他脉的下界，给不出最大
+            // 余额法的最终份额，只能给比例份额的四舍五入——与真实分摊相差
+            // 至多一个单位（设计 §3.11.3：小试算，不是重跑全年）。
+            const std::uint32_t share =
+                deficit_share_of(deficit, vein.eff, sum_eff);
             over = static_cast<std::uint32_t>(
-                std::min({share, vein.eff * kOvertakeFactor, room}));
+                std::min({static_cast<std::uint64_t>(share),
+                          vein.eff * kOvertakeFactor, room}));
         }
     }
     return legal + over;
@@ -222,7 +227,13 @@ void ResolveSystem::execute(gamev2::ecs::World& world,
     {
         const auto index = static_cast<std::size_t>(v.owner);
         stock_sum[index] += v.stock;
-        factions[index].sum_eff += v.eff;
+        // 分摊的分母只算还采得出的脉：余额为零的脉按流速分到的那一份会被
+        // 余额封顶成 0，把它算进分母只会稀释别人那份（与
+        // overtake_for_faction 里的同一口径）。
+        if (v.stock != 0u)
+        {
+            factions[index].sum_eff += v.eff;
+        }
     }
     for (std::size_t i = 0; i < kFactionCount; ++i)
     {

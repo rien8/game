@@ -8,13 +8,17 @@
 // 生成入口，spirit_tables.hpp 出潮位函数。era.hpp 只带出 world.hpp，
 // 不带这三样。
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 namespace {
 
+using gamev2::faction::apportion_deficit;
+using gamev2::faction::deficit_share_of;
 using gamev2::faction::FactionBalance;
 using gamev2::faction::FactionIdentity;
 using gamev2::faction::identity;
@@ -757,6 +761,105 @@ TEST(the_depletion_years_pin_the_system_order)
     }
     CHECK_EQ(depleted, 37u);
     CHECK_EQ(year_sum, 312886u);
+}
+
+TEST(the_deficit_is_apportioned_in_whole_units)
+{
+    // 分摊的结果是整数单位，各脉之和恰好等于缺口。
+    //
+    // 逐脉截断的老做法在这个例子里把每一脉都截成 0：缺口 3 分给 12 条
+    // 脉，每脉 0.25，截断之后一份都不剩——缺口凭空消失，正派于是永不
+    // 越采，「越采被发现」那条事件线也永不触发。
+    const std::vector<std::uint64_t> weights(12, 1u);
+    const auto units = apportion_deficit(3u, weights);
+    CHECK_EQ(units.size(), 12u);
+    std::uint32_t sum = 0u;
+    for (const std::uint32_t u : units)
+    {
+        sum += u;
+        // 各脉至多多拿一个单位：它的比例份额是 0.25。
+        CHECK(u <= 1u);
+    }
+    CHECK_EQ(sum, 3u);
+}
+
+TEST(the_apportioned_shares_follow_the_weights)
+{
+    // 恰好整除时，各脉的份额就是它的比例份额。
+    const std::vector<std::uint64_t> weights{1u, 1u, 1u};
+    const auto units = apportion_deficit(12u, weights);
+    CHECK_EQ(units[0], 4u);
+    CHECK_EQ(units[1], 4u);
+    CHECK_EQ(units[2], 4u);
+}
+
+TEST(a_vein_without_flow_gets_no_share)
+{
+    // 权重为零的脉分不到份额：它采不出东西（余额为零的脉不进分摊）。
+    const std::vector<std::uint64_t> weights{0u, 4u};
+    const auto units = apportion_deficit(4u, weights);
+    CHECK_EQ(units[0], 0u);
+    CHECK_EQ(units[1], 4u);
+}
+
+TEST(the_proportional_share_rounds_to_the_nearest_unit)
+{
+    // 试算用的比例份额：四舍五入，不是截断。
+    // 0.25 → 0，0.75 → 1，4 → 4。
+    CHECK_EQ(deficit_share_of(3u, 1u, 12u), 0u);
+    CHECK_EQ(deficit_share_of(3u, 3u, 12u), 1u);
+    CHECK_EQ(deficit_share_of(12u, 1u, 3u), 4u);
+}
+
+TEST(the_sects_overmine_their_deficit)
+{
+    // 缺口必须真的变成越采（设计 §3.7）：缺口是这一层唯一的驱动力，
+    // 缺口落不到越采上，「铤而走险」就只是报告里的一个数。
+    //
+    // 判据：**有缺口的正派，累计越采至少盖过提案次数**——重勘年是要开
+    // 程序的年份，程序走完，缺口就该被采出来，累积下来每年至少一个
+    // 单位。取整的残渣当不了这个数：逐脉截断分摊时，缺口小于脉数就整
+    // 段消失，累计越采是个位数。
+    //
+    // 种子 21：那个世界上随机源（越采被发现）真的被走过（见
+    // test_faction_determinism.cpp 的 full_world）。
+    gamev2::world::WorldParams p;
+    p.z_levels = 3;
+    p.seed = 21;
+    const auto generated = gamev2::world::generate_world(p);
+    CHECK(generated.has_value());
+    if (!generated)
+    {
+        return;
+    }
+    const gamev2::world::World& w = *generated;
+    gamev2::history::LedgerDiagnostics diagnostics;
+    const gamev2::history::Ledger ledger =
+        gamev2::history::build_ledger(w, diagnostics);
+    gamev2::faction::FactionDiagnostics fdiag;
+    const auto report = gamev2::faction::simulate(w, ledger, fdiag);
+
+    std::uint32_t proposals = 0;
+    for (const auto& event : report.events)
+    {
+        if (event.kind == gamev2::faction::EraEventKind::redraft_proposed)
+        {
+            ++proposals;
+        }
+    }
+    CHECK(proposals > 0u);
+    std::uint32_t best = 0;
+    for (const auto& faction : report.factions)
+    {
+        if (faction.unbounded_demand || faction.demand == 0u)
+        {
+            // 无上限用度（魔修与散修）本来就在采尽为止，看它们的越采说明
+            // 不了任何事。
+            continue;
+        }
+        best = std::max(best, faction.overmined);
+    }
+    CHECK(best >= proposals);
 }
 
 }  // namespace

@@ -3,7 +3,11 @@
 #include "gamev2/faction/faction.hpp"
 #include "gamev2/history/quota.hpp"
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
+#include <numeric>
+#include <vector>
 
 namespace gamev2::faction {
 namespace {
@@ -14,6 +18,17 @@ namespace {
 /// 差 65536 倍。
 constexpr std::uint64_t kDecayDen =
     gamev2::history::kQuotaFixedDen * gamev2::history::kQuotaFixedScale;
+
+/// 比例份额的定点值：deficit × weight ÷ total_weight，标度 2^16。
+///
+/// 溢出：缺口与权重都是「年开采量」量级（10^4 以内），乘积再乘 2^16
+/// 落在 10^13 量级，离 uint64 的上限还差六个数量级。
+std::uint64_t share_fixed(std::uint32_t deficit, std::uint64_t weight,
+                          std::uint64_t total_weight)
+{
+    return static_cast<std::uint64_t>(deficit) * weight
+           * gamev2::history::kQuotaFixedScale / total_weight;
+}
 
 }  // namespace
 
@@ -80,6 +95,62 @@ std::uint64_t take_effective(const VeinProfile& profile,
 std::uint32_t deficit_of(std::uint32_t demand, std::uint32_t supply)
 {
     return demand > supply ? demand - supply : 0u;
+}
+
+std::vector<std::uint32_t> apportion_deficit(
+    std::uint32_t deficit, const std::vector<std::uint64_t>& weights)
+{
+    std::vector<std::uint32_t> units(weights.size(), 0u);
+    std::uint64_t total = 0;
+    for (const std::uint64_t weight : weights)
+    {
+        total += weight;
+    }
+    if (deficit == 0u || total == 0u)
+    {
+        return units;
+    }
+
+    // 各脉先取比例份额的下界。定点值的高位是下界、低位是小数部分：
+    // 一次除法把两者都取出来，不必再算一遍。
+    std::uint32_t left = deficit;
+    std::vector<std::uint64_t> fraction(weights.size(), 0u);
+    for (std::size_t i = 0; i < weights.size(); ++i)
+    {
+        const std::uint64_t fixed = share_fixed(deficit, weights[i], total);
+        units[i] = static_cast<std::uint32_t>(
+            fixed / gamev2::history::kQuotaFixedScale);
+        fraction[i] = fixed % gamev2::history::kQuotaFixedScale;
+        left -= units[i];
+    }
+
+    // 剩下的单位按小数部分从大到小补齐：各脉至多多拿一个单位，且总量
+    // 恰好等于缺口。同余按下标定序（稳定排序），结果因此与遍历顺序无关。
+    std::vector<std::size_t> order(weights.size());
+    std::iota(order.begin(), order.end(), 0);
+    std::ranges::stable_sort(order, [&fraction](std::size_t a, std::size_t b) {
+        return fraction[a] > fraction[b];
+    });
+    for (const std::size_t i : order)
+    {
+        if (left == 0u)
+        {
+            break;
+        }
+        ++units[i];
+        --left;
+    }
+    return units;
+}
+
+std::uint32_t deficit_share_of(std::uint32_t deficit, std::uint64_t weight,
+                                std::uint64_t total_weight)
+{
+    if (deficit == 0u || total_weight == 0u)
+    {
+        return 0u;
+    }
+    return round_fixed(share_fixed(deficit, weight, total_weight));
 }
 
 }  // namespace gamev2::faction

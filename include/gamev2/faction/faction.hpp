@@ -11,6 +11,7 @@
 #include "gamev2/world/world.hpp"
 
 #include <cstdint>
+#include <vector>
 
 namespace gamev2::faction {
 
@@ -259,6 +260,29 @@ struct VeinRemainder
 /// 缺口：用度超出供给的部分，不足为 0。
 [[nodiscard]] std::uint32_t deficit_of(std::uint32_t demand,
                                        std::uint32_t supply);
+
+/// 缺口的整数分摊：各条脉分到的越采份额。
+///
+/// 分摊按有效流速的比例走，整数分配用**最大余额法**：各脉先取比例份额
+/// 的下界，剩下的单位按小数部分从大到小补齐。
+///
+/// 为什么不能逐脉截断：缺口小于脉数时（缺口 3 分给 12 条脉，每脉 0.25），
+/// 逐脉截断把每一脉都截成 0，缺口整段消失——正派于是永不越采，「越采被
+/// 发现」这条事件线也永不触发。逐脉四舍五入也不行：同一情形下每脉 0.25
+/// 会各得 1，总量四倍于缺口，报告里会出现越采远大于缺口的读数。
+///
+/// 份额之和恰好等于缺口，各脉的份额与其比例份额相差不超过一。权重为零
+/// 的脉分不到份额；权重相同时按下标定序补齐，结果因此与遍历顺序无关。
+[[nodiscard]] std::vector<std::uint32_t> apportion_deficit(
+    std::uint32_t deficit, const std::vector<std::uint64_t>& weights);
+
+/// 一条脉在缺口分摊里应得的比例份额（四舍五入到整数）。
+///
+/// 试算只涉及这一条脉与一个派系，算不出其他脉的下界，给不出最大余额法
+/// 的最终份额，只能给比例份额的四舍五入——与真实分摊相差至多一个单位。
+[[nodiscard]] std::uint32_t deficit_share_of(std::uint32_t deficit,
+                                             std::uint64_t weight,
+                                             std::uint64_t total_weight);
 
 /// 洞天。
 struct CaveHeavenId

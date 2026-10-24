@@ -159,8 +159,18 @@ void overtake_for_faction(gamev2::ecs::World& world, const SimClock& clock,
             {
                 return;
             }
+            if (stock.stock == 0u)
+            {
+                // 余额为零的脉分不到份额，也不该占分母：它按流速分到的那
+                // 一份会被余额封顶成 0，把它算进分母只会稀释别人那份，
+                // 缺口于是凭空少一块。
+                return;
+            }
             lanes.push_back(Lane{&stock, &right, id.id});
         });
+    // 按脉编号排序：分摊的补齐次序以脉编号定序，结果因此与视图的遍历
+    // 顺序无关。
+    std::ranges::sort(lanes, {}, &Lane::vein);
 
     // 当年的有效流速取 ExtractSystem 算好的那个（VeinStock::eff）：
     // 衰减率只在年初算一次，本 system 重算会拿到开采之后的存量，
@@ -176,19 +186,27 @@ void overtake_for_faction(gamev2::ecs::World& world, const SimClock& clock,
         return;
     }
 
-    for (const Lane& lane : lanes)
+    // 缺口分摊：各脉分到的整数份额之和恰好等于缺口（设计 §3.7）。
+    std::vector<std::uint32_t> shares;
+    if (!balance.unbounded_demand)
     {
+        std::vector<std::uint64_t> weights;
+        weights.reserve(lanes.size());
+        for (const Lane& lane : lanes)
+        {
+            weights.push_back(lane.stock->eff);
+        }
+        shares = apportion_deficit(balance.deficit, weights);
+    }
+
+    for (std::size_t i = 0; i < lanes.size(); ++i)
+    {
+        const Lane& lane = lanes[i];
         const std::uint64_t eff = lane.stock->eff;
-        std::uint64_t share;
-        if (balance.unbounded_demand)
-        {
-            // 无上限用度不经缺口分摊：随时可以，采尽为止。
-            share = eff * kOvertakeFactor;
-        }
-        else
-        {
-            share = balance.deficit * eff / sum_eff;
-        }
+        // 无上限用度不经缺口分摊：随时可以，采尽为止。
+        const std::uint64_t share = balance.unbounded_demand
+                                        ? eff * kOvertakeFactor
+                                        : shares[i];
         // 越采的上限是**余额**，余额不能变负（计划差异第 2 条）。
         //
         // 余额是唯一的**物理**上限：井里还剩多少，就抽不穿多少。别的封顶

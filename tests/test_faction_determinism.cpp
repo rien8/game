@@ -3,6 +3,7 @@
 #include "test_framework.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 namespace {
@@ -13,14 +14,11 @@ namespace {
 /// 比较之外，所以「比过的脉占多大比例」不是个有用的判据；判据是
 /// 「比过的脉够不够多」。
 ///
-/// **种子是 21，不是 7**：7 那个世界上随机源一次都没命中（见
-/// `the_same_seed_gives_the_same_era` 的说明），被比对的表里没有任何
-/// 一行来自随机源——把随机源换成常量，这条测试照样绿。21 这个世界上
-/// 有两笔「越采被发现」（寒江剑府 8368 年在 vein 7 上被发现 1 单位、
-/// 太玄宗 8850 年在 vein 1 上被发现 1 单位），随机路径真的被走过。
+/// **种子是 21**：全层唯一的随机源是「越采被发现」，它必须真的被走过，
+/// 否则「可复算」守的是一条没跑过的路径——把随机源换成常量，这条测试
+/// 照样绿。这个世界上有一笔：寒江剑府 8368 年在 vein 7 上被发现 1 单位。
 ///
-/// 换种子只动这一个文件：别的测试文件里的金标准用的是各自的 seed 7，
-/// 与此无关。
+/// 别的测试文件里的金标准用的是各自的 seed 7，与此无关。
 gamev2::world::WorldParams full_world()
 {
     gamev2::world::WorldParams p;
@@ -78,7 +76,7 @@ TEST(the_same_seed_gives_the_same_era)
     // 先得保证随机路径真的被走过。
     //
     // 这不是把测试绑在概率上：种子是定的，发现与否随之确定（这个世界
-    // 上有两笔：8368 与 8850）。
+    // 上一笔：8368）。
     std::size_t discovered = 0;
     for (const auto& event : a.events)
     {
@@ -246,6 +244,8 @@ TEST(the_tide_drives_the_supply)
     // 上算出来的。
     CHECK_EQ(report.current_level, 33u);
     bool saw_deficit = false;
+    std::uint32_t supply_total = 0u;
+    std::uint32_t demand_total = 0u;
     for (const auto& faction : report.factions)
     {
         if (faction.unbounded_demand || faction.demand == 0u)
@@ -254,13 +254,29 @@ TEST(the_tide_drives_the_supply)
             // 「不适用」；无地的天机阁用度恒为零。两者都不参与这条断言。
             continue;
         }
-        // 供给塌到用度以下：潮位从 110 掉到 33，有效流速跟着掉到三成，
-        // 定点取整把它抹到零，宗门于是采不到东西。
-        CHECK(faction.supply < faction.demand);
-        // 缺口就是用度减供给：这一栏是算出来的，不是抄来的。
-        CHECK_EQ(faction.deficit, faction.demand - faction.supply);
-        saw_deficit = true;
+        // 缺口是用度减供给，饱和到 0：这一栏是算出来的，不是抄来的。
+        //
+        // 饱和是必须的：用度是 8300 定下的常量（设计 §3.3），派系在重勘
+        // 里接到脉之后供给会涨过它那份用度——那时缺口就该是零。「供给追
+        // 上了用度」不是错，是格局变过了。
+        const std::uint32_t gap = faction.demand > faction.supply
+                                      ? faction.demand - faction.supply
+                                      : 0u;
+        CHECK_EQ(faction.deficit, gap);
+        supply_total += faction.supply;
+        demand_total += faction.demand;
+        if (faction.deficit > 0u)
+        {
+            saw_deficit = true;
+        }
     }
+    // 潮位把**天下**的供给压到了用度以下。
+    //
+    // 这一条按总量写，不能逐派系写：总供给是脉的事，与归属无关——脉给
+    // 谁都是那个产出（设计 §3.11.1）。派系之间的分配随重勘变，总量不变。
+    // 逐派系断言「供给 < 用度」在格局变过之后就不成立：接到脉的那一宗
+    // 供给涨过它 8300 定下的用度，缺口按设计就该消失。
+    CHECK(supply_total < demand_total);
     // 谷底期必须有缺口。这一层最要紧的那条因果链就在这里：没有缺口，
     // 六百年就只是把同一个格局重算了六百遍。
     CHECK(saw_deficit);
