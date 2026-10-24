@@ -1,7 +1,7 @@
 # 派系演化层设计文档：六百年的配额博弈
 
 - 日期：2026-10-22
-- 状态：待实现
+- 状态：已实现
 - 目标平台：Windows / clang++ 23 / C++23
 - 基线分支：`worldgen`（灵气层阶段 11..18 与时序层第一刀已实现并提交）
 - 关联文档：`doc/2026-10-20-worldview-xianxia.md`（设定）、
@@ -290,6 +290,14 @@ struct VeinStock
     /// 与台账的对照只能比这一项：本层的越采是缺口驱动的连续行为，
     /// 台账的越采是按年抽样的定额，两者的累计开采不可能相等。
     std::uint32_t legal_extracted = 0;
+    /// 累计劫损：天地抽走的那部分。
+    ///
+    /// 它不进 `extracted`：台账的口径是「天地抽走的没有人该负责」，
+    /// 两件事分开记。守恒式因此是「余额 + 开采 + 劫损 == 配额」。
+    ///
+    /// 台账是劫损的唯一来源（候选池、排期、覆盖比例都在那边算完），
+    /// 本层按台账记的账在对应年份重放一遍。
+    std::uint32_t tribulation_loss = 0;
     /// 当年开采量：ExtractSystem 赋值，OvertakeSystem 累加。
     ///
     /// 重勘的试算要拿「这条脉今年被抽了多少」与「转手之后会被抽多少」
@@ -727,13 +735,21 @@ slack(f) = Σ_{v ∈ f} stock(v) − Σ_{v ∈ f} take_all(v, y)
 **清单的生成**（提案者按状态构造，逐条脉评估）：
 
 对每条脉 v，现任持有者 O，最优候选 C（候选按余力降序、派系编号升序
-取第一个；候选的立场须为 contesting）：
+取第一个；候选的立场须为 contesting，且不能是现任持有者 O——把脉转给
+自己不是转手，试算的前提就没有了）：
 
 ```
 试算：把 v 转给 C 之后，C 对 v 的当年开采量（合法 + 按 C 的缺口分摊
       的越采）是否小于 O 当年对 v 的开采量 take_all(v, y)？
 是 → 列入清单
 ```
+
+**受益方由余力决定，不由提案决定**：提案者（执掌盟约的太玄宗）只是
+发起者，不是优先者——它握着最大的余力，却收不回自己开采不动的那几条
+脉，那些脉会落到别的有余力的派系名下。这是规则算出来的结果，不是
+bug：规则说的是「把开采不动的东西交给开采得动的人」（§3.11.3），
+受益方是谁由当下的余力排序决定。设定 §8.1 的参照持有表因此**不保证
+被复现**（§8.10），差异摆在导出的对照表里由人裁决。
 
 **谁能被夺**：
 
@@ -815,18 +831,32 @@ slack(f) = Σ_{v ∈ f} stock(v) − Σ_{v ∈ f} take_all(v, y)
 
 ### 3.13 每年的系统序列与读写集
 
-一年的推演是 6 个 system 按固定顺序跑。**注册顺序即冲突系统的执行
+一年的推演是 7 个 system 按固定顺序跑。**注册顺序即冲突系统的执行
 顺序**（`Scheduler::plan` 按注册顺序贪心分层，冲突者自动落到后一批，
 读者自动落到写者之后）。
 
 | # | System | 读 | 写 |
 |---|---|---|---|
 | 1 | `ClockSystem` | — | `SimClock` |
-| 2 | `AssessSystem` | 全部脉、派系身份 | `FactionBalance` |
-| 3 | `ExtractSystem` | 时钟、脉、脉的归属 | `VeinStock`、`VeinRemainder`、`FactionBalance` |
-| 4 | `OvertakeSystem` | 时钟、缺口、脉 | `VeinStock`、`FactionBalance` |
-| 5 | `DepleteSystem` | 脉 | `VeinStock`、`CaveHeavenState` |
-| 6 | `ResolveSystem` | 全部 | `VeinOwner`、`VeinStock`（公有化年份）、`FactionIntent`（提案年） |
+| 2 | `TribulateSystem` | 时钟、脉的物理状态 | `VeinStock` |
+| 3 | `AssessSystem` | 全部脉、派系身份 | `FactionBalance` |
+| 4 | `ExtractSystem` | 时钟、脉、脉的归属 | `VeinStock`、`VeinRemainder`、`FactionBalance` |
+| 5 | `OvertakeSystem` | 时钟、缺口、脉 | `VeinStock`、`FactionBalance` |
+| 6 | `DepleteSystem` | 脉 | `VeinStock`、`CaveHeavenState` |
+| 7 | `ResolveSystem` | 全部 | `VeinOwner`、`VeinStock`（公有化年份）、`FactionIntent`（提案年） |
+
+**劫损排在开采之前**：劫云在年内抽干，被抽走的那部分配额不该再被
+人采走——台账的年序是「越采 → 劫损 → 正常开采」，本层的越采在开采之后，
+但劫损必须赶在开采之前。这条顺序错了，劫损就只剩一个不影响任何数字的
+装饰：被劫过的脉照样能被人采到满配额，两层的余额也就永远对不上。
+
+**劫损的来源只有台账**：候选池、排期与覆盖比例都在时序层算完（那里是
+唯一知道劫云在哪、圈住哪些脉的地方），本层按台账记的账在对应年份重放
+一遍。重放的是**记账值**（当年抽走多少），不是覆盖比例：同一个劫云，
+抽走的量是既成事实，不是本层要重算的量。本层的余额若装不下那一笔
+（多半是自己的越采先抽走了一部分），按余额封顶并计入诊断量
+`tribulation_shortfall`——两层对这条脉的余额因此不等，报出来，不假装
+一样。
 
 **`VeinStock::public_year` 是「写而不读」的字段**：公有化的年份已经在
 `vein_publicized` 事件里，报告也不读它。它给 `VeinStock` 添了第五个
@@ -880,6 +910,7 @@ slack(f) = Σ_{v ∈ f} stock(v) − Σ_{v ∈ f} take_all(v, y)
 | `vein_publicized` | 枯竭的脉公有化 |
 | `overmine_discovered` | 越采被发现（附年份、派系、脉） |
 | `cave_heaven_lost` | 洞天失效（附年份、洞天） |
+| `tribulation_toll` | 劫损（附年份、脉、抽走多少；无主体） |
 
 **为什么全部用 `each` 不用 `each_parallel`**：`View::each_parallel`
 把任务提交到 `world` 的池，而批内多 system 执行时调度器会置位
@@ -959,22 +990,31 @@ struct FactionDiagnostics
     std::uint32_t public_release_mismatch = 0;
     /// 守恒对账不通过的脉数。
     std::uint32_t conservation_broken = 0;
+    /// 台账记的劫损没有足额施加的笔数。
+    ///
+    /// 本层的余额比台账低——多半是本层自己的越采先抽走了一部分（散修
+    /// 采尽为止，无主脉上最常见），井空了劫云就抽不走什么。两层对这条
+    /// 脉的余额因此不等，报出来，不假装一样。
+    std::uint32_t tribulation_shortfall = 0;
 };
 ```
 
 **守恒恒等式**（本层的基本正确性判据）：
 
 ```
-对每条脉：quota_total + recovered == stock + extracted
+对每条脉：quota_total + recovered == stock + extracted + tribulation_loss
 ```
 
 本层不建模恢复（§8.1），所以 `recovered` 恒为 0，恒等式退化为：
 
 ```
-quota_total == stock + extracted
+quota_total == stock + extracted + tribulation_loss
 ```
 
 越采不会让它崩：越采也是从 `stock` 里扣的，`stock` 不会变负。
+
+**劫损是第三项，不是开采的一部分**：天地抽走的那部分没有持有者、没有
+配额，谁也不为它负责。它单独占一格，报告与台账同名同义。
 
 ---
 
@@ -999,10 +1039,17 @@ quota_total == stock + extracted
 **比较的是累计合法开采**（不含越采），不是累计总开采。台账那侧的
 合法开采从事件表里取（`over_quota == false` 的事件按脉汇总）。
 
+**劫损也要对上**：台账把劫损算进了余额（`balance = 配额 − 开采 − 劫损`），
+本层若不认这一项，两层对同一条脉就给出两个余额——实测默认图幅上
+太玄宗的龙脉在台账里「8859 年被抽干、余额 0」，本层却报「还剩 387、
+还没枯」。可比集上每条脉的劫损必须与台账逐位相等；装不下那一笔的
+（多半是本层自己的越采先抽走了一部分）按余额封顶并计入诊断量
+`tribulation_shortfall`——那一条脉上两层的余额就是不等，报出来。
+
 ### 6.2 守恒
 
-对每条脉、每一年：`stock + extracted == quota_total`；
-`stock >= 0`；`extracted` 单调不减。
+对每条脉、每一年：`stock + extracted + tribulation_loss == quota_total`；
+`stock >= 0`；`extracted` 与 `tribulation_loss` 单调不减。
 
 ### 6.3 确定性
 
@@ -1153,6 +1200,21 @@ worldgen 按身份哈希标枯眼，与经济性无关；本层按推演判枯�
 这条限制的代价是：本层算不出「大宗门的开采能力也会到达上限」这种
 上限效应，所以余力大的派系在本层里是**无限的**。要修这一条，得先
 有资源经济那一刀（§0.3 里明确不做的那块）。
+
+### 8.12 劫损是台账的记账值，本层不重算
+
+劫云抽走多少由台账算好（候选池、排期、覆盖比例都在时序层），本层按
+那个记账值在对应年份重放。**重放的是绝对量，不是覆盖比例**——同一个
+劫云抽走的量是既成事实。
+
+代价：本层的余额若比台账低（多半是自己的越采先抽走了一部分），那一笔
+就装不下，按余额封顶。那条脉上两层的余额因此不等，由诊断量
+`tribulation_shortfall` 报出。实测默认图幅上有一到两笔，多半在无主
+脉上——散修在本层采尽为止，井常常先被采空。
+
+另一个代价：**两层对同一条脉的合法开采可能差几个单位**。越采与劫损
+争抢同一条脉的余额，谁先拿走哪一份两层的分配本就可能不同；余额对得上
+（「余额 + 开采 + 劫损 = 配额」），拆开来的比例未必对得上。
 
 ---
 
