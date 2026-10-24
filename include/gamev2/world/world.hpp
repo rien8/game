@@ -1,130 +1,103 @@
 /// @file world.hpp
-/// @brief 世界模块：把 ecs / genetics / environment 装配成一个会自己按季
-///        推进的整体，并给出与真实存续状态一致的季末报告。
-///
-/// 一季的时序只有这一处实现。三个前序模块各自用 System::order 注释守住的
-/// 先后约束，在这里第一次被真正执行一次。
+/// @brief 世界容器。纯数据，不含行为：生成阶段以 World& 为唯一操作对象
+///        就地改写它，读取方按坐标查询，World 从不反向引用实体。
 #pragma once
 
-#include "gamev2/ecs/adapt/environment_systems.hpp"
-#include "gamev2/ecs/adapt/genetics_systems.hpp"
-#include "gamev2/ecs/adapt/movement_system.hpp"
-#include "gamev2/ecs/command_buffer.hpp"
-#include "gamev2/ecs/scheduler.hpp"
-#include "gamev2/ecs/world.hpp"
+#include "gamev2/world/enums.hpp"
+#include "gamev2/world/grid.hpp"
+#include "gamev2/world/params.hpp"
+#include "gamev2/world/spirit.hpp"
 
-#include "gamev2/environment/config.hpp"
-#include "gamev2/genetics/locus.hpp"
-#include "gamev2/genetics/species.hpp"
-#include "gamev2/genetics/statistics.hpp"
-
-#include <cstddef>
 #include <cstdint>
 #include <vector>
 
 namespace gamev2::world {
 
-/// 一次季节结算的结果。
-struct SeasonReport
-{
-    std::uint32_t season = 0;
-    /// 各物种 census 之和，即本季存活总数。判据与统计 system 相同：
-    /// 缺 Genome 或引用未注册物种的实体不在其中。
-    std::size_t population = 0;
-    /// 下标 = SpeciesId::value - 1。拷贝而非引用：统计 system 的成员缓冲
-    /// 会被下一季 clear() 重写，而报告要活得比下一季久。拷贝代价与物种数
-    /// 成正比而与个体数无关——AlleleStats 是逐位点的定长统计。
-    std::vector<gamev2::genetics::SpeciesStatistics> species;
-};
-
-/// 装配并驱动整个世界。构造完即可放进初始个体并按季推进。
-///
-/// 本类不生成初始种群：调用方本来就必须知道怎么造 Genome 与 Phenotype，
-/// 把它藏在这里只会多一层无法验证的隐式行为。
+/// 全部生成阶段之间共享的唯一状态。
 class World
 {
+private:
+    friend void make_elevation(World&);
+
+    /// 生成参数。声明放在所有网格之前：构造函数的初始化列表按声明序写，
+    /// 参数因而先于网格就位，网格初始化若要读它不会读到未初始化的值。
+    WorldParams params_;
+
 public:
-    /// \pre table 的生命周期必须覆盖本对象——它是唯一被引用的外部数据。
-    /// \pre worker_count >= 1。
-    ///
-    /// 四个 special member 全部删除：Scheduler::entries_ 里存的是指向
-    /// environment_ / aging_ / breeding_ 的裸 System*，而它们各自都持有引用
-    /// 成员（environment_ 指向 env_，breeding_ 指向 genetics_config_ 与调用方
-    /// 的 table / species）——移动一次就会留下一堆指向旧对象的指针。
-    /// （今天 ecs::World 不可移动已隐式挡掉了移动，但那是传递来的保证，
-    /// 不是本类自己声明的。）
-    World(const gamev2::genetics::LocusTable& table,
-          gamev2::genetics::GeneticsConfig genetics_config,
-          gamev2::environment::EnvironmentConfig environment_config,
-          std::uint64_t root_seed,
-          std::size_t worker_count = 1);
+    explicit World(WorldParams params);
 
-    World(const World&) = delete;
-    World& operator=(const World&) = delete;
-    World(World&&) = delete;
-    World& operator=(World&&) = delete;
-
-    /// \pre 全部物种必须在第一次 run_season 之前登记完，之后不再登记。
-    ///       未注册的 id 会让对应实体被 EnvironmentSystem 与
-    ///       BreedingSystem 各自跳过，而后者报一条诊断。
-    gamev2::genetics::SpeciesRegistry& species() noexcept
+    [[nodiscard]] const WorldParams& params() const noexcept
     {
-        return species_;
+        return params_;
     }
 
-    /// 初始个体由调用方经这里放进世界。
+    /// 总格深 = z_levels * z_cell_depth。
+    [[nodiscard]] std::uint32_t depth() const noexcept;
+
+    /// z 层号加层内格深，换成总格深坐标。
+    [[nodiscard]] std::uint32_t cell_depth(std::uint32_t z,
+                                           std::uint32_t d) const noexcept;
+
+    /// 阶段 1 反解出的实际海平面。
+    [[nodiscard]] std::uint8_t sea_level() const noexcept { return sea_level_; }
+
+    [[nodiscard]] bool is_ocean(std::uint32_t x,
+                                std::uint32_t y) const noexcept;
+
+    /// 地表量，每 (x, y) 一个值。
+    Grid<std::uint8_t>  elevation;
+    Grid<std::uint8_t>  rainfall;
+    Grid<std::uint8_t>  temperature;
+    Grid<Biome>         biome;
+    Grid<std::uint32_t> downstream;
+    Grid<std::uint32_t> flow;
+    Grid<std::uint8_t>  river_width;
+    Grid<std::uint8_t>  lake_depth;
+    Grid<std::uint8_t>  drainage;
+    Grid<std::uint8_t>  soil_depth;
+    Grid<std::uint8_t>  aquifer_top;
+
+    // ── 灵气层，地表量 ──
+    Grid<std::uint8_t>  ley_strength;
+    Grid<std::uint8_t>  ley_depth;
+    Grid<Element>       ley_element;
+    Grid<VeinRank>      vein_rank;
+    Grid<std::uint32_t> vein_id;
+    Grid<std::uint32_t> eye_flow;
+    Grid<std::uint8_t>  domain_concentration;
+    /// 灵域分等：地脉网络给出的**浓度**分档。
     ///
-    /// 一个参与世界运转的个体必须带齐六个组件：Genome、CreaturePhenotype、
-    /// Environment、SpeciesTag、Position、Vitality。缺其中任何一个的后果见
-    /// 实现处与设计文档 §5，其中最反直觉的是缺 Position——该个体参与存活
-    /// 抽签，但不被摄食、不进任何父池，于是永不繁殖也永不被环境杀死。
-    gamev2::ecs::World& entities() noexcept
-    {
-        return entities_;
-    }
+    /// 与 `land_type` 有意不一致——一个福地塌成死地之后，这里仍是 blessed。
+    /// 「这里现在能不能住」看 `land_type`，「这里的灵气网络有多强」看这里。
+    Grid<DomainGrade>   domain_grade;
+    Grid<Scar>          scar_kind;
+    Grid<std::uint8_t>  spirit_suppression;
+    /// 最终地貌：浓度分等叠加历史与地脉属性之后的**结论**。
+    /// 读取方要判断某格能不能住，看的是这张网格，不是 `domain_grade`。
+    Grid<LandType>      land_type;
+    Grid<std::uint8_t>  eye_purity;
+    Grid<bool>          cave_heaven;
+    /// 是否为渡劫场的劫心。阶段 18 的格级镜像。
+    Grid<bool>          tribulation_site;
 
-    /// 只读暴露气候场与资源场。测试要读真实承载力，UI 要画地图。
-    const gamev2::ecs::adapt::EnvironmentWorld& environment() const noexcept
-    {
-        return env_;
-    }
+    /// 地下量，每 z 层一份同构网格。
+    std::vector<Grid<Stone>>   stone;
+    std::vector<Grid<Deposit>> deposit;
+    std::vector<Grid<bool>>    cavern;
+    std::vector<Grid<bool>>    aquifer;
 
-    /// 推进一季并返回季末报告。报告的 census 落在 flush 之后，因此等于
-    /// 本季真实的存活存续数（死亡已生效、新生代已计入）。
-    ///
-    /// \pre 不可重入，不可多线程并发调用。
-    [[nodiscard]] SeasonReport run_season();
-
-    /// 逐季推进 count 次。与调用 count 次 run_season() 逐位等价——
-    /// 这条等价性是可测的，也是日后加存档的前提。
-    [[nodiscard]] std::vector<SeasonReport> run_seasons(std::uint32_t count);
+    // ── 灵气层，非网格量 ──
+    SpiritTide spirit_tide;
+    std::vector<LeyChannel>  ley_channels;
+    std::vector<LeyNode>     ley_nodes;
+    std::vector<SpiritVein>  veins;
+    std::vector<SpiritEye>   eyes;
+    std::vector<ScarSite>    scars;
+    std::vector<CaveHeaven>  cave_heavens;
+    std::vector<TribulationSite> tribulation_sites;
 
 private:
-    gamev2::genetics::GeneticsConfig genetics_config_;
-    gamev2::genetics::SpeciesRegistry species_;
-    std::uint64_t root_seed_;
-    std::uint32_t season_ = 0;
-
-    gamev2::ecs::World entities_;
-    gamev2::ecs::CommandBuffer cmd_;
-    gamev2::ecs::Scheduler scheduler_;
-
-    // 声明顺序即依赖顺序：breeding_ 的构造参数要取
-    // &environment_.targets()，而 env_ 又是 environment_ 的引用对象。
-    // 逆序析构恰好把这三条依赖倒过来。
-    //
-    // breeding_ 必须收 genetics_config_ 这个成员而不是构造函数的按值形参：
-    // BreedingSystem 把配置存成 const 引用，形参一返回引用就悬垂，而它要到
-    // 每季 execute 里的 settle 才被读。
-    //
-    // movement_ 只收标量（root_seed 与季号），不持有任何引用，因此它在声明
-    // 顺序里的位置不影响正确性；放这里只是为了与它在调度器中的注册顺序对齐。
-    gamev2::ecs::adapt::EnvironmentWorld env_;
-    gamev2::ecs::adapt::MovementSystem movement_;
-    gamev2::ecs::adapt::EnvironmentSystem environment_;
-    gamev2::ecs::adapt::AgingSystem aging_;
-    gamev2::ecs::adapt::BreedingSystem breeding_;
-    gamev2::ecs::adapt::PopulationStatisticsSystem statistics_;
+    std::uint8_t sea_level_ = 0;
 };
 
 }  // namespace gamev2::world

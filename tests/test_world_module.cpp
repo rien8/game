@@ -1,6 +1,6 @@
 #include "test_framework.hpp"
 
-#include "gamev2/world/world.hpp"
+#include "gamev2/world/season_world.hpp"
 
 #include "gamev2/ecs/world.hpp"
 #include "gamev2/environment/climate.hpp"
@@ -57,7 +57,7 @@ LocusTable neutral_table()
         // Crossover / Survival 在 mutate 之外另行抽取，Jitter 则在第 64 行
         // 那次比较里照抽不误。
         //
-        // 取一个小的非零值：突变稀疏，但不归零。删掉 World::run_season 里的
+        // 取一个小的非零值：突变稀疏，但不归零。删掉 SeasonWorld::run_season 里的
         // breeding_.advance_season(season_); 会**改变行为**——第 1 季起繁殖
         // 抽样退回季 0 的种子。真正分叉的观测量是子代基因组（census 与
         // population 在两种构建下逐季相同），由
@@ -162,7 +162,7 @@ Phenotype creature_phenotype()
     return p;
 }
 
-/// table / genetics / config 三个成员必须声明在 world 之前。World 的构造
+/// table / genetics / config 三个成员必须声明在 world 之前。SeasonWorld 的构造
 /// 参数是 const LocusTable&，直接写 world{neutral_table(), ...} 会让表以
 /// 临时对象绑定、构造返回即悬垂；且逆序析构还需要 world 先死。
 struct Fixture
@@ -171,7 +171,7 @@ struct Fixture
     GeneticsConfig genetics{steady_genetics()};
     EnvironmentConfig config{roomy_config()};
     SpeciesId sid{};
-    gamev2::world::World world;
+    gamev2::world::SeasonWorld world;
 
     Fixture()
         : world{table, genetics, config, 31}
@@ -183,7 +183,7 @@ struct Fixture
         sid = *reg;
     }
 
-    /// 给满六个组件。这是 World::entities() 的唯一合法用法。
+    /// 给满六个组件。这是 SeasonWorld::entities() 的唯一合法用法。
     ///
     /// Environment 给的是设计文档 §4.1 的默认快照，即「无环境影响」：环境在
     /// 个体建立时采样一次并锁定，而这里不采样。父子代因此气候待遇不对称——
@@ -450,7 +450,7 @@ TEST(run_seasons_equals_repeated_run_season)
 ///
 /// 设计文档 §6 把这条列为未经验证的新断言，此前没有测试覆盖它。如实交代它的
 /// 边界：它与 run_seasons_equals_repeated_run_season 属同一类——都在同一个二进制
-/// 里并排跑两个 World，因此同样不免疫「两侧同时坏」（删掉
+/// 里并排跑两个 SeasonWorld，因此同样不免疫「两侧同时坏」（删掉
 /// breeding_.advance_season(season_) 会让两份轨迹一起变，逐位相等照常成立）。
 /// 与那条的差别只在驱动方式：本测试两侧都走 run_seasons，比较的是同一种推进
 /// 方式在两个实例上是否给出同一条轨迹。所以它不是前一条的替代，而是同一性质
@@ -497,7 +497,7 @@ TEST(equal_seeds_produce_identical_seasons)
 /// 它同时是「run_season 之后观察到的坐标 = build_sites 读到的那份」这条前提
 /// 的落点：移动在季初跑完，子代则落在亲代格内（place_in 的抖动取 [0, 0.9)，
 /// 加在整数格坐标上不跨格），因此 flush 之后看到的分布正是下一季的余量。
-double total_headroom(gamev2::world::World& w)
+double total_headroom(gamev2::world::SeasonWorld& w)
 {
     const auto& env = w.environment();
     std::vector<std::uint32_t> occupants(kCellCount, 0);
@@ -615,13 +615,13 @@ TEST(population_never_exceeds_the_capacity_left_below_it)
 ///   的抽签。
 ///
 /// 剩下唯一能改变子代基因组的就只有 RandomStreams{root_seed_, season_index_}。
-/// 删掉 World::run_season 里的 breeding_.advance_season(season_) 之后两边都
+/// 删掉 SeasonWorld::run_season 里的 breeding_.advance_season(season_) 之后两边都
 /// 退回季 0 的流，子代基因组逐位相同，本测试立刻变红。
-/// 季号流进繁殖随机流这条守卫，在 World 层已经**不可构造**，因此被删。
+/// 季号流进繁殖随机流这条守卫，在 SeasonWorld 层已经**不可构造**，因此被删。
 ///
 /// 它原先的形状是：把同一批初始个体放进两个处于不同季号的世界各结算一季，
 /// 逐条掐掉站点结构、摄食存量、气候三处差异，剩下的自由变量就只有
-/// `RandomStreams{root_seed_, season_index_}`。删掉 World::run_season 里的
+/// `RandomStreams{root_seed_, season_index_}`。删掉 SeasonWorld::run_season 里的
 /// breeding_.advance_season(season_) 之后两边都退回季 0 的流，测试立刻变红。
 ///
 /// 接入 MovementSystem 之后这条路断了，而且断得没法绕：**季号现在同时决定
@@ -633,15 +633,15 @@ TEST(population_never_exceeds_the_capacity_left_below_it)
 /// 逐条掐掉的那一项。
 ///
 /// 要恢复它，就得造出两个**移动流相同、繁殖流不同**的世界。而移动流是
-/// `World::season_` 的函数、繁殖流也是，`run_season` 里两者来自同一个成员，
-/// 因此任何 World 层的调用序列都无法只动其中一个。
+/// `SeasonWorld::season_` 的函数、繁殖流也是，`run_season` 里两者来自同一个成员，
+/// 因此任何 SeasonWorld 层的调用序列都无法只动其中一个。
 ///
-/// **代价要说清楚：World::run_season 里 breeding_.advance_season(season_)
+/// **代价要说清楚：SeasonWorld::run_season 里 breeding_.advance_season(season_)
 /// 这一行从今起没有任何测试守卫。** 机制本身仍在 adapt 层被覆盖
 /// （test_genetics_systems.cpp::breeding_advance_season_replaces_the_season_index），
-/// 没有覆盖的是 World 层这个调用点。要补回来只有两条路，都不便宜：让
-/// World 暴露可控的季号注入点（那是给测试开的生产代码口子），或者把移动从
-/// World 的默认装配里摘出去（已否决——移动是世界循环的一部分）。
+/// 没有覆盖的是 SeasonWorld 层这个调用点。要补回来只有两条路，都不便宜：让
+/// SeasonWorld 暴露可控的季号注入点（那是给测试开的生产代码口子），或者把移动从
+/// SeasonWorld 的默认装配里摘出去（已否决——移动是世界循环的一部分）。
 /// 补法未定之前不要「顺手加回来」，它会恒红而不是恒绿。
 
 
@@ -768,15 +768,15 @@ TEST(inbreeding_reaches_the_survival_lottery)
     GeneticsConfig loaded = plain;
     loaded.inbreeding_load = 4.0f;
 
-    gamev2::world::World control{table, plain, env, 77};
-    gamev2::world::World inbred{table, loaded, env, 77};
+    gamev2::world::SeasonWorld control{table, plain, env, 77};
+    gamev2::world::SeasonWorld inbred{table, loaded, env, 77};
 
     const auto control_id = control.species().register_species(all_loci());
     const auto inbred_id = inbred.species().register_species(all_loci());
     CHECK(control_id.has_value());
     CHECK(inbred_id.has_value());
 
-    const auto scatter = [](gamev2::world::World& w, const SpeciesId sid)
+    const auto scatter = [](gamev2::world::SeasonWorld& w, const SpeciesId sid)
     {
         auto& entities = w.entities();
         for (std::size_t k = 0; k < 4; ++k)
@@ -831,7 +831,7 @@ TEST(inbreeding_is_kept_per_species)
     GeneticsConfig config = steady_genetics();
     config.inbreeding_load = 4.0f;
 
-    gamev2::world::World world{table, config, env, 77};
+    gamev2::world::SeasonWorld world{table, config, env, 77};
     const auto first = world.species().register_species(all_loci());
     const auto second = world.species().register_species(all_loci());
     CHECK(first.has_value());
@@ -903,15 +903,15 @@ TEST(mating_radius_widens_the_pool_and_relieves_inbreeding)
     EnvironmentConfig wide_env = narrow_env;
     wide_env.mating_radius_cells = 4.0f;
 
-    gamev2::world::World narrow{table, genetics, narrow_env, 77};
-    gamev2::world::World wide{table, genetics, wide_env, 77};
+    gamev2::world::SeasonWorld narrow{table, genetics, narrow_env, 77};
+    gamev2::world::SeasonWorld wide{table, genetics, wide_env, 77};
 
     const auto narrow_id = narrow.species().register_species(all_loci());
     const auto wide_id = wide.species().register_species(all_loci());
     CHECK(narrow_id.has_value());
     CHECK(wide_id.has_value());
 
-    const auto fill = [](gamev2::world::World& w, const SpeciesId sid)
+    const auto fill = [](gamev2::world::SeasonWorld& w, const SpeciesId sid)
     {
         auto& entities = w.entities();
         for (int x = 0; x < 9; ++x)
@@ -940,7 +940,7 @@ TEST(mating_radius_widens_the_pool_and_relieves_inbreeding)
     const auto wide_alive = wide.run_season().population;
 
     // 存活率是 SurvivalInput::inbreeding 那一项直接写进 Vitality 的读数。
-    const auto mean_survival = [](gamev2::world::World& w)
+    const auto mean_survival = [](gamev2::world::SeasonWorld& w)
     {
         double sum = 0.0;
         std::size_t n = 0;
