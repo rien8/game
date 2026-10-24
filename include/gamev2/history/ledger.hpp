@@ -55,6 +55,12 @@ struct QuotaEntry
     /// 余额封顶，所以余额永远不会为负。本账算不出「已被采穿」这一侧。
     std::uint32_t balance = 0;
 
+    /// 8300→当代被劫云抽走、没有回流的部分。渡劫成功不入账（净 0）。
+    ///
+    /// 它不是开采：没有配额、没有持有者。所以 balance = surveyed_total
+    /// − extracted − 它，而 extracted 这一项不含它——两者分表正是为此。
+    std::uint32_t tribulation_loss = 0;
+
     /// 归零年。0 表示未枯竭。
     std::uint32_t depleted_year = 0;
     /// 该脉的脉律配额是否登记在册。九幽宫那条不登记。
@@ -70,6 +76,19 @@ struct ExtractionEvent
     bool over_quota = false;
 };
 
+/// 一次入账的渡劫失败。成功不入账：劫云溃散回流当地，净 0。
+///
+/// 与 ExtractionEvent 分表：那是「人采走了」，这是「天地抽走了」，
+/// 并成一张表会让「事件总和 == extracted」那条断言语义错乱。
+struct TribulationEvent
+{
+    std::uint32_t vein = 0;
+    std::uint32_t year = 0;
+    std::uint32_t amount = 0;
+    /// 劫心格。读者要在图上定位它，脉编号做不到这件事。
+    std::uint32_t site = 0;
+};
+
 /// 一宗的汇总账。
 struct SectLedger
 {
@@ -80,7 +99,7 @@ struct SectLedger
     std::uint32_t quota_rate = 0;
     /// 名下脉的当代余额总和。
     std::uint32_t current_total = 0;
-    /// 名下累计开采量（≡ 配额 − 当代余额）。
+    /// 名下累计开采量 + 累计劫损（≡ 配额 − 当代余额）。
     ///
     /// 恒 ≥ 0：配额封顶让越采不可能发生，余额永远不会低于 0，欠账这一侧
     /// 本账算不出来。
@@ -90,6 +109,8 @@ struct SectLedger
     std::int64_t deviation_rate = 0;
     /// 累计越采量。
     std::uint32_t overmined_amount = 0;
+    /// 名下脉被劫云抽走的合计。
+    std::int64_t tribulation_loss = 0;
     /// 该宗的脉律配额是否登记在册。九幽宫为 false。
     bool registered = true;
 };
@@ -101,6 +122,10 @@ struct Ledger
     std::uint32_t now = 0;
     std::vector<QuotaEntry> veins;
     std::vector<ExtractionEvent> events;
+    /// 失败并入账的渡劫，逐脉各记一笔：一处劫心圈住几条台账脉就写几条
+    /// 事件。空圈失败只计数不入账，所以事件里的不同劫心数不多于
+    /// tribulation_failed，事件笔数则可能多于它。
+    std::vector<TribulationEvent> tribulation_events;
     std::vector<SectLedger> sects;
     /// 未登记开采的总量（九幽宫那条脉）。
     std::uint32_t unregistered_extracted = 0;
@@ -108,6 +133,12 @@ struct Ledger
     std::int64_t structural_deviation = 0;
     /// 人为差：越采总量。
     std::int64_t overmining_deviation = 0;
+    /// 第三类偏差：劫损合计（Σ tribulation_loss）。与越采差同形——
+    /// 都是逐脉字段的 Σ，都是「没人该负责、但账上确实少了」的那一类。
+    std::int64_t tribulation_deviation = 0;
+    /// 失败的渡劫次数，按候选计。空圈失败也计——它试过了，只是没抽走
+    /// 什么。事件数不等于它：一处劫心圈住几条台账脉，事件就记几笔。
+    std::uint32_t tribulation_failed = 0;
 };
 
 /// 台账推演的诊断量。退化不是错误，由这里报出。
@@ -122,6 +153,10 @@ struct LedgerDiagnostics
     /// worldgen 标了枯眼但推演中余额没归零。
     std::uint32_t depletion_claim_unbacked = 0;
     /// 推演中余额归零但 worldgen 没标枯竭。
+    ///
+    /// 劫损抽干的脉也计入：本层只读 worldgen、不回写 `eye.depleted`，所以
+    /// 被天地抽干的脉 worldgen 永远标不到，这一项因此非零。那是合法的新
+    /// 枯竭原因，不是账与世界的错位——设计 §3.4 允许覆盖比 1.00 抽干整条脉。
     std::uint32_t depletion_unmarked = 0;
     /// [epoch+1, now) 年里没有哪一年的年初余额装得下这笔越采，
     /// 越采只能回落到 8300。
@@ -132,7 +167,24 @@ struct LedgerDiagnostics
     std::uint32_t flow_conversion_collapsed = 0;
     /// 推演跨度超过上限：台账按「没有推演」处理，余额停在基数上。
     std::uint32_t span_too_large = 0;
+    /// 劫心圈内一条台账脉都没有：事件无效果，只计数。
+    std::uint32_t tribulation_no_vein = 0;
 };
+
+/// 渡劫失败的概率。设定 §5.2 没给数，与 kOverminedChance 同样是经验值。
+///
+/// 取 0.3 而不是 0.15：候选池实测 6~25 处，0.15 时 6 处的池子有约 38%
+/// 概率一次都不失败，第三类偏差常态为 0，招牌断言就写不出来。
+inline constexpr double kTribulationFailChance = 0.3;
+
+/// 纪元年（8300）的渡劫场候选池：拷贝世界、把潮位拨回纪元、重跑潮相关层。
+///
+/// 灵脉不随潮位变（实测两份世界逐条相同），所以只重跑域、疤、地貌、渡劫
+/// 四个阶段就够：55 ms，而完整重生成要 230 ms ~ 2.4 s，两者逐处一致。
+///
+/// 拷贝而不是改写输入：build_ledger 的只读边界是相对调用方那份世界说的。
+[[nodiscard]] std::vector<gamev2::world::TribulationSite>
+epoch_tribulation_sites(const gamev2::world::World& world);
 
 /// 由 worldgen 的终态推演出灵脉台账。
 ///

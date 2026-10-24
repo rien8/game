@@ -114,10 +114,12 @@ enum class Stream : std::uint32_t
     land = 16,
     /// 时序层的越采年抽样。
     ledger = 17,
+    /// 时序层的渡劫年份与成败抽样。
+    tribulation = 18,
 };
 
 /// 全部已占用的流号。清单与枚举必须同步维护。
-inline constexpr std::array<std::uint32_t, 18> kStreamIds{
+inline constexpr std::array<std::uint32_t, 19> kStreamIds{
     static_cast<std::uint32_t>(Stream::elevation),
     static_cast<std::uint32_t>(Stream::rain),
     static_cast<std::uint32_t>(Stream::temperature),
@@ -136,6 +138,7 @@ inline constexpr std::array<std::uint32_t, 18> kStreamIds{
     static_cast<std::uint32_t>(Stream::heaven),
     static_cast<std::uint32_t>(Stream::land),
     static_cast<std::uint32_t>(Stream::ledger),
+    static_cast<std::uint32_t>(Stream::tribulation),
 };
 
 /// 流号两两不同。重复即意味着两个阶段共用一条随机流——那不是确定性缺陷，

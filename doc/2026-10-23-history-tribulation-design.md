@@ -407,8 +407,11 @@ inline constexpr double kTribulationFailChance = 0.3;
 | 5 | `the_export_carries_the_tribulation_toll` | 劫损行与渡劫事件清单真的进了导出文件 |
 | 6 | `the_toll_takes_the_post_overmining_balance` | 每笔劫损 == `(上年末余额 − 该年越采) × 覆盖比` |
 
-第 4 条还断言 `tribulation_failed ≥ tribulation_events.size()`：入账的是失败里
-落在**有脉圈内**的那部分，所以失败数只能多、不能少；反过来只有计数写错才可能。
+第 4 条断言的是「出现在事件表里的**不同劫心数** ≤ `tribulation_failed`」：
+入账的是失败里落在**有脉圈内**的那部分，所以失败数只能多、不能少。
+注意**不是** `tribulation_failed ≥ tribulation_events.size()`——一处劫心
+圈住多条台账脉时逐脉各记一笔（§3.4），事件笔数可能超过失败次数
+（实测 128²/seed 26：失败 1 处、事件 2 笔、不同劫心 1 个）。
 
 第 6 条要在测试里从 `World` 反算覆盖比（§3.4 的公式），照的是
 `overmined_vein_reserve_is_the_penalised_score_sum` 的先例：**基数写在账里，

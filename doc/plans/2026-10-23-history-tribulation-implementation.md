@@ -181,7 +181,7 @@ seed 11 在 128² 上同时满足「有越采脉」「有非零劫损」，所�
   - `inline constexpr double kTribulationFailChance = 0.3;`
   - `gamev2::world::Stream::tribulation = 18`
 
-- [ ] **Step 1: 改写受影响的既有测试（此刻编译不过，这就是红态）**
+- [x] **Step 1: 改写受影响的既有测试（此刻编译不过，这就是红态）**
 
 打开 `tests/test_history_ledger.cpp`，做下面六处改动。
 
@@ -318,7 +318,16 @@ TEST(final_balance_matches_the_ledger)
 ```
 
 **1f. 导出行数** —— `the_ledger_is_exportable_as_text`（约 1359 行）。
-图幅 64 → 128（`seed = 11` 不变），把 `rows` 的算法与上界改掉：
+图幅 64 → 128（`seed = 11` 不变），在 `build_ledger` 之后加守卫：
+
+```cpp
+    const World& w = *generated;
+    const Ledger ledger = gamev2::history::build_ledger(w, diagnostics);
+    // 守卫：这个 fixture 必须真的有劫损，否则渡劫清单那一段整条空跑。
+    CHECK(!ledger.tribulation_events.empty());
+```
+
+再把 `rows` 的算法与上界改掉：
 
 ```cpp
     const std::size_t rows = ledger.veins.size() + ledger.events.size()
@@ -335,7 +344,13 @@ TEST(final_balance_matches_the_ledger)
     CHECK(lines < rows + 50u);
 ```
 
-- [ ] **Step 2: 构建，确认它按预期编译失败**
+- [x] **Step 2: 构建，确认它按预期编译失败**
+
+  > 红态实证（2026-10-23 补测）：把 Task 1 之前的 `ledger.hpp` 放到
+  > include 路径最前，编译 Task 1 之后的测试文件，报的正是
+  > `no member named 'tribulation_events' in 'gamev2::history::Ledger'` 与
+  > `no member named 'tribulation_loss' in 'gamev2::history::QuotaEntry'`。
+  > 该步骤当时未单独执行（类型与测试同批落地），此处补齐证据。
 
 ```powershell
 cmake --build build
@@ -345,7 +360,7 @@ Expected: **编译失败**，报 `no member named 'tribulation_loss' in ...`
 与 `'tribulation_events' is not a member of '...'`。
 （这一步不是出错——测试先于类型，这正是 TDD 的红态。）
 
-- [ ] **Step 3: 在 `ledger.hpp` 里加类型、字段、常量**
+- [x] **Step 3: 在 `ledger.hpp` 里加类型、字段、常量**
 
 在 `struct QuotaEntry` 的 `balance` 字段**之后**插入：
 
@@ -416,7 +431,7 @@ struct TribulationEvent
 inline constexpr double kTribulationFailChance = 0.3;
 ```
 
-- [ ] **Step 4: 在 `enums.hpp` 登记新流**
+- [x] **Step 4: 在 `enums.hpp` 登记新流**
 
 把 `Stream::ledger = 17,` 之后补一行：
 
@@ -435,7 +450,7 @@ inline constexpr double kTribulationFailChance = 0.3;
 **数组长度的 18 必须手改**：`stream_ids_are_distinct()` 用的是
 `kStreamIds.size()`，改了枚举不改长度会编译失败（少登记一条）。
 
-- [ ] **Step 5: 构建并运行，确认是「那五条守卫红、其余全绿」**
+- [x] **Step 5: 构建并运行，确认是「那五条守卫红、其余全绿」**
 
 ```powershell
 cmake --build build
@@ -453,7 +468,7 @@ Expected: `worldgen_tests` 181/0、`ecs_tests` 111/111 **全绿**；
 **这个红态是有意的**：字段立好了、契约改了，扣减要到 Task 3 才有内容。
 **除这五条守卫以外还有任何红，就是出了问题，不要往下走。**
 
-- [ ] **Step 6: 向用户报告并等待提交指令**
+- [x] **Step 6: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 供用户参考的暂存命令：
 
@@ -479,7 +494,7 @@ git add tests/test_history_ledger.cpp
     epoch_tribulation_sites(const gamev2::world::World& world);`
     （Task 3 在 `build_ledger` 里调它）
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 追加到 `tests/test_history_ledger.cpp` 文件末尾（`namespace` 收尾之前）：
 
@@ -535,7 +550,7 @@ TEST(the_epoch_sites_are_derived_exactly)
     CHECK(!derived.empty());
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```powershell
 cmake --build build
@@ -545,7 +560,7 @@ cmake --build build
 Expected: **编译失败**，报 `'epoch_tribulation_sites' is not a member of
 'gamev2::history'`。
 
-- [ ] **Step 3: 声明并实现派生**
+- [x] **Step 3: 声明并实现派生**
 
 在 `ledger.hpp` 的 `kTribulationFailChance` 之后、`build_ledger` 声明之前
 追加：
@@ -600,7 +615,7 @@ epoch_tribulation_sites(const gamev2::world::World& world)
 }
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 ```powershell
 cmake --build build
@@ -610,7 +625,7 @@ cmake --build build
 Expected: `the_epoch_sites_are_derived_exactly` **PASS**，其余与 Task 1
 结束时一致（那五条守卫仍然红——本任务不碰扣减）。
 
-- [ ] **Step 5: 向用户报告并等待提交指令**
+- [x] **Step 5: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 供用户参考的暂存命令：
 
@@ -637,7 +652,7 @@ git add tests/test_history_ledger.cpp
   - `entry.tribulation_loss` 逐脉累计
   - 每笔 `TribulationEvent::amount == 上年末余额 − 该年越采) × covered / total`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 追加到 `tests/test_history_ledger.cpp`（下面的 `coverage_of` 返回
 `std::pair`，所以先把 include 补一行：在既有的 `#include <string>` 之后
@@ -847,7 +862,7 @@ TEST(the_tribulation_events_land_inside_the_window)
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```powershell
 cmake --build build
@@ -860,7 +875,7 @@ Expected: 编译通过（字段都在），但
 `the_tribulation_events_land_inside_the_window`
 与 Task 1 留下的五条守卫**全部 FAIL**（事件表还是空的）。
 
-- [ ] **Step 3: 实现候选池、排期、覆盖与扣减**
+- [x] **Step 3: 实现候选池、排期、覆盖与扣减**
 
 在 `ledger.cpp` 匿名命名空间里（`derive_epoch_sites` 之后）加三个类型与
 两个函数：
@@ -1092,7 +1107,7 @@ std::vector<TollPlan> sample_tolls(
                     - entry.tribulation_loss;
 ```
 
-- [ ] **Step 4: 构建并运行测试确认通过**
+- [x] **Step 4: 构建并运行测试确认通过**
 
 ```powershell
 cmake --build build
@@ -1109,7 +1124,7 @@ Expected: `history_tests` **全绿**（Task 1 留下的五条守卫此刻应转�
 **不要改断言去迁就它**，也不要在本任务里调 fixture——记下来，留到 Task 6
 按下面的决策处理，先报告。
 
-- [ ] **Step 5: 向用户报告并等待提交指令**
+- [x] **Step 5: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 供用户参考的暂存命令：
 
@@ -1133,7 +1148,7 @@ git add tests/test_history_ledger.cpp
 - Produces: `ledger.tribulation_deviation`、`sect.tribulation_loss`
   （Task 5 的导出与 demo 读它们）
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 在 `tests/test_history_ledger.cpp` 里把 `the_structural_deviation_dominates`
 的 fixture 与断言改掉（`p.seed = 26;` → `p.seed = 11;`，并加第三类）：
@@ -1203,7 +1218,7 @@ TEST(the_tribulation_toll_rolls_up_per_sect)
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```powershell
 cmake --build build
@@ -1215,7 +1230,7 @@ Expected: `the_tribulation_toll_rolls_up_per_sect` 编译失败
 也恒 0 → 断言 `> 0` 失败）；`the_structural_deviation_dominates` 的
 `CHECK(ledger.tribulation_deviation > 0)` 失败（还没赋值）。
 
-- [ ] **Step 3: 实现第三类偏差与逐宗汇总**
+- [x] **Step 3: 实现第三类偏差与逐宗汇总**
 
 在 `compute_deviations` 里，把
 
@@ -1277,7 +1292,7 @@ Expected: `the_tribulation_toll_rolls_up_per_sect` 编译失败
 「名下累计开采量」改成「名下累计开采量 + 累计劫损」，`header` 与
 实现两侧的注释都要改（实现里的注释解释的是 why，不改就成了误导）。
 
-- [ ] **Step 4: 构建并运行测试确认通过**
+- [x] **Step 4: 构建并运行测试确认通过**
 
 ```powershell
 cmake --build build
@@ -1286,7 +1301,7 @@ cmake --build build
 
 Expected: **全绿**（此时 Task 1 的守卫也应全绿）。
 
-- [ ] **Step 5: 向用户报告并等待提交指令**
+- [x] **Step 5: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 供用户参考的暂存命令：
 
@@ -1310,7 +1325,7 @@ git add tests/test_history_ledger.cpp
   `tribulation_deviation` / `sect.tribulation_loss`
 - Produces: 导出文本的两个新区段 + 一行诊断；demo 的第三类偏差与渡劫统计
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 追加到 `tests/test_history_ledger.cpp`：
 
@@ -1392,7 +1407,7 @@ TEST(the_export_carries_the_tribulation_toll)
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```powershell
 cmake --build build
@@ -1402,7 +1417,7 @@ cmake --build build
 Expected: `the_export_carries_the_tribulation_toll` **FAIL**
 （三个 `saw_*` 全是 false，`toll_rows` 是 0）。
 
-- [ ] **Step 3: 导出加三处、诊断计数**
+- [x] **Step 3: 导出加三处、诊断计数**
 
 **3a. 诊断计数**已经在 Task 3 的 `build_coverages` 里完成
 （`++diagnostics.tribulation_no_vein;`），本步不重复。
@@ -1462,7 +1477,7 @@ Expected: `the_export_carries_the_tribulation_toll` **FAIL**
     out << "空圈\t" << diagnostics.tribulation_no_vein << '\n';
 ```
 
-- [ ] **Step 4: demo 打印第三类偏差与渡劫统计**
+- [x] **Step 4: demo 打印第三类偏差与渡劫统计**
 
 `print_ledger_stats` 目前只收 `ledger` 与 `diagnostics`，而池数要现从世界
 派生——先给它加一个 `world` 参数（同文件里的 `print_surface_stats`、
@@ -1526,7 +1541,7 @@ void print_ledger_stats(const gamev2::history::Ledger& ledger,
                      diagnostics.tribulation_no_vein);
 ```
 
-- [ ] **Step 5: 构建、跑测试与 demo**
+- [x] **Step 5: 构建、跑测试与 demo**
 
 ```powershell
 cmake --build build
@@ -1546,7 +1561,7 @@ Expected: `history_tests` 全绿。demo 里应看到：
 
 导出的 `ledger.txt` 里，`=== 渡劫事件清单 ===` 与诊断段的「空圈」都要在。
 
-- [ ] **Step 6: 向用户报告并等待提交指令**
+- [x] **Step 6: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 供用户参考的暂存命令：
 
@@ -1568,7 +1583,7 @@ git add tests/test_history_ledger.cpp
 - Consumes: Task 1~5 的全部产出
 - Produces: 一份可交给变异战役的绿色基线
 
-- [ ] **Step 1: 跑三个测试目标**
+- [x] **Step 1: 跑三个测试目标**
 
 ```powershell
 cmake --build build
@@ -1582,7 +1597,7 @@ Expected: 111 / 181 / 全绿，三个都 `0 failed`，退出码 0。
 **尤其注意** `vein_counts_match_the_setting_exactly`（1 龙 / 9 主 / 40 支）
 ——本计划只读 worldgen，不应影响灵脉数量。若它挂了，说明改了不该改的字段。
 
-- [ ] **Step 2: 显式复验「越采恒被足额认领」**
+- [x] **Step 2: 显式复验「越采恒被足额认领」**
 
 这是设计 §8.3 列的**本刀唯一既有行为风险**，必须单独验，不能靠
 「全绿」顺带带过：
@@ -1601,7 +1616,7 @@ Expected: 111 / 181 / 全绿，三个都 `0 failed`，退出码 0。
 Expected: `ledger_never_double_counts_overmining` 通过；两个种子里
 `越采早于纪元 0`（若非 0，说明劫损确实把可行窗口挤掉了一部分，往下走第 3 步）。
 
-- [ ] **Step 3: 若等号失败或 `越采早于纪元 > 0`，按下面的顺序处理**
+- [x] **Step 3: 若等号失败或 `越采早于纪元 > 0`，按下面的顺序处理**
 
 **不要为了让测试变绿而改断言。** 三个选项，按代价从小到大：
 
@@ -1617,7 +1632,7 @@ Expected: `ledger_never_double_counts_overmining` 通过；两个种子里
 **选定前先报告给用户**，并把实测数字（哪个种子、越采差、劫损、
 `overmine_before_epoch` 计数）一并给出。
 
-- [ ] **Step 4: 跑 demo 核对量级**
+- [x] **Step 4: 跑 demo 核对量级**
 
 ```powershell
 ./build/worldgen_demo.exe --size 256 --seed 3
@@ -1626,7 +1641,7 @@ Expected: `ledger_never_double_counts_overmining` 通过；两个种子里
 核对：脉 50、口径差约 13510、越采差约 204、劫损**非零且小于口径差**
 （设计 §6.4 招牌断言的口径）。任何一项对不上，回对应任务自查。
 
-- [ ] **Step 5: 向用户报告并等待提交指令**
+- [x] **Step 5: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。**
 
@@ -1643,7 +1658,7 @@ Expected: `ledger_never_double_counts_overmining` 通过；两个种子里
 - Produces: 变异日志 `agent-temp/sdd/mut/task_trib_mutations.log`，以及
   「每条新断言都能被变异打红」的证据
 
-- [ ] **Step 1: 写变异脚本**
+- [x] **Step 1: 写变异脚本**
 
 写 `agent-temp/sdd/mut/task_trib_mutations.ps1`，对下面六个变异点逐个
 改源码 → 重建 → 记录哪些测试变红 → 还原：
@@ -1660,7 +1675,7 @@ Expected: `ledger_never_double_counts_overmining` 通过；两个种子里
 每个变异点的**实际**变红集合要记进日志，与表里的期望**逐条对账**：
 期望变红却没红的，是覆盖缺口，要报告，不要略过。
 
-- [ ] **Step 2: 跑完六个变异并记录**
+- [x] **Step 2: 跑完六个变异并记录**
 
 ```powershell
 pwsh -File agent-temp/sdd/mut/task_trib_mutations.ps1
@@ -1672,7 +1687,7 @@ Expected: 脚本跑完、日志里六个变异**全部**有「哪些测试红了
 这两条可能不红。日志里要写明是「没红（该年无越采）」还是「红了」——
 两者不能混为一谈。
 
-- [ ] **Step 3: 还原并确认基线全绿**
+- [x] **Step 3: 还原并确认基线全绿**
 
 ```powershell
 cmake --build build
@@ -1688,7 +1703,7 @@ Expected: 全绿，且 `git status` 显示**只有本计划计划内的文件被
 git status --short
 ```
 
-- [ ] **Step 4: 把覆盖缺口写进 progress 并向用户报告**
+- [x] **Step 4: 把覆盖缺口写进 progress 并向用户报告**
 
 报告内容：六个变异各自的实际变红集合、与期望不符的条目、以及你判断的
 覆盖缺口。**不得执行 `git commit`。**

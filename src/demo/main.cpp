@@ -503,7 +503,8 @@ std::string pad_to_width(std::string_view text, std::size_t width)
 }
 
 void print_ledger_stats(const gamev2::history::Ledger& ledger,
-                        const gamev2::history::LedgerDiagnostics& diagnostics)
+                        const gamev2::history::LedgerDiagnostics& diagnostics,
+                        const World& world)
 {
     // 跨度可能为负（now < epoch）：与导出同一套钳位，别让 demo 印出
     // 一个巨大的年数。
@@ -528,8 +529,19 @@ void print_ledger_stats(const gamev2::history::Ledger& ledger,
                      sect.quota_total, sect.current_total,
                      sect.deviation_total, sect.overmined_amount);
     }
-    std::println("  口径差 {}，越采差 {}", ledger.structural_deviation,
-                 ledger.overmining_deviation);
+    // 三类并排：口径差压过另两类，这正是「老配额结构性不公」那句话的
+    // 三个分量，缺一个就只剩两个可比。
+    std::println("  口径差 {}，越采差 {}，劫损 {}",
+                 ledger.structural_deviation,
+                 ledger.overmining_deviation,
+                 ledger.tribulation_deviation);
+    // 失败次数与入账笔数不是一回事：空圈失败只计数。池数要现派生一次
+    // （55 ms），demo 本来就要几秒，多这一次无所谓。
+    const std::size_t pool =
+        gamev2::history::epoch_tribulation_sites(world).size();
+    std::println("  渡劫：纪元候选 {} 处，失败 {} 次，入账 {} 笔",
+                 pool, ledger.tribulation_failed,
+                 ledger.tribulation_events.size());
     // 诊断量是台账与 worldgen 之间的接缝：对不上就报出来，不藏。
     if (diagnostics.depletion_claim_unbacked > 0u
         || diagnostics.depletion_unmarked > 0u
@@ -537,17 +549,19 @@ void print_ledger_stats(const gamev2::history::Ledger& ledger,
         || diagnostics.short_main_veins > 0u
         || diagnostics.overmine_before_epoch > 0u
         || diagnostics.flow_conversion_collapsed > 0u
-        || diagnostics.span_too_large > 0u)
+        || diagnostics.span_too_large > 0u
+        || diagnostics.tribulation_no_vein > 0u)
     {
         std::println("  诊断：枯眼无账 {}，枯竭未标 {}，缺阴脉 {}，主脉缺 {}，"
-                     "越采早于纪元 {}，换算塌缩 {}，跨度超限 {}",
+                     "越采早于纪元 {}，换算塌缩 {}，跨度超限 {}，空圈 {}",
                      diagnostics.depletion_claim_unbacked,
                      diagnostics.depletion_unmarked,
                      diagnostics.missing_yin_vein,
                      diagnostics.short_main_veins,
                      diagnostics.overmine_before_epoch,
                      diagnostics.flow_conversion_collapsed,
-                     diagnostics.span_too_large);
+                     diagnostics.span_too_large,
+                     diagnostics.tribulation_no_vein);
     }
 }
 
@@ -689,7 +703,7 @@ int main(int argc, char** argv)
     gamev2::history::LedgerDiagnostics diagnostics;
     const gamev2::history::Ledger ledger =
         gamev2::history::build_ledger(world, diagnostics);
-    print_ledger_stats(ledger, diagnostics);
+    print_ledger_stats(ledger, diagnostics, world);
     if (!gamev2::history::export_ledger(ledger, diagnostics,
                                         dir / "ledger.txt"))
     {

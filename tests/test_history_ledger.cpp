@@ -11,6 +11,7 @@
 #include <map>
 #include <print>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -857,8 +858,8 @@ TEST(balances_never_go_negative)
 TEST(conservation_holds_at_every_year)
 {
     WorldParams p;
-    p.width = 64;
-    p.height = 64;
+    p.width = 128;
+    p.height = 128;
     p.z_levels = 3;
     p.seed = 11;
     const auto generated = generate_world(p);
@@ -880,12 +881,13 @@ TEST(conservation_holds_at_every_year)
     {
         running[entry.vein] = entry.surveyed_total;
     }
+    // 事件必须落在推演区间内，且年份不倒退——否则「顺序遍历即时间序」
+    // 这个前提就不成立，后面的复算全部作废。劫损表的年份升序由
+    // the_tribulation_events_land_inside_the_window 负责。
     std::uint32_t last_year = ledger.epoch;
     bool year_went_backwards = false;
     for (const auto& event : ledger.events)
     {
-        // 事件必须落在推演区间内，且年份不倒退——否则「顺序遍历即
-        // 时间序」这个前提就不成立，后面的复算全部作废。
         CHECK(event.year >= ledger.epoch);
         CHECK(event.year < ledger.now);
         if (event.year < last_year)
@@ -893,12 +895,42 @@ TEST(conservation_holds_at_every_year)
             year_went_backwards = true;
         }
         last_year = event.year;
-        auto& balance = running[event.vein];
-        // 这一笔采完还剩——任何一年都不许采穿。
-        CHECK(balance >= event.amount);
-        balance -= event.amount;
     }
     CHECK(!year_went_backwards);
+
+    // 守卫：这个 fixture 必须真的有劫损。
+    CHECK(!ledger.tribulation_events.empty());
+
+    // 逐年内次序与实现一致：① 越采 → ② 劫损 → ③ 正常开采；
+    // 跨年按年份升序。三段过滤而不是按事件表下标交错：两张表各自按年份
+    // 递增，但谁在前谁在后只有按年重排才看得出来。
+    for (std::uint32_t year = ledger.epoch; year < ledger.now; ++year)
+    {
+        for (const auto& event : ledger.events)
+        {
+            if (event.year == year && event.over_quota)
+            {
+                CHECK(running[event.vein] >= event.amount);
+                running[event.vein] -= event.amount;
+            }
+        }
+        for (const auto& event : ledger.tribulation_events)
+        {
+            if (event.year == year)
+            {
+                CHECK(running[event.vein] >= event.amount);
+                running[event.vein] -= event.amount;
+            }
+        }
+        for (const auto& event : ledger.events)
+        {
+            if (event.year == year && !event.over_quota)
+            {
+                CHECK(running[event.vein] >= event.amount);
+                running[event.vein] -= event.amount;
+            }
+        }
+    }
     for (const auto& entry : ledger.veins)
     {
         CHECK_EQ(running[entry.vein], entry.balance);
@@ -910,8 +942,8 @@ TEST(conservation_holds_at_every_year)
 TEST(final_balance_matches_the_ledger)
 {
     WorldParams p;
-    p.width = 64;
-    p.height = 64;
+    p.width = 128;                 // 64² 的纪元渡劫场 40/40 全空，验不到劫损
+    p.height = 128;
     p.z_levels = 3;
     p.seed = 11;
     const auto generated = generate_world(p);
@@ -922,9 +954,13 @@ TEST(final_balance_matches_the_ledger)
     }
     const World& w = *generated;
     const Ledger ledger = gamev2::history::build_ledger(w);
+    // 守卫：这个 fixture 必须真的有劫损，否则新公式在它身上恒 0、空跑。
+    CHECK(!ledger.tribulation_events.empty());
     for (const auto& entry : ledger.veins)
     {
-        CHECK_EQ(entry.balance, entry.surveyed_total - entry.extracted);
+        CHECK_EQ(entry.balance,
+                 entry.surveyed_total - entry.extracted
+                     - entry.tribulation_loss);
     }
 }
 
@@ -977,10 +1013,10 @@ TEST(the_ledger_is_deterministic)
 {
     // 同 (seed, params) 两次构建，账本逐字段相同。
     WorldParams p;
-    p.width = 64;
-    p.height = 64;
+    p.width = 128;
+    p.height = 128;
     p.z_levels = 3;
-    p.seed = 2026;
+    p.seed = 11;
     const auto a = generate_world(p);
     const auto b = generate_world(p);
     CHECK(a.has_value());
@@ -991,6 +1027,22 @@ TEST(the_ledger_is_deterministic)
     }
     const Ledger la = gamev2::history::build_ledger(*a);
     const Ledger lb = gamev2::history::build_ledger(*b);
+    // 守卫：确定性比较要真的比较到渡劫事件，否则新字段没被测到。
+    CHECK(!la.tribulation_events.empty());
+    CHECK_EQ(la.tribulation_events.size(), lb.tribulation_events.size());
+    for (std::size_t i = 0; i < la.tribulation_events.size(); ++i)
+    {
+        CHECK_EQ(la.tribulation_events[i].vein,
+                 lb.tribulation_events[i].vein);
+        CHECK_EQ(la.tribulation_events[i].year,
+                 lb.tribulation_events[i].year);
+        CHECK_EQ(la.tribulation_events[i].amount,
+                 lb.tribulation_events[i].amount);
+        CHECK_EQ(la.tribulation_events[i].site,
+                 lb.tribulation_events[i].site);
+    }
+    CHECK_EQ(la.tribulation_failed, lb.tribulation_failed);
+    CHECK_EQ(la.tribulation_deviation, lb.tribulation_deviation);
     CHECK_EQ(la.veins.size(), lb.veins.size());
     for (std::size_t i = 0; i < la.veins.size(); ++i)
     {
@@ -1058,7 +1110,7 @@ TEST(ledger_never_double_counts_overmining)
     p.width = 128;
     p.height = 128;
     p.z_levels = 3;
-    p.seed = 13;
+    p.seed = 11;
     const auto generated = generate_world(p);
     CHECK(generated.has_value());
     if (!generated)
@@ -1070,6 +1122,8 @@ TEST(ledger_never_double_counts_overmining)
 
     // 台账为空的话下面的循环一条都不跑，这条断言会变成空跑失败。
     CHECK(!ledger.veins.empty());
+    // 守卫：seed 13 的纪元池 1 处但失败 0 次，换 seed 11 才有劫损可验。
+    CHECK(!ledger.tribulation_events.empty());
 
     std::size_t overmined = 0;
     for (const auto& entry : ledger.veins)
@@ -1088,8 +1142,10 @@ TEST(ledger_never_double_counts_overmining)
             static_cast<std::int64_t>(vein.reserve) - entry.balance;
         CHECK(gap >= 0);
         // 等号那一半：越采脉的基数是反推出来的，reserve = 基数 − 越采量，
-        // 所以 reserve − balance 恰好等于「不含越采」的开采量。
-        CHECK_EQ(gap, static_cast<std::int64_t>(normal));
+        // 所以 reserve − balance 恰好等于「不含越采的开采量 + 劫损」。
+        CHECK_EQ(gap,
+                 static_cast<std::int64_t>(normal)
+                     + static_cast<std::int64_t>(entry.tribulation_loss));
         if (vein.overmined)
         {
             ++overmined;
@@ -1208,16 +1264,16 @@ TEST(the_deviation_is_not_trivial)
 
 TEST(the_structural_deviation_dominates)
 {
-    // 招牌断言：8300 是峰值年、8914 是谷底年，口径差必然压过越采差。
+    // 招牌断言：8300 是峰值年、8914 是谷底年，口径差必然压过另两类。
     // 潮位公式若改了，这条会先变红——那正是它存在的意义。
     //
-    // fixture 选 128x128/seed 26：实测台账里有 4 条越采脉，越采差非零。
-    // 挑一个没有越采脉的种子，这条比较就成了 0 与正数的比较，白写。
+    // fixture 选 128x128/seed 11：实测纪元池 3 处、失败 2 次（8733、
+    // 8571），劫损非零（合计 50）。
     WorldParams p;
     p.width = 128;
     p.height = 128;
     p.z_levels = 3;
-    p.seed = 26;
+    p.seed = 11;
     const auto generated = generate_world(p);
     CHECK(generated.has_value());
     if (!generated)
@@ -1227,10 +1283,55 @@ TEST(the_structural_deviation_dominates)
     const World& w = *generated;
     const Ledger ledger = gamev2::history::build_ledger(w);
     CHECK(ledger.structural_deviation > 0);
-    // 前提：这个 fixture 真的有越采脉。没有越采的话越采差恒为 0，
-    // 下面那条比较就成了 0 与正数的比较，等于没测。
+    // 前提：这个 fixture 真的有越采、有劫损。少了任何一个，下面的比较
+    // 就成了 0 与正数的比较，等于没测。
     CHECK(ledger.overmining_deviation > 0);
+    CHECK(ledger.tribulation_deviation > 0);
     CHECK(ledger.structural_deviation >= ledger.overmining_deviation);
+    CHECK(ledger.structural_deviation >= ledger.tribulation_deviation);
+}
+
+TEST(the_tribulation_toll_rolls_up_per_sect)
+{
+    // 劫损要能指名到宗门：「太玄宗的地被天地抽走了多少」才是配额之争里
+    // 有人会拿来说话的数，只有一个全账总数就没法归因。
+    WorldParams p;
+    p.width = 128;
+    p.height = 128;
+    p.z_levels = 3;
+    p.seed = 11;
+    const auto generated = generate_world(p);
+    CHECK(generated.has_value());
+    if (!generated)
+    {
+        return;
+    }
+    const World& w = *generated;
+    const Ledger ledger = gamev2::history::build_ledger(w);
+    CHECK(ledger.tribulation_deviation > 0);
+
+    // 逐宗归因：每宗的劫损必须等于它名下那些脉的劫损之和。只验总和的话，
+    // 「全部堆进同一宗」的错误归因照样能过。
+    for (const auto& sect : ledger.sects)
+    {
+        std::int64_t expected = 0;
+        for (const auto& entry : ledger.veins)
+        {
+            if (entry.holder == sect.sect)
+            {
+                expected += entry.tribulation_loss;
+            }
+        }
+        CHECK_EQ(sect.tribulation_loss, expected);
+    }
+
+    std::int64_t sum = 0;
+    for (const auto& sect : ledger.sects)
+    {
+        sum += sect.tribulation_loss;
+    }
+    // 宗级合计必须逐项加得回全账口径，否则归因就是假的。
+    CHECK_EQ(sum, ledger.tribulation_deviation);
 }
 
 TEST(unregistered_extraction_is_separate)
@@ -1359,8 +1460,8 @@ bool columns_agree(const std::string& section,
 TEST(the_ledger_is_exportable_as_text)
 {
     WorldParams p;
-    p.width = 64;
-    p.height = 64;
+    p.width = 128;
+    p.height = 128;
     p.z_levels = 3;
     p.seed = 11;
     const auto generated = generate_world(p);
@@ -1372,6 +1473,8 @@ TEST(the_ledger_is_exportable_as_text)
     const World& w = *generated;
     LedgerDiagnostics diagnostics;
     const Ledger ledger = gamev2::history::build_ledger(w, diagnostics);
+    // 守卫：这个 fixture 必须真的有劫损，否则渡劫清单那一段整条空跑。
+    CHECK(!ledger.tribulation_events.empty());
 
     // 文件名带上种子：并发跑测试时各写各的，不互相覆盖。
     const std::filesystem::path path =
@@ -1446,16 +1549,17 @@ TEST(the_ledger_is_exportable_as_text)
         }
     }
     const std::size_t rows = ledger.veins.size() + ledger.events.size()
+                           + ledger.tribulation_events.size()
                            + overmine_rows + depleted_rows + disputed_rows;
     CHECK(lines > rows);
     // 固定表头 = 原有的 24 行 + 越采案清单 3 行 + 枯竭脉清单 3 行
-    // + 枯竭争议 3 行 + 诊断 11 行（标记 + 表头 + 8 项）= 44 行，
-    // 余量 1 行留给导出格式的小变动。
+    // + 枯竭争议 3 行 + 渡劫事件清单 3 行 + 诊断 12 行（标记 + 表头 + 9 项）
+    // + 偏差分解的劫损 1 行 = 49 行，余量 1 行留给导出格式的小变动。
     //
-    // 越采案、枯竭脉与枯竭争议是另外三段清单，它们把事件与脉各抄了一遍，
-    // 所以行数里要把这几份重复算进去——只按「脉 + 事件」算，边界会差出
-    // 几十行。
-    CHECK(lines < rows + 45u);
+    // 越采案、枯竭脉、枯竭争议与渡劫清单是另外四段，它们把事件与脉各抄了
+    // 一遍，所以行数里要把这几份重复算进去——只按「脉 + 事件」算，边界会
+    // 差出几十行。
+    CHECK(lines < rows + 50u);
 }
 
 TEST(the_sects_are_populated_even_at_the_epoch)
@@ -1517,6 +1621,10 @@ TEST(a_span_beyond_the_limit_is_refused)
     const Ledger ledger = gamev2::history::build_ledger(w, diagnostics);
 
     CHECK_EQ(diagnostics.span_too_large, 1u);
+    // 没有推演就没有渡劫：与事件表、余额同一个口径。
+    CHECK(ledger.tribulation_events.empty());
+    CHECK_EQ(ledger.tribulation_deviation, 0);
+    CHECK_EQ(ledger.tribulation_failed, 0u);
     // 没有推演：事件表是空的，余额还停在基数上。
     CHECK(ledger.events.empty());
     CHECK(!ledger.veins.empty());
@@ -1751,6 +1859,384 @@ TEST(the_export_separates_a_disputed_vein_from_a_drained_one)
             CHECK_EQ(std::stoul(fields[8]), std::size_t{0});
         }
     }
+}
+
+TEST(the_epoch_sites_are_derived_exactly)
+{
+    // 候选池不是「重新生成一份世界」，而是「拷贝 + 只重跑潮相关层」。
+    // 两者的相等是唯一挡住「worldgen 在域/疤/地貌之间插了阶段」的东西：
+    // 插了阶段，派生出来的池子就会静默过时，而台账不会报任何错。
+    //
+    // 64² 的池子 40/40 全空，两边都空的「逐处一致」是空比较，所以必须
+    // 用 128²；seed 11 实测池子 3 处。
+    WorldParams p;
+    p.width = 128;
+    p.height = 128;
+    p.z_levels = 3;
+    p.seed = 11;
+    const auto host = generate_world(p);
+    CHECK(host.has_value());
+    if (!host)
+    {
+        return;
+    }
+    // 只读边界：调用前后调用方的世界必须不变。派生靠「拷贝 + 改拷贝」
+    // 才不写输入——这个约定要有测试守着，否则有人把入参改成 World& 时
+    // 套件不会红，只会在推演里把当代潮位悄悄写回世界。
+    const std::size_t sites_before = host->tribulation_sites.size();
+    const auto tide_before = host->spirit_tide;
+    const auto derived =
+        gamev2::history::epoch_tribulation_sites(*host);
+    CHECK(!derived.empty());
+    CHECK_EQ(host->tribulation_sites.size(), sites_before);
+    CHECK_EQ(host->spirit_tide.level, tide_before.level);
+    CHECK_EQ(host->spirit_tide.year, tide_before.year);
+
+    WorldParams pe = p;
+    pe.spirit_year = 8300;
+    const auto full = generate_world(pe);
+    CHECK(full.has_value());
+    if (!full)
+    {
+        return;
+    }
+    CHECK_EQ(derived.size(), full->tribulation_sites.size());
+    for (std::size_t i = 0; i < derived.size(); ++i)
+    {
+        CHECK_EQ(derived[i].cell, full->tribulation_sites[i].cell);
+        CHECK_EQ(derived[i].radius, full->tribulation_sites[i].radius);
+        CHECK_EQ(derived[i].vein, full->tribulation_sites[i].vein);
+    }
+}
+
+/// 某条脉在某处劫云圈内覆盖的节点数占它总节点数的量。照实现的公式
+/// 从 World 反算——基数写在账里，但基数由谁提供要靠测试自己推，否则
+/// 改了覆盖口径两边一起漂，断言永远绿。
+std::pair<std::uint32_t, std::uint32_t> coverage_of(
+    const World& w, std::uint32_t vein_index, std::uint32_t site_cell,
+    std::uint32_t radius)
+{
+    const gamev2::world::SpiritVein& vein = w.veins[vein_index];
+    const auto& nodes = w.ley_channels[vein.channel].nodes;
+    const std::uint32_t width = w.params().width;
+    const std::int64_t sx = static_cast<std::int64_t>(site_cell % width);
+    const std::int64_t sy = static_cast<std::int64_t>(site_cell / width);
+    const std::int64_t r2 = static_cast<std::int64_t>(radius)
+                            * static_cast<std::int64_t>(radius);
+    std::uint32_t inside = 0;
+    for (std::uint32_t j = vein.first_node; j <= vein.last_node; ++j)
+    {
+        const std::uint32_t cell = w.ley_nodes[nodes[j]].cell;
+        const std::int64_t dx = static_cast<std::int64_t>(cell % width) - sx;
+        const std::int64_t dy = static_cast<std::int64_t>(cell / width) - sy;
+        if (dx * dx + dy * dy <= r2)
+        {
+            ++inside;
+        }
+    }
+    const std::uint32_t total = vein.last_node - vein.first_node + 1u;
+    return {inside, total};
+}
+
+/// 这笔劫损执行那一刻的余额——劫损的基数。
+///
+/// 基数 = 上一年年末余额 − 该年越采 − 该年更早劫心（同脉同年多笔时，后
+/// 一笔要减掉前一笔已经抽走的那份）。只用两张事件表就能复算，不需要台账
+/// 公开逐年余额。
+std::uint32_t balance_before_toll(const Ledger& ledger, std::uint32_t vein,
+                                  std::uint32_t year, std::uint32_t site)
+{
+    std::uint32_t balance = 0;
+    bool started = false;
+    for (const auto& entry : ledger.veins)
+    {
+        if (entry.vein == vein)
+        {
+            balance = entry.surveyed_total;
+            started = true;
+            break;
+        }
+    }
+    if (!started)
+    {
+        return 0;
+    }
+    for (std::uint32_t y = ledger.epoch; y < year; ++y)
+    {
+        for (const auto& e : ledger.events)
+        {
+            if (e.vein == vein && e.year == y)
+            {
+                balance -= e.amount;
+            }
+        }
+        for (const auto& e : ledger.tribulation_events)
+        {
+            if (e.vein == vein && e.year == y)
+            {
+                balance -= e.amount;
+            }
+        }
+    }
+    // 同一脉同年多笔劫损时，后一笔的基数要减掉前一笔已抽走的。事件表按
+    // (年, 劫心) 升序，同脉同年劫心更小的那些就是已经施加过的。
+    for (const auto& e : ledger.tribulation_events)
+    {
+        if (e.vein == vein && e.year == year && e.site < site)
+        {
+            balance -= e.amount;
+        }
+    }
+    for (const auto& e : ledger.events)
+    {
+        if (e.vein == vein && e.year == year && e.over_quota)
+        {
+            balance -= e.amount;
+        }
+    }
+    return balance;
+}
+
+TEST(a_failed_tribulation_takes_the_covered_share)
+{
+    // 损失 = 当年余额 × 圈内节点占比，先乘后除。覆盖比 1.00 时整条脉
+    // 被抽干，这正是设定 5.2「抽干方图百里」的几何读法。
+    //
+    // 这一条同时兑现设计 §6.2 的 #2 与 #6：`balance_before_toll` 把该年
+    // **已经发生的越采**也扣掉，所以基数一旦不含越采（次序挪了）或含了
+    // 当年正常开采，下面的等式立刻红。
+    WorldParams p;
+    p.width = 128;
+    p.height = 128;
+    p.z_levels = 3;
+    p.seed = 11;
+    const auto generated = generate_world(p);
+    CHECK(generated.has_value());
+    if (!generated)
+    {
+        return;
+    }
+    const World& w = *generated;
+    const Ledger ledger = gamev2::history::build_ledger(w);
+    CHECK(!ledger.tribulation_events.empty());
+
+    const auto pool =
+        gamev2::history::epoch_tribulation_sites(w);
+    std::size_t checked = 0;
+    for (const auto& event : ledger.tribulation_events)
+    {
+        // 找到这笔事件对应的候选池条目，拿它的劫心与半径。
+        std::uint32_t radius = 0;
+        bool found = false;
+        for (const auto& site : pool)
+        {
+            if (site.cell == event.site)
+            {
+                radius = site.radius;
+                found = true;
+                break;
+            }
+        }
+        CHECK(found);
+        if (!found)
+        {
+            continue;
+        }
+        const auto [covered, total] =
+            coverage_of(w, event.vein, event.site, radius);
+        CHECK(covered > 0u);
+        // 基数：这笔劫损执行那一刻的余额，扣掉同年更早劫心已经抽走的。
+        const std::uint32_t base =
+            balance_before_toll(ledger, event.vein, event.year, event.site);
+        ++checked;
+        CHECK_EQ(event.amount, base * covered / total);
+    }
+    CHECK(checked > 0);
+}
+
+TEST(tribulation_loss_never_exceeds_the_balance)
+{
+    // 无符号恒等式的前提：每一笔扣减都 ≤ 扣减时刻的余额。劫损取余额的
+    // 覆盖比例，比例 ≤ 1 所以天然成立——这条断言守的是「天然」没被改坏。
+    WorldParams p;
+    p.width = 128;
+    p.height = 128;
+    p.z_levels = 3;
+    p.seed = 11;
+    const auto generated = generate_world(p);
+    CHECK(generated.has_value());
+    if (!generated)
+    {
+        return;
+    }
+    const World& w = *generated;
+    const Ledger ledger = gamev2::history::build_ledger(w);
+    CHECK(!ledger.tribulation_events.empty());
+    for (const auto& entry : ledger.veins)
+    {
+        CHECK_EQ(entry.balance,
+                 entry.surveyed_total - entry.extracted
+                     - entry.tribulation_loss);
+        // 累计劫损不得超过「基数减去已采」：余额 = 基数 − 已采 − 劫损 ≥ 0
+        // 正是这条不等式的等价形式。比「劫损 ≤ 基数」强，也正是注释说的
+        // 「损失不超过扣减时刻的余额」。
+        CHECK(entry.tribulation_loss
+              <= entry.surveyed_total - entry.extracted);
+    }
+}
+
+TEST(the_tribulation_events_land_inside_the_window)
+{
+    WorldParams p;
+    p.width = 128;
+    p.height = 128;
+    p.z_levels = 3;
+    // fixture 选 128x128/seed 26：实测失败 1 处、事件 2 笔、不同劫心 1 处
+    // ——一处劫心圈住两条台账脉，逐脉各记一笔。
+    //
+    // 不用 seed 11：它那处失败 2 笔的劫心（劫心格 11429）也圈住两条脉，
+    // 但第二条（脉 8）在渡劫前 32 年（灵历 8701）就已被采干——按设计
+    // §3.4「基数取渡劫那一刻的余额」，余额为 0 就抽不出东西，那一笔不入
+    // 账。实测 seed 11 是失败 2 处、事件 2 笔、不同劫心 2 处，下面那条
+    // 「事件笔数 > 不同劫心数」的守卫在它身上恒假。
+    p.seed = 26;
+    const auto generated = generate_world(p);
+    CHECK(generated.has_value());
+    if (!generated)
+    {
+        return;
+    }
+    const World& w = *generated;
+    const Ledger ledger = gamev2::history::build_ledger(w);
+    CHECK(!ledger.tribulation_events.empty());
+    // 失败候选数与事件笔数不是同一个量：一处劫心可以圈住多条台账脉，
+    // 逐脉各记一笔（设计 §3.4），所以事件笔数可能比失败次数多。成立的
+    // 不变式是「出现在事件表里的不同劫心数 ≤ 失败候选数」——空圈失败
+    // 只计数，不入账。
+    std::vector<std::uint32_t> distinct_sites;
+    for (const auto& event : ledger.tribulation_events)
+    {
+        if (std::ranges::find(distinct_sites, event.site)
+            == distinct_sites.end())
+        {
+            distinct_sites.push_back(event.site);
+        }
+    }
+    CHECK(static_cast<std::size_t>(ledger.tribulation_failed)
+          >= distinct_sites.size());
+    // 守卫：seed 26 实测失败 1 处、事件 2 笔、不同劫心 1 处。这条断言在
+    // 「一处劫心圈住多条脉」时才有牙。
+    CHECK(ledger.tribulation_events.size() > distinct_sites.size());
+
+    std::uint32_t last_year = ledger.epoch;
+    std::uint32_t last_site = 0;
+    bool first = true;
+    for (const auto& event : ledger.tribulation_events)
+    {
+        CHECK(event.year >= ledger.epoch);
+        CHECK(event.year < ledger.now);
+        CHECK(event.amount > 0u);
+        // 脉编号是 worldgen 的编号，台账只收非荒脉，两者下标不对应，
+        // 不能拿台账长度判界。
+        bool known = false;
+        for (const auto& entry : ledger.veins)
+        {
+            if (entry.vein == event.vein)
+            {
+                known = true;
+                break;
+            }
+        }
+        CHECK(known);
+        if (!first)
+        {
+            CHECK(event.year >= last_year);
+        }
+        // 同年按劫心升序（设计 §4）。
+        if (!first && event.year == last_year)
+        {
+            CHECK(event.site >= last_site);
+        }
+        first = false;
+        last_year = event.year;
+        last_site = event.site;
+    }
+}
+
+TEST(the_export_carries_the_tribulation_toll)
+{
+    // 台账是给人读的：劫损若只在内存里，配额之争的第三方成因读者看不见，
+    // 那它跟没算过一样。
+    WorldParams p;
+    p.width = 128;
+    p.height = 128;
+    p.z_levels = 3;
+    p.seed = 11;
+    const auto generated = generate_world(p);
+    CHECK(generated.has_value());
+    if (!generated)
+    {
+        return;
+    }
+    const World& w = *generated;
+    LedgerDiagnostics diagnostics;
+    const Ledger ledger = gamev2::history::build_ledger(w, diagnostics);
+    CHECK(!ledger.tribulation_events.empty());
+
+    // 诊断量对着世界数一遍：它报的是「抽了个空圈」的候选数。只断言导出里
+    // 有这一行的话，计数写成 0 或写成别的数都没人发现。
+    const auto pool = gamev2::history::epoch_tribulation_sites(w);
+    std::size_t empty_circles = 0;
+    for (const auto& site : pool)
+    {
+        bool touched = false;
+        for (const auto& entry : ledger.veins)
+        {
+            const auto [covered, total] =
+                coverage_of(w, entry.vein, site.cell, site.radius);
+            (void)total;
+            if (covered > 0u)
+            {
+                touched = true;
+                break;
+            }
+        }
+        if (!touched)
+        {
+            ++empty_circles;
+        }
+    }
+    CHECK_EQ(diagnostics.tribulation_no_vein, empty_circles);
+
+    const std::filesystem::path path =
+        std::filesystem::temp_directory_path()
+        / ("gamev2_ledger_toll_seed" + std::to_string(p.seed) + ".txt");
+    CHECK(gamev2::history::export_ledger(ledger, diagnostics, path));
+    std::ifstream in(path);
+    CHECK(in.good());
+    std::string line;
+    bool saw_toll_row = false;
+    bool saw_toll_section = false;
+    bool saw_no_vein = false;
+    std::size_t toll_rows = 0;
+    while (std::getline(in, line))
+    {
+        saw_toll_row |= line.starts_with("劫损（天地抽走）");
+        saw_toll_section |= line.starts_with("=== 渡劫事件清单 ===");
+        saw_no_vein |= line.find("空圈") != std::string::npos;
+        if (saw_toll_section && !line.starts_with("=== ")
+            && !line.starts_with("脉\t") && !line.empty()
+            && line[0] >= '0' && line[0] <= '9')
+        {
+            ++toll_rows;
+        }
+    }
+    in.close();
+    std::filesystem::remove(path);
+    CHECK(saw_toll_row);
+    CHECK(saw_toll_section);
+    CHECK(saw_no_vein);
+    CHECK_EQ(toll_rows, ledger.tribulation_events.size());
 }
 
 }  // namespace
