@@ -13,7 +13,7 @@
 /// 时按老写法解析成季数。
 ///
 /// `fragile` 与 `evolve` 只差近交衰退强度（0 对 4），8 季灭绝。
-#include "gamev2/world/world.hpp"
+#include "gamev2/ecology/ecology.hpp"
 
 #include "gamev2/ecs/adapt/components.hpp"
 #include "gamev2/ecs/world.hpp"
@@ -320,7 +320,7 @@ Genome random_genome(std::mt19937_64& rng)
 /// 的真实气候快照（f(G) ⊕ g(E)），手工搭的父代却只能拿 Environment 的默认值
 /// （temperature 恒 0，完全免疫气候）。让父代走同一条路径，父子才面对同一套
 /// 选择压力。
-void seed(gamev2::world::World& world, const SpeciesId sid,
+void seed(gamev2::ecology::Ecology& world, const SpeciesId sid,
           const SpeciesMask& mask, const LocusTable& table,
           const GeneticsConfig& genetics, std::mt19937_64& rng)
 {
@@ -435,7 +435,7 @@ int main(const int argc, char** argv)
         return 1;
     }
 
-    gamev2::world::World world{table, genetics, environment, root_seed};
+    gamev2::ecology::Ecology world{table, genetics, environment, root_seed};
     const auto sid = world.species().register_species(all_loci());
     if (!sid)
     {

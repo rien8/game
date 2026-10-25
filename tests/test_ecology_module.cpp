@@ -1,6 +1,6 @@
 #include "test_framework.hpp"
 
-#include "gamev2/world/world.hpp"
+#include "gamev2/ecology/ecology.hpp"
 
 #include "gamev2/ecs/world.hpp"
 #include "gamev2/environment/climate.hpp"
@@ -171,7 +171,7 @@ struct Fixture
     GeneticsConfig genetics{steady_genetics()};
     EnvironmentConfig config{roomy_config()};
     SpeciesId sid{};
-    gamev2::world::World world;
+    gamev2::ecology::Ecology world;
 
     Fixture()
         : world{table, genetics, config, 31}
@@ -420,7 +420,7 @@ TEST(run_seasons_equals_repeated_run_season)
     stepwise.seed(16);
 
     const auto bulk = batched.world.run_seasons(5);
-    std::vector<gamev2::world::SeasonReport> one_by_one;
+    std::vector<gamev2::ecology::SeasonReport> one_by_one;
     for (std::uint32_t i = 0; i < 5; ++i)
     {
         one_by_one.push_back(stepwise.world.run_season());
@@ -497,7 +497,7 @@ TEST(equal_seeds_produce_identical_seasons)
 /// 它同时是「run_season 之后观察到的坐标 = build_sites 读到的那份」这条前提
 /// 的落点：移动在季初跑完，子代则落在亲代格内（place_in 的抖动取 [0, 0.9)，
 /// 加在整数格坐标上不跨格），因此 flush 之后看到的分布正是下一季的余量。
-double total_headroom(gamev2::world::World& w)
+double total_headroom(gamev2::ecology::Ecology& w)
 {
     const auto& env = w.environment();
     std::vector<std::uint32_t> occupants(kCellCount, 0);
@@ -768,15 +768,15 @@ TEST(inbreeding_reaches_the_survival_lottery)
     GeneticsConfig loaded = plain;
     loaded.inbreeding_load = 4.0f;
 
-    gamev2::world::World control{table, plain, env, 77};
-    gamev2::world::World inbred{table, loaded, env, 77};
+    gamev2::ecology::Ecology control{table, plain, env, 77};
+    gamev2::ecology::Ecology inbred{table, loaded, env, 77};
 
     const auto control_id = control.species().register_species(all_loci());
     const auto inbred_id = inbred.species().register_species(all_loci());
     CHECK(control_id.has_value());
     CHECK(inbred_id.has_value());
 
-    const auto scatter = [](gamev2::world::World& w, const SpeciesId sid)
+    const auto scatter = [](gamev2::ecology::Ecology& w, const SpeciesId sid)
     {
         auto& entities = w.entities();
         for (std::size_t k = 0; k < 4; ++k)
@@ -831,7 +831,7 @@ TEST(inbreeding_is_kept_per_species)
     GeneticsConfig config = steady_genetics();
     config.inbreeding_load = 4.0f;
 
-    gamev2::world::World world{table, config, env, 77};
+    gamev2::ecology::Ecology world{table, config, env, 77};
     const auto first = world.species().register_species(all_loci());
     const auto second = world.species().register_species(all_loci());
     CHECK(first.has_value());
@@ -903,15 +903,15 @@ TEST(mating_radius_widens_the_pool_and_relieves_inbreeding)
     EnvironmentConfig wide_env = narrow_env;
     wide_env.mating_radius_cells = 4.0f;
 
-    gamev2::world::World narrow{table, genetics, narrow_env, 77};
-    gamev2::world::World wide{table, genetics, wide_env, 77};
+    gamev2::ecology::Ecology narrow{table, genetics, narrow_env, 77};
+    gamev2::ecology::Ecology wide{table, genetics, wide_env, 77};
 
     const auto narrow_id = narrow.species().register_species(all_loci());
     const auto wide_id = wide.species().register_species(all_loci());
     CHECK(narrow_id.has_value());
     CHECK(wide_id.has_value());
 
-    const auto fill = [](gamev2::world::World& w, const SpeciesId sid)
+    const auto fill = [](gamev2::ecology::Ecology& w, const SpeciesId sid)
     {
         auto& entities = w.entities();
         for (int x = 0; x < 9; ++x)
@@ -940,7 +940,7 @@ TEST(mating_radius_widens_the_pool_and_relieves_inbreeding)
     const auto wide_alive = wide.run_season().population;
 
     // 存活率是 SurvivalInput::inbreeding 那一项直接写进 Vitality 的读数。
-    const auto mean_survival = [](gamev2::world::World& w)
+    const auto mean_survival = [](gamev2::ecology::Ecology& w)
     {
         double sum = 0.0;
         std::size_t n = 0;

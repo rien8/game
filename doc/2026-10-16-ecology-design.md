@@ -1,4 +1,4 @@
-# 世界模块设计文档
+# 生态模块设计文档
 
 - 日期：2026-10-16
 - 状态：已实现
@@ -49,14 +49,14 @@ new 四个 system、逐个 `scheduler.add`、调用 `plan()`、每季
 
 | # | 决策 | 理由 |
 |---|------|------|
-| 1 | 命名 `gamev2::world::World`，成员为 `ecs::World entities_` | 与文档里「世界」的叫法一致；成员加前缀 `entities_` 而不是 `world_`，是为了让本文件内的 `World` 始终无歧义地指本类 |
+| 1 | 命名 `gamev2::ecology::Ecology`，成员为 `ecs::World entities_` | 原名 `gamev2::world::World`，与寰宇世界生成器的 `gamev2::world` 撞名；两条线合并时改叫 `ecology`（2026-10-25）。成员加前缀 `entities_` 而不是 `world_`，是为了让本文件内的 `Ecology` 始终无歧义地指本类 |
 | 2 | 季节号经 `advance_season()` 推进，不每季重建 system | `Scheduler` 自带一个真线程池，每季重建等于每季重建线程 |
 | 3 | `scheduler` 只注册三个 system，统计在 `flush` 之后直接驱动 | 统计的口径必须落在死亡与出生都已生效之后 |
 | 4 | 只引用外部 `LocusTable`，其余（ECS 世界、环境场、登记表、config、scheduler、四个 system）自持 | 位点蓝图按设计是全模块共享的静态数据，与「一次运行」的登记表所有权级别不同 |
 | 5 | `SeasonReport::species` 是 `statistics()` 的拷贝 | 下一季 `stats_.clear()` 会重写成员里的数据，而报告要活得比下一季久 |
 | 6 | `report.population` 取各物种 `census` 之和 | 与统计同一次遍历，不额外扫世界 |
 | 7 | `run_seasons(n)` 是朴素循环，不做任何批量化 | 等价性是可测的，批量化是提前优化 |
-| 8 | 不生成初始种群 | 调用方本来就必须知道怎么造 `Genome` 与 `Phenotype`；把它藏进世界模块只会多一层无法验证的隐式行为 |
+| 8 | 不生成初始种群 | 调用方本来就必须知道怎么造 `Genome` 与 `Phenotype`；把它藏进生态模块只会多一层无法验证的隐式行为 |
 
 第 3 条值得单说，因为它是本设计与「把四个 system 一起塞进 scheduler」这个
 最自然的想法之间唯一的分歧点。`PopulationStatisticsSystem` 的
@@ -82,12 +82,12 @@ ReadSet 是 `Genome + SpeciesTag`，与另三个 system 的访问集都相交（
 ### 3.1 文件划分
 
 ```
-include/gamev2/world/world.hpp   SeasonReport / World
-src/world/world.cpp
-tests/test_world_module.cpp
+include/gamev2/ecology/ecology.hpp   SeasonReport / Ecology
+src/ecology/ecology.cpp
+tests/test_ecology_module.cpp
 ```
 
-测试文件叫 `test_world_module` 而不是 `test_world`：后者是 ECS 模块既有的
+测试文件叫 `test_ecology_module` 而不是 `test_world`：后者是 ECS 模块既有的
 世界测试（31 条），与本模块无关。
 
 `ecs/adapt` 侧只多两个方法：
@@ -103,22 +103,22 @@ void BreedingSystem::advance_season(std::uint32_t season_index) noexcept
 ### 3.2 依赖方向
 
 ```
-              gamev2::world
+              gamev2::ecology
                     │
       ┌─────────────┼─────────────┐
       ▼             ▼             ▼
    ecs::adapt   adapt::Env     genetics   environment
-   （四 system）    World
+   （四 system）    Ecology
 ```
 
-`world/` 不引入任何新依赖：它 include 的头文件全是既有的。它是整棵树的
+`ecology/` 不引入任何新依赖：它 include 的头文件全是既有的。它是整棵树的
 最顶层，因此**不存在它把依赖方向弄反的可能**——这也是它适合作为编排层的
 一个额外理由。
 
 ### 3.3 一季的执行序列
 
 ```cpp
-SeasonReport World::run_season()
+SeasonReport Ecology::run_season()
 {
     movement_.advance_season(season_);
     environment_.advance_season(season_);
@@ -184,13 +184,13 @@ struct SeasonReport
 `species` 是拷贝不是引用，这是决策 5。拷贝的代价与物种数成正比而与个体数
 无关——`AlleleStats` 是逐位点的定长统计，不是逐个体的。
 
-### 4.2 World
+### 4.2 Ecology
 
 ```cpp
-class World
+class Ecology
 {
 public:
-    World(const gamev2::genetics::LocusTable& table,
+    Ecology(const gamev2::genetics::LocusTable& table,
           gamev2::genetics::GeneticsConfig genetics_config,
           gamev2::environment::EnvironmentConfig environment_config,
           std::uint64_t root_seed,
@@ -239,9 +239,9 @@ private:
 
 `BreedingSystem` 的 `targets_` 指向 `&environment_.targets()`。这是安全的：
 它取的是成员 `std::vector` 的**地址**，不是某次 `execute` 产出的数据的
-地址，而该成员的地址在 `World` 的整个生命周期内不变。`EnvironmentSystem::execute`
+地址，而该成员的地址在 `Ecology` 的整个生命周期内不变。`EnvironmentSystem::execute`
 每季 `clear()` 再重建的是这张表的内容，其生命周期契约（环境设计文档 §8）
-「必须覆盖下一次 execute」在此处由「二者同为 `World` 成员」自动兑现。
+「必须覆盖下一次 execute」在此处由「二者同为 `Ecology` 成员」自动兑现。
 
 `AgingSystem` 与 `PopulationStatisticsSystem` 不持有季号，因此不参与
 `advance_season`。
@@ -302,7 +302,7 @@ private:
 - 摄食的计算与扣减分两趟，结果不依赖实体遍历顺序
 - `RandomStreams{root_seed_, season_index_}` 每季重建，同季号必得同流
   （遗传设计文档的既有契约）
-- `World::run_season` 内部不含任何随机调用，也不含任何依赖地址的顺序
+- `Ecology::run_season` 内部不含任何随机调用，也不含任何依赖地址的顺序
 
 已知的两条不由本模块引入、但会被它一并暴露的性质：
 
@@ -325,7 +325,7 @@ private:
 
 ## 7. 测试策略
 
-`tests/test_world_module.cpp`，共 10 条（原先 11 条；
+`tests/test_ecology_module.cpp`，共 10 条（原先 11 条；
 `season_number_reaches_the_breeding_random_stream` 因移动接入而不可构造，已删，
 理由见 §8）。末列「实际鉴别力」不是客套，是逐条写明这条测试今天能抓住什么、
 抓不住什么——它对着下面「逐条说明要害」与 §8。
@@ -370,21 +370,21 @@ order 稳定排序再贪心分层，调换注册顺序根本不会颠倒批次�
 会红，那条已经覆盖。为同一件事再立一条独立断言，只是多一处需要同步更新的
 地方。
 
-**构建**：`CMakeLists.txt` 新增 `world` 静态库与 `world_tests` 可执行目标，
-依赖链 `world_tests → world → environment`（后者已 PUBLIC 挂着 genetics 与
-ecs）。ASan 的 `foreach` 遍历的是具名列表，必须把 `WORLD_SOURCES` 与
-`WORLD_TEST_SOURCES` 一并加入，否则 `-DGAMEV2_ENABLE_ASAN=ON` 的构建会
-悄悄漏掉整个世界模块。
+**构建**：`CMakeLists.txt` 新增 `ecology` 静态库与 `ecology_tests` 可执行目标，
+依赖链 `ecology_tests → ecology → environment`（后者已 PUBLIC 挂着 genetics 与
+ecs）。ASan 的 `foreach` 遍历的是具名列表，必须把 `ECOLOGY_SOURCES` 与
+`ECOLOGY_TEST_SOURCES` 一并加入，否则 `-DGAMEV2_ENABLE_ASAN=ON` 的构建会
+悄悄漏掉整个生态模块。
 
 ---
 
 ## 8. 未决事项
 
-- **「季号真的流进了繁殖随机流」这条在 World 层已从「没有守卫」变成
+- **「季号真的流进了繁殖随机流」这条在 Ecology 层已从「没有守卫」变成
   「守卫不可构造」，因此那条测试被删了。**
   原先它守的是：把同一批初始个体放进两个处于不同季号的世界各结算一季，
   逐条掐掉站点结构、摄食存量、气候三处差异，剩下的自由变量就只有
-  `RandomStreams{root_seed_, season_index_}`。删掉 `World::run_season` 里的
+  `RandomStreams{root_seed_, season_index_}`。删掉 `Ecology::run_season` 里的
   `breeding_.advance_season(season_);` 会让两边都退回季 0 的流，测试立刻变红。
   **`MovementSystem` 接入之后这条路断了，而且绕不过去**：季号现在同时决定
   移动的随机流（`mix_seed(mix_seed(root_seed, season), kMovementPurpose)`）与
@@ -393,18 +393,18 @@ ecs）。ASan 的 `foreach` 遍历的是具名列表，必须把 `WORLD_SOURCES`
   不同。子代基因组的差异于是有了「站点结构不同」这个与季号无关的解释，
   而那正是这条测试当初逐条掐掉的第一项。实测两季的子代数直接不相等。
   要恢复它就得造出两个**移动流相同、繁殖流不同**的世界，而 `run_season` 里
-  两者来自同一个 `season_` 成员，任何 World 层的调用序列都做不到。
+  两者来自同一个 `season_` 成员，任何 Ecology 层的调用序列都做不到。
   **代价要说清楚：`breeding_.advance_season(season_)` 这一行现在完全没有测试
   守卫。** 机制本身在 adapt 层仍被覆盖
   （`test_genetics_systems.cpp::breeding_advance_season_replaces_the_season_index`），
-  没有覆盖的是 World 层这个调用点。补法有两条，都不便宜：让 `World` 暴露可控
+  没有覆盖的是 Ecology 层这个调用点。补法有两条，都不便宜：让 `Ecology` 暴露可控
   的季号注入点（那是给测试开的生产代码口子），或给存档往返测试。**明确否决了
   「钉一个黄金值」**——那会把一个尚未被任何测试钉住的行为变成一碰就碎的快照。
   顺带记一笔 `heterozygosity` 在本套件里剩下的正当职责：它只承担「同一条轨迹
   的逐位复核」。任何形如「它每季都该变」、或拿它当某种漂移探针的断言，都不能
   由它支撑。
 - **「并行永不发生、`worker_count` 结构性惰性」这条已经作废。**
-  `MovementSystem` 接入前，`World` 排出的 3 个批次全是单 system 批，
+  `MovementSystem` 接入前，`Ecology` 排出的 3 个批次全是单 system 批，
   `Scheduler::run` 因此从不向线程池派发；`worker_count_does_not_change_the_result`
   正因如此是个恒绿用例，已删除。
   现在四个 system 排成 `{Movement, Aging}` / `{Environment}` / `{Breeding}`
@@ -413,7 +413,7 @@ ecs）。ASan 的 `foreach` 遍历的是具名列表，必须把 `WORLD_SOURCES`
   第一批能并排的依据是两者访问集确实不相交：`MovementSystem` 写 `Position`、
   只读 `CreaturePhenotype`，`AgingSystem` 读 `CreaturePhenotype`、写
   `Vitality`；两者都只在 `execute` 里就地改写、不做结构变更，而
-  `World::get_if` 全程只读（`slot_of` / `find` / `column_at` / `chunk_data`
+  `ecs::World::get_if` 全程只读（`slot_of` / `find` / `column_at` / `chunk_data`
   都不分配）。
   守卫换成了两条：`world_assembly_plans_into_three_batches_with_one_parallel_pair`
   断言四 system 排成三批，而
@@ -441,7 +441,7 @@ ecs）。ASan 的 `foreach` 遍历的是具名列表，必须把 `WORLD_SOURCES`
   （`place_in` 的抖动取 [0, 0.9)，加在整数格坐标上不跨格），因此 flush 之后
   看到的分布正是下一季的余量。
 - **`EnvironmentWorld` 补了 `climate()` / `resources()` 的 const 重载。**
-  本模块的只读访问器 `World::environment()` 返回 `const EnvironmentWorld&`，
+  本模块的只读访问器 `Ecology::environment()` 返回 `const EnvironmentWorld&`，
   而原访问器只有非常量版本，导致测试里不得不 `const_cast`——那会把「这个访问器
   不该有 const 版本」的设计问题藏起来。底层 `ClimateField` / `ResourceField`
   本来就有完整 const 重载，补齐是廉价的。非常量重载保留：
@@ -460,10 +460,10 @@ ecs）。ASan 的 `foreach` 遍历的是具名列表，必须把 `WORLD_SOURCES`
   两者入队的是不同缓冲，一次 flush 里第一条 destroy 生效，第二条撞上
   `CommandBuffer::flush` 的「目标已失效则拒绝」判据。原先这会报出一条
   **error 级** 的 `ecs.entity_invalid` 假诊断：实体恰好被销毁一次，行为正确，
-  错的只是诊断噪音——但它是 error 级，实测一轮 world_tests 能刷出 6076 条，
+  错的只是诊断噪音——但它是 error 级，实测一轮 ecology_tests 能刷出 6076 条，
   足以淹没诊断通道里真正的问题。
   修法落在队列层而不是死亡归属：`destroy` 对已失效的目标改为幂等静默，与
-  `World::destroy` 的判法一致（后者对已失效句柄本就直接返回）。这条对**任何**
+  `ecs::World::destroy` 的判法一致（后者对已失效句柄本就直接返回）。这条对**任何**
   两个独立判死的 system 都成立，不是给这一对打的补丁。`add` / `remove` 不享受
   豁免——往一个已经不存在的实体上挂组件一定是 bug。
   命令合并同时改成按**批次**顺序（原为注册顺序），使命令序列与
@@ -487,5 +487,5 @@ ecs）。ASan 的 `foreach` 遍历的是具名列表，必须把 `WORLD_SOURCES`
 - `threats` 的来源：捕食威胁等级仍由调用方给，环境层不产生；
   `BreedingSystem` 目前恒给 0.0f
 - 存档需求出现时，`ClimateField` / `ResourceField` / `LocusTable` /
-  `SpeciesRegistry` 的序列化格式，以及 `World` 是否可从存档恢复
+  `SpeciesRegistry` 的序列化格式，以及 `Ecology` 是否可从存档恢复
 - 生态位 spec 交付后，`SeasonReport` 是否要带上生态位占用列

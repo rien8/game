@@ -1,8 +1,8 @@
-# 世界模块实现计划
+# 生态模块实现计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 新增 `gamev2::world::World`，把 `ecs` / `genetics` / `environment` 三模块装配成一个会自己按季推进、并给出与真实存续状态一致的季末报告的世界。
+**Goal:** 新增 `gamev2::ecology::Ecology`，把 `ecs` / `genetics` / `environment` 三模块装配成一个会自己按季推进、并给出与真实存续状态一致的季末报告的世界。
 
 **Architecture:** 最顶层编排模块，不引入任何新依赖。持有 `ecs::World`、`EnvironmentWorld`、`SpeciesRegistry`、两份 config、`Scheduler` 与四个 system，只引用外部的 `LocusTable`。一季 = 推进季号 → `scheduler.run`（只含三个 system）→ `cmd.flush` → 直接驱动 `PopulationStatisticsSystem` → 组装 `SeasonReport`。
 
@@ -33,26 +33,26 @@
 
 | 文件 | 责任 |
 |------|------|
-| `include/gamev2/world/world.hpp` | `SeasonReport` 与 `World` 的声明、契约注释。不含任何逻辑 |
-| `src/world/world.cpp` | `World` 的构造（装配四个 system + 订阅调度）与 `run_season` / `run_seasons` |
-| `tests/test_world_module.cpp` | 世界模块的 8 条测试与共享夹具 |
+| `include/gamev2/ecology/ecology.hpp` | `SeasonReport` 与 `Ecology` 的声明、契约注释。不含任何逻辑 |
+| `src/ecology/ecology.cpp` | `Ecology` 的构造（装配四个 system + 订阅调度）与 `run_season` / `run_seasons` |
+| `tests/test_ecology_module.cpp` | 生态模块的 8 条测试与共享夹具 |
 | `include/gamev2/ecs/adapt/environment_systems.hpp` | 加 `EnvironmentSystem::advance_season` |
 | `include/gamev2/ecs/adapt/genetics_systems.hpp` | 加 `BreedingSystem::advance_season` |
 | `tests/test_environment_systems.cpp` | 加 `EnvironmentSystem::advance_season` 的测试 |
 | `tests/test_genetics_systems.cpp` | 加 `BreedingSystem::advance_season` 的测试 |
-| `CMakeLists.txt` | `world` 库、`world_tests` 目标、ASan 源列表 |
-| `scripts/build.ps1` | `$suites` 加入 `world_tests` |
+| `CMakeLists.txt` | `ecology` 库、`ecology_tests` 目标、ASan 源列表 |
+| `scripts/build.ps1` | `$suites` 加入 `ecology_tests` |
 
 > **`tests/test_world.cpp` 不是本模块的文件。** 它是 ECS 模块自己的世界测试
 > （809 行、29 条 TEST），先于本模块存在。本模块的测试叫
-> `tests/test_world_module.cpp`。实施中曾按原名新建，把那 29 条测试整个
+> `tests/test_ecology_module.cpp`。实施中曾按原名新建，把那 29 条测试整个
 > 覆盖掉，链接期才炸出来——已还原。别把它「改回」更整齐的名字。
 
 ---
 
 ## 共享夹具（Task 2 建立，Task 3–6 复用）
 
-写在 `tests/test_world_module.cpp` 的匿名命名空间里。**注意这里没有可共享的测试头文件**——`neutral_table()` / `default_genetics()` 各自是 `test_environment_systems.cpp` 匿名命名空间里的私有副本，必须在这里重写一份。
+写在 `tests/test_ecology_module.cpp` 的匿名命名空间里。**注意这里没有可共享的测试头文件**——`neutral_table()` / `default_genetics()` 各自是 `test_environment_systems.cpp` 匿名命名空间里的私有副本，必须在这里重写一份。
 
 ```cpp
 namespace {
@@ -159,7 +159,7 @@ Phenotype creature_phenotype()
     return p;
 }
 
-/// table / genetics / config 三个成员必须声明在 world 之前。World 的构造
+/// table / genetics / config 三个成员必须声明在 world 之前。Ecology 的构造
 /// 参数是 const LocusTable&，直接写 world{neutral_table(), ...} 会让表以
 /// 临时对象绑定、构造返回即悬垂；且逆序析构还需要 world 先死。
 struct Fixture
@@ -168,7 +168,7 @@ struct Fixture
     GeneticsConfig genetics{steady_genetics()};
     EnvironmentConfig config{roomy_config()};
     SpeciesId sid{};
-    gamev2::world::World world;
+    gamev2::ecology::Ecology world;
 
     explicit Fixture(const std::size_t workers = 1)
         : world{table, genetics, config, 31, workers}
@@ -176,7 +176,7 @@ struct Fixture
         sid = *world.species().register_species(all_loci());
     }
 
-    /// 给满六个组件。这是 World::entities() 的唯一合法用法。
+    /// 给满六个组件。这是 Ecology::entities() 的唯一合法用法。
     EntityId spawn(const float x, const float y)
     {
         auto& w = world.entities();
@@ -260,9 +260,9 @@ struct Fixture
   void EnvironmentSystem::advance_season(std::uint32_t season_index) noexcept;
   void BreedingSystem::advance_season(std::uint32_t season_index) noexcept;
   ```
-  Task 2 的 `World::run_season` 在 `scheduler_.run` 之前调用这两个方法。
+  Task 2 的 `Ecology::run_season` 在 `scheduler_.run` 之前调用这两个方法。
 
-- [ ] **Step 1: 写失败测试（EnvironmentSystem）**
+- [x] **Step 1: 写失败测试（EnvironmentSystem）**
 
 追加到 `tests/test_environment_systems.cpp`。夹具复用该文件已有的 `one_species()` / `place_creature()` / `seed_one_per_cell()`：
 
@@ -274,8 +274,8 @@ TEST(advance_season_replaces_the_season_index)
     EnvironmentWorld b{64, config};
     auto species = one_species();
 
-    World wa;
-    World wb;
+    Ecology wa;
+    Ecology wb;
     seed_one_per_cell(wa, 64);
     seed_one_per_cell(wb, 64);
 
@@ -303,14 +303,14 @@ TEST(advance_season_replaces_the_season_index)
 
 需要在该文件的 using 列表里补 `using gamev2::environment::kCellCount;`（该文件目前只导入了 `kGridSide`）。
 
-- [ ] **Step 2: 跑测试，确认它红**
+- [x] **Step 2: 跑测试，确认它红**
 
 ```
 pwsh -File scripts/build.ps1
 ```
 预期：`clang++` 报 `no member named 'advance_season' in 'EnvironmentSystem'`。
 
-- [ ] **Step 3: 实现 EnvironmentSystem::advance_season**
+- [x] **Step 3: 实现 EnvironmentSystem::advance_season**
 
 加在 `environment_systems.hpp` 的 `EnvironmentSystem` 公有段，`execute` 声明之后：
 
@@ -325,16 +325,16 @@ pwsh -File scripts/build.ps1
     }
 ```
 
-- [ ] **Step 4: 跑测试，确认它绿**
+- [x] **Step 4: 跑测试，确认它绿**
 
 ```
 pwsh -File scripts/build.ps1 -Test
 ```
 预期：`environment_tests` 全绿，`ecs_tests` / `genetics_tests` 不受影响。
 
-- [ ] **Step 5: 写失败测试（BreedingSystem）**
+- [x] **Step 5: 写失败测试（BreedingSystem）**
 
-追加到 `tests/test_genetics_systems.cpp`。`Harness::spawn` 接收 `World&`（该夹具只持有表、配置与登记表，不持有世界），所以两个世界要自己声明。`offspring_genomes` 是该文件已有的私有辅助函数，签名是 `std::vector<Genome> offspring_genomes(World&, const std::vector<EntityId>& founders)`。
+追加到 `tests/test_genetics_systems.cpp`。`Harness::spawn` 接收 `Ecology&`（该夹具只持有表、配置与登记表，不持有世界），所以两个世界要自己声明。`offspring_genomes` 是该文件已有的私有辅助函数，签名是 `std::vector<Genome> offspring_genomes(Ecology&, const std::vector<EntityId>& founders)`。
 
 **这段代码是实施中修过的**：初版直接照抄 `Harness::spawn` 加的全零 `CreaturePhenotype{}`，`Fecundity` 为 0 → 一个子代都生不出来 → 比对的是两个空 vector。把 `advance_season` 变异成空操作后它仍然全绿，是一条恒真的假测试。下面的版本修了三处：给每个个体真实表型、给互异等位、加一条「夹具确实生出了子代」的凭证。
 
@@ -343,14 +343,14 @@ TEST(breeding_advance_season_replaces_the_season_index)
 {
     Harness ha;
     Harness hb;
-    World wa;
-    World wb;
+    Ecology wa;
+    Ecology wb;
     std::vector<EntityId> founders_a;
     std::vector<EntityId> founders_b;
     // 夹具：两个世界各自跑一遍完全相同的布置。不能用 EntityId 判断某个
-    // 实体属于哪个世界——两个 World 都从空开始，句柄逐个相同，e == fa 对
+    // 实体属于哪个世界——两个 Ecology 都从空开始，句柄逐个相同，e == fa 对
     // 两边都成立。改用下标奇偶选世界。
-    const auto dress = [](World& w, const EntityId e, const int i)
+    const auto dress = [](Ecology& w, const EntityId e, const int i)
     {
         // 表型必须给出真的繁殖力与真的抽签：默认全零的 CreaturePhenotype
         // 让 fecundity 为 0、一个子代都生不出来，这条用例就在比对两个空
@@ -410,14 +410,14 @@ TEST(breeding_advance_season_replaces_the_season_index)
 
 写完这条测试后**做一次变异确认**：把 `BreedingSystem::advance_season` 的方法体换成 `static_cast<void>(season_index);`（编译能过，行为等价于不写成员），该测试必须报红。environment 那条测试不需要这一步，它在同样的变异下本就报红。
 
-- [ ] **Step 6: 跑测试，确认它红**
+- [x] **Step 6: 跑测试，确认它红**
 
 ```
 pwsh -File scripts/build.ps1
 ```
 预期：`no member named 'advance_season' in 'BreedingSystem'`。
 
-- [ ] **Step 7: 实现 BreedingSystem::advance_season**
+- [x] **Step 7: 实现 BreedingSystem::advance_season**
 
 加在 `genetics_systems.hpp` 的 `BreedingSystem` 公有段，两个构造函数之后：
 
@@ -433,14 +433,14 @@ pwsh -File scripts/build.ps1
     }
 ```
 
-- [ ] **Step 8: 跑测试，确认它绿**
+- [x] **Step 8: 跑测试，确认它绿**
 
 ```
 pwsh -File scripts/build.ps1 -Test
 ```
 预期：三个套件全绿。
 
-- [ ] **Step 9: 提交检查点**
+- [x] **Step 9: 提交检查点**
 
 待提交（**不要自己执行 `git commit`**）：
 
@@ -455,55 +455,55 @@ tests/test_genetics_systems.cpp
 
 ---
 
-### Task 2: `World` 骨架与构建接线
+### Task 2: `Ecology` 骨架与构建接线
 
 **Files:**
-- Create: `include/gamev2/world/world.hpp`
-- Create: `src/world/world.cpp`
-- Create: `tests/test_world_module.cpp`
+- Create: `include/gamev2/ecology/ecology.hpp`
+- Create: `src/ecology/ecology.cpp`
+- Create: `tests/test_ecology_module.cpp`
 - Modify: `CMakeLists.txt`
 - Modify: `scripts/build.ps1`
 
 **Interfaces:**
 - Consumes: Task 1 的两个 `advance_season`
-- Produces: `gamev2::world::SeasonReport`、`gamev2::world::World`，全部五个公有成员（`species` / `entities` / `environment` / `run_season` / `run_seasons`）。Task 3–6 只用这五个。
+- Produces: `gamev2::ecology::SeasonReport`、`gamev2::ecology::Ecology`，全部五个公有成员（`species` / `entities` / `environment` / `run_season` / `run_seasons`）。Task 3–6 只用这五个。
 
-- [ ] **Step 1: 接好构建（先有目标，后有代码）**
+- [x] **Step 1: 接好构建（先有目标，后有代码）**
 
 `CMakeLists.txt`，在 `ENVIRONMENT_TEST_SOURCES` 那一段之后、`option(GAMEV2_ENABLE_ASAN ...)` 之前插入：
 
 ```cmake
-set(WORLD_SOURCES
-    src/world/world.cpp
+set(ECOLOGY_SOURCES
+    src/ecology/ecology.cpp
 )
-add_library(world STATIC ${WORLD_SOURCES})
+add_library(world STATIC ${ECOLOGY_SOURCES})
 target_include_directories(world PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(world PUBLIC environment)
 
-set(WORLD_TEST_SOURCES
+set(ECOLOGY_TEST_SOURCES
     tests/main.cpp
-    tests/test_world_module.cpp
+    tests/test_ecology_module.cpp
 )
-add_executable(world_tests ${WORLD_TEST_SOURCES})
-target_link_libraries(world_tests PRIVATE world)
+add_executable(ecology_tests ${ECOLOGY_TEST_SOURCES})
+target_link_libraries(ecology_tests PRIVATE world)
 ```
 
-同一文件里 ASan 那段的 `foreach`，把两个新列表加进去（不加的话 `-DGAMEV2_ENABLE_ASAN=ON` 的构建会静默漏掉整个世界模块）：
+同一文件里 ASan 那段的 `foreach`，把两个新列表加进去（不加的话 `-DGAMEV2_ENABLE_ASAN=ON` 的构建会静默漏掉整个生态模块）：
 
 ```cmake
     foreach(f IN LISTS ECS_SOURCES ECS_TEST_SOURCES
                   GENETICS_SOURCES GENETICS_TEST_SOURCES
                   ENVIRONMENT_SOURCES ENVIRONMENT_TEST_SOURCES
-                  WORLD_SOURCES WORLD_TEST_SOURCES)
+                  ECOLOGY_SOURCES ECOLOGY_TEST_SOURCES)
 ```
 
 `scripts/build.ps1`，`$suites` 那行：
 
 ```powershell
-$suites = @('ecs_tests', 'genetics_tests', 'environment_tests', 'world_tests')
+$suites = @('ecs_tests', 'genetics_tests', 'environment_tests', 'ecology_tests')
 ```
 
-`tests/test_world_module.cpp` 先建出来，只放共享夹具那一整段（含 `#include "gamev2/world/world.hpp"`），末尾一个空测试占位：
+`tests/test_ecology_module.cpp` 先建出来，只放共享夹具那一整段（含 `#include "gamev2/world/world.hpp"`），末尾一个空测试占位：
 
 ```cpp
 #include "test_framework.hpp"
@@ -529,18 +529,18 @@ TEST(world_runs_an_empty_season)
 }
 ```
 
-- [ ] **Step 2: 跑构建，确认它红**
+- [x] **Step 2: 跑构建，确认它红**
 
 ```
 pwsh -File scripts/build.ps1
 ```
-预期：`src/world/world.cpp` 不存在 / `gamev2/world/world.hpp` 不存在。
+预期：`src/ecology/ecology.cpp` 不存在 / `gamev2/world/world.hpp` 不存在。
 
-- [ ] **Step 3: 写 `include/gamev2/world/world.hpp` 全文**
+- [x] **Step 3: 写 `include/gamev2/ecology/ecology.hpp` 全文**
 
 ```cpp
 /// @file world.hpp
-/// @brief 世界模块：把 ecs / genetics / environment 装配成一个会自己按季
+/// @brief 生态模块：把 ecs / genetics / environment 装配成一个会自己按季
 ///        推进的整体，并给出与真实存续状态一致的季末报告。
 ///
 /// 一季的时序只有这一处实现。三个前序模块各自用 System::order 注释守住的
@@ -562,7 +562,7 @@ pwsh -File scripts/build.ps1
 #include <cstdint>
 #include <vector>
 
-namespace gamev2::world {
+namespace gamev2::ecology {
 
 /// 一次季节结算的结果。
 struct SeasonReport
@@ -581,12 +581,12 @@ struct SeasonReport
 ///
 /// 本类不生成初始种群：调用方本来就必须知道怎么造 Genome 与 Phenotype，
 /// 把它藏在这里只会多一层无法验证的隐式行为。
-class World
+class Ecology
 {
 public:
     /// \pre table 的生命周期必须覆盖本对象——它是唯一被引用的外部数据。
     /// \pre worker_count >= 1。
-    World(const gamev2::genetics::LocusTable& table,
+    Ecology(const gamev2::genetics::LocusTable& table,
           gamev2::genetics::GeneticsConfig genetics_config,
           gamev2::environment::EnvironmentConfig environment_config,
           std::uint64_t root_seed,
@@ -630,10 +630,10 @@ public:
     /// 本类持有引用成员（table_）与裸指针成员（Scheduler::entries_ 里指向
     /// 三个 system），移动会让 Scheduler 的裸 System* 指向已析构对象，而
     /// 拷贝会让 breeding_.species_ 指向另一个表的登记表。两条路都是静默损坏。
-    World(const World&) = delete;
-    World& operator=(const World&) = delete;
-    World(World&&) = delete;
-    World& operator=(World&&) = delete;
+    Ecology(const Ecology&) = delete;
+    Ecology& operator=(const Ecology&) = delete;
+    Ecology(Ecology&&) = delete;
+    Ecology& operator=(Ecology&&) = delete;
 
 private:
     const gamev2::genetics::LocusTable& table_;
@@ -657,17 +657,17 @@ private:
     gamev2::ecs::adapt::PopulationStatisticsSystem statistics_;
 };
 
-}  // namespace gamev2::world
+}  // namespace gamev2::ecology
 ```
 
-- [ ] **Step 4: 写 `src/world/world.cpp` 全文**
+- [x] **Step 4: 写 `src/ecology/ecology.cpp` 全文**
 
 ```cpp
 #include "gamev2/world/world.hpp"
 
-namespace gamev2::world {
+namespace gamev2::ecology {
 
-World::World(const gamev2::genetics::LocusTable& table,
+Ecology::Ecology(const gamev2::genetics::LocusTable& table,
              gamev2::genetics::GeneticsConfig genetics_config,
              gamev2::environment::EnvironmentConfig environment_config,
              const std::uint64_t root_seed,
@@ -701,7 +701,7 @@ World::World(const gamev2::genetics::LocusTable& table,
     // 于是 census 会含本季将死者、不含刚出生的子代。
 }
 
-SeasonReport World::run_season()
+SeasonReport Ecology::run_season()
 {
     // 两处 season_index_ 都在各自 execute 的开头消费一次，因此推进必须
     // 整体发生在 scheduler_.run 之前。
@@ -725,7 +725,7 @@ SeasonReport World::run_season()
     return report;
 }
 
-std::vector<SeasonReport> World::run_seasons(const std::uint32_t count)
+std::vector<SeasonReport> Ecology::run_seasons(const std::uint32_t count)
 {
     std::vector<SeasonReport> reports;
     reports.reserve(count);
@@ -736,22 +736,22 @@ std::vector<SeasonReport> World::run_seasons(const std::uint32_t count)
     return reports;
 }
 
-}  // namespace gamev2::world
+}  // namespace gamev2::ecology
 ```
 
-- [ ] **Step 5: 跑测试，确认它绿**
+- [x] **Step 5: 跑测试，确认它绿**
 
 ```
 pwsh -File scripts/build.ps1 -Test
 ```
-预期：`world_tests` 里 `world_runs_an_empty_season` 通过，其余三个套件不受影响。
+预期：`ecology_tests` 里 `world_runs_an_empty_season` 通过，其余三个套件不受影响。
 
-- [ ] **Step 6: 提交检查点**
+- [x] **Step 6: 提交检查点**
 
 ```
-include/gamev2/world/world.hpp
-src/world/world.cpp
-tests/test_world_module.cpp
+include/gamev2/ecology/ecology.hpp
+src/ecology/ecology.cpp
+tests/test_ecology_module.cpp
 CMakeLists.txt
 scripts/build.ps1
 ```
@@ -765,15 +765,15 @@ scripts/build.ps1
 这是本模块最要紧的一条不变量：报告必须落在 `cmd.flush` 之后，否则 `population` 会变成一个静默错位的数字——含本季将死者、不含新生代，不崩不报错。
 
 **Files:**
-- Modify: `tests/test_world_module.cpp`
+- Modify: `tests/test_ecology_module.cpp`
 
 **Interfaces:**
-- Consumes: Task 2 的 `World::run_season` / `SeasonReport::population` / `entities()`
+- Consumes: Task 2 的 `Ecology::run_season` / `SeasonReport::population` / `entities()`
 - Produces: 无新接口
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
-追加到 `tests/test_world_module.cpp`（夹具已在匿名命名空间里，无需改动）：
+追加到 `tests/test_ecology_module.cpp`（夹具已在匿名命名空间里，无需改动）：
 
 ```cpp
 TEST(report_population_matches_the_survivors_after_flush)
@@ -807,14 +807,14 @@ TEST(report_counts_the_dead_as_gone)
 }
 ```
 
-- [ ] **Step 2: 跑测试，确认它绿**（这一步是验证已有实现，不是补实现）
+- [x] **Step 2: 跑测试，确认它绿**（这一步是验证已有实现，不是补实现）
 
 ```
 pwsh -File scripts/build.ps1 -Test
 ```
 预期：两条都过。若 `report_counts_the_dead_as_gone` 红，说明 `population` 的口径错了——检查是不是把 `statistics_` 挪回了 `scheduler_.run` 之前，或 `cmd_.flush` 被漏掉。
 
-- [ ] **Step 3: 写失败测试（子代计入）**
+- [x] **Step 3: 写失败测试（子代计入）**
 
 ```cpp
 TEST(report_counts_newborn_creatures)
@@ -834,7 +834,7 @@ TEST(report_counts_newborn_creatures)
 }
 ```
 
-- [ ] **Step 4: 跑测试，确认它绿**
+- [x] **Step 4: 跑测试，确认它绿**
 
 ```
 pwsh -File scripts/build.ps1 -Test
@@ -843,10 +843,10 @@ pwsh -File scripts/build.ps1 -Test
 
 若这条红，按这个顺序排查：① `roomy_config()` 有没有被用上（`Fixture` 的 `config` 成员）；② 每格个体数是否 ≥ 2（`BreedingSystem` 的桶内少于两个亲代就不产子代）；③ `genetics.trait_base` 里的 `Metabolism` 是否为 0。
 
-- [ ] **Step 5: 提交检查点**
+- [x] **Step 5: 提交检查点**
 
 ```
-tests/test_world_module.cpp
+tests/test_ecology_module.cpp
 ```
 
 建议消息：`test(world): pin the report to the post-flush census`
@@ -856,13 +856,13 @@ tests/test_world_module.cpp
 ### Task 4: 季号推进与批量等价
 
 **Files:**
-- Modify: `tests/test_world_module.cpp`
+- Modify: `tests/test_ecology_module.cpp`
 
 **Interfaces:**
 - Consumes: Task 2 的 `run_season` / `run_seasons`
 - Produces: 无新接口
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```cpp
 TEST(season_number_starts_at_zero_and_advances)
@@ -928,7 +928,7 @@ TEST(run_seasons_equals_repeated_run_season)
 }
 ```
 
-- [ ] **Step 2: 跑测试，确认它绿**
+- [x] **Step 2: 跑测试，确认它绿**
 
 ```
 pwsh -File scripts/build.ps1 -Test
@@ -937,10 +937,10 @@ pwsh -File scripts/build.ps1 -Test
 
 `season_index_actually_moves_the_world` 是本轮对 Task 1 接线是否正确的间接验证：若 `advance_season` 没写进 `EnvironmentSystem` 真正消费的那个成员，气候会永远停在季 0。
 
-- [ ] **Step 3: 提交检查点**
+- [x] **Step 3: 提交检查点**
 
 ```
-tests/test_world_module.cpp
+tests/test_ecology_module.cpp
 ```
 
 建议消息：`test(world): cover season numbering and batch/step equivalence`
@@ -950,13 +950,13 @@ tests/test_world_module.cpp
 ### Task 5: 确定性与线程数无关性
 
 **Files:**
-- Modify: `tests/test_world_module.cpp`
+- Modify: `tests/test_ecology_module.cpp`
 
 **Interfaces:**
-- Consumes: Task 2 的 `World` 构造的 `worker_count` 参数
+- Consumes: Task 2 的 `Ecology` 构造的 `worker_count` 参数
 - Produces: 无新接口
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```cpp
 TEST(equal_seeds_produce_identical_seasons)
@@ -1015,7 +1015,7 @@ TEST(worker_count_does_not_change_the_result)
 }
 ```
 
-- [ ] **Step 2: 跑测试**
+- [x] **Step 2: 跑测试**
 
 ```
 pwsh -File scripts/build.ps1 -Test
@@ -1024,14 +1024,14 @@ pwsh -File scripts/build.ps1 -Test
 **这两条是本计划里唯一「预期可能先红后绿」的测试**，spec §6 已标注它们是未经验证的新断言：
 
 - 若 `equal_seeds_produce_identical_seasons` 红，是真的确定性缺陷，必须查清再往下走，不要改成放宽比较。
-- 若 `worker_count_does_not_change_the_result` 红，同样是真发现：说明有并发依赖（`EnvironmentSystem` 的 `World::add` archetype 迁移是最可疑的一处，它只被 `mutates_structure` 独占批次挡住）。先报告，不要自行放宽。
+- 若 `worker_count_does_not_change_the_result` 红，同样是真发现：说明有并发依赖（`EnvironmentSystem` 的 `ecs::World::add` archetype 迁移是最可疑的一处，它只被 `mutates_structure` 独占批次挡住）。先报告，不要自行放宽。
 
 预期：通过。
 
-- [ ] **Step 3: 提交检查点**
+- [x] **Step 3: 提交检查点**
 
 ```
-tests/test_world_module.cpp
+tests/test_ecology_module.cpp
 ```
 
 建议消息：`test(world): cover determinism and worker-count independence`
@@ -1041,13 +1041,13 @@ tests/test_world_module.cpp
 ### Task 6: 跨模块不变量与幽灵个体
 
 **Files:**
-- Modify: `tests/test_world_module.cpp`
+- Modify: `tests/test_ecology_module.cpp`
 
 **Interfaces:**
-- Consumes: Task 2 的 `World::environment()`（读真实承载力）、`entities()`
+- Consumes: Task 2 的 `Ecology::environment()`（读真实承载力）、`entities()`
 - Produces: 无新接口
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```cpp
 TEST(population_never_exceeds_total_capacity)
@@ -1139,25 +1139,25 @@ TEST(creatures_without_position_never_die_and_never_breed)
 }
 ```
 
-- [ ] **Step 2: 跑测试，确认它绿**
+- [x] **Step 2: 跑测试，确认它绿**
 
 ```
 pwsh -File scripts/build.ps1 -Test
 ```
 预期：两条全过。
 
-- [ ] **Step 3: 全量回归**
+- [x] **Step 3: 全量回归**
 
 ```
 pwsh -File scripts/build.ps1 -Clean -Test
 pwsh -File scripts/build.ps1 -Clean -Asan -Test
 ```
-预期：四个套件（`ecs_tests` / `genetics_tests` / `environment_tests` / `world_tests`）在普通构建与 ASan 构建下都全绿。ASan 构建的合并目标叫 `game_tests_asan`，它把四套件合进一个二进制——若出现同名测试，本套件的 8 条名字与既有的都不重名。
+预期：四个套件（`ecs_tests` / `genetics_tests` / `environment_tests` / `ecology_tests`）在普通构建与 ASan 构建下都全绿。ASan 构建的合并目标叫 `game_tests_asan`，它把四套件合进一个二进制——若出现同名测试，本套件的 8 条名字与既有的都不重名。
 
-- [ ] **Step 4: 提交检查点**
+- [x] **Step 4: 提交检查点**
 
 ```
-tests/test_world_module.cpp
+tests/test_ecology_module.cpp
 doc/2026-10-16-world-design.md
 ```
 
