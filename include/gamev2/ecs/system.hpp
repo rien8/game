@@ -1,3 +1,11 @@
+/// @file system.hpp
+/// @brief System 基类与访问集声明：System 用 ReadSet / WriteSet 两个 std::tuple
+///        自描述它读哪些组件、可写哪些组件，Scheduler 据此做冲突检测与并行
+///        分层，本模块不另设手写的依赖描述。
+///
+/// 类型上的 const 即访问权限声明：ReadSet 里的 const 元素只读、不计入写集，
+/// 「读」与「可写」因此只需在一处声明。WriteSet 内部元素必须互不相同，否则
+/// 写集定义失去意义，由 static_assert 在编译期拒绝。
 #pragma once
 
 #include "gamev2/ecs/command_buffer.hpp"
@@ -13,12 +21,46 @@
 
 namespace gamev2::ecs {
 
+/// 系统的抽象基类。execute 每帧被调度器调用一次，具体系统通过派生类覆写
+/// 读写集并实现 execute。
+///
+/// 结构性变更（增删实体、增删组件）原则上不得在此期间直接改动 World，必须
+/// 经 cmd 排队到帧末统一 flush。确有做不到的 system 只能声明
+/// mutates_structure，把风险交给调度器兜住。
 class System
 {
 public:
+    /// 本 system 的 execute 会不会直接改动 World 的结构（增删组件即 archetype
+    /// 迁移）。为真时 Scheduler::plan 让它与所有 system 冲突，独占一个批次。
+    ///
+    /// 访问集表达不了这件事。World::add 会重写 slots_ 里的
+    /// archetype/chunk/row 并可能重分配 storage_ 的列缓冲，而 for_each_entity
+    /// 是在 slots_ 上的无锁裸下标循环；两者并发撞上是 use-after-free，不是读到
+    /// 过期值。plan 的冲突判据里读/读不算冲突，因此两个访问集不相交的只读
+    /// system 会被放进同一批并行派发——那个形状挡不住结构变更，只能由这一个
+    /// 标记挡。
+    static constexpr bool mutates_structure = false;
+
+    /// 本 system 相对同批其他 system 的先后。plan() 先按它稳定排序再贪心
+    /// 分层，因此「A 必须先于 B」由 `A::order < B::order` 表达，与注册顺序
+    /// 无关。未声明先后关系的 system 一律取 0，彼此之间仍靠注册顺序定序。
+    ///
+    /// 它与 mutates_structure 分工不同：那个标记把 system 单独关进一个批次，
+    /// 这个数字决定谁先参与分层。两者的区别在下面这条限制里。
+    ///
+    /// \warning 只在两者**本来就会冲突**时才等于「B 的批次严格晚于 A」。
+    /// 访问集不相交的两个 system 会被放进同一批并行派发，此时 order 只决定
+    /// 它们在批内的入列次序，管不到执行先后——要真正表达先后而不依赖冲突，
+    /// 得上带类型的依赖声明，那需要改 Scheduler 的接口。
+    ///
+    /// 因此：需要严格先后的 system，必须同时把双方的冲突写进访问集
+    /// （或 mutates_structure），否则这条声明形同虚设。
+    static constexpr int order = 0;
+
     virtual ~System() = default;
 
-    /// 结构性变更必须走 cmd，不得直接改动 World。
+    /// 结构性变更必须走 cmd，不得直接改动 World；做不到时声明
+    /// mutates_structure。
     virtual void execute(World& world, CommandBuffer& cmd) = 0;
 };
 

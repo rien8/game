@@ -72,9 +72,13 @@ Unix Makefiles、零第三方依赖。
   截断，误差会顺着枯竭年传播到整份事件表
 - ECS 组件必须满足 `register_component<T>()` 的 `static_assert`：
   默认可构造、`nothrow` 可移动构造、`alignof` 不超过 `max_align_t`
-- **注册顺序即冲突系统的执行顺序**：`Scheduler::plan` 按注册顺序贪心
-  分层，冲突者自动落到后一批，读者自动落到写者之后。所以 system 的
-  顺序敏感，顺序必须写进代码注释
+- **system 的执行顺序由 `System::order` 显式声明**：每个 system 写死自己
+  在年内 7 步里的次序（设计 §3.13 的表号就是 `order` 值），不依赖注册
+  顺序。`Scheduler::plan` 先按 order 稳定排序再贪心分层，冲突者自动落到
+  后一批，读者自动落到写者之后。注册顺序只作同 order 时的次级键
+  - 早先这里写的是「注册顺序即冲突系统的执行顺序」。那是把语义押在注册
+    代码不动上：调度器一改分层规则，次序就静默漂移，而漂移不报错，只改
+    数字。合并 main 的 ECS（`order` 权威）之后改成显式声明
 - **不使用 `View::each_parallel`**：它的行为依赖 system 在批内的位置
   （批内多 system 时 `in_system_` 被置位，`parallelize_allowed()` 为假，
   它会退化为串行）。本层规模不需要并行，一律用 `each`
@@ -312,7 +316,7 @@ stock(v))`——上限是 `stock`，正确。**但这一条必须写死在代码
     std::uint64_t conversion)` 与 `void reset()`
   - `gamev2::history::is_yin_vein(const World&, std::uint32_t vein_id)`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 在 `tests/test_history_ledger.cpp` 的匿名 namespace 里追加（加在它的
 `}  // namespace` 之前）：
@@ -405,7 +409,7 @@ TEST(the_shared_yin_vein_matches_the_ledger_assignment)
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```powershell
 cmake --build build
@@ -414,7 +418,7 @@ cmake --build build
 
 Expected: 编译失败，`gamev2::history::tide_integral` 未声明。
 
-- [ ] **Step 3: 写共享原语**
+- [x] **Step 3: 写共享原语**
 
 创建 `include/gamev2/history/quota.hpp`：
 
@@ -552,7 +556,7 @@ bool is_yin_vein(const gamev2::world::World& world, std::uint32_t vein_id)
 }  // namespace gamev2::history
 ```
 
-- [ ] **Step 4: 台账改用共享原语**
+- [x] **Step 4: 台账改用共享原语**
 
 修改 `src/history/ledger.cpp`：
 
@@ -572,7 +576,7 @@ bool is_yin_vein(const gamev2::world::World& world, std::uint32_t vein_id)
 **数值必须一字不变**：本步只是搬家，改完立刻跑全量台账测试，任何一条
 挂掉就说明搬家搬错了。
 
-- [ ] **Step 5: 更新 CMakeLists**
+- [x] **Step 5: 更新 CMakeLists**
 
 在 `HISTORY_SOURCES` 里追加 `src/history/quota.cpp`：
 
@@ -583,7 +587,7 @@ set(HISTORY_SOURCES
 )
 ```
 
-- [ ] **Step 6: 构建并运行测试**
+- [x] **Step 6: 构建并运行测试**
 
 ```powershell
 cmake --build build
@@ -592,7 +596,7 @@ cmake --build build
 
 Expected: 全部测试通过，且台账的既有 38 条测试一条不少地过。
 
-- [ ] **Step 7: 向用户报告并等待提交指令**
+- [x] **Step 7: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 供用户参考的暂存命令：
 
@@ -640,7 +644,7 @@ git add CMakeLists.txt
   - `export_era(const EraReport&, const FactionDiagnostics&, const path&)`
   - `gamev2::world::kNoCaveHeaven`（`0xFFFFFFFFu`）
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `tests/test_faction_economy.cpp`：
 
@@ -703,7 +707,7 @@ TEST(the_faction_balance_defaults_to_a_bounded_demand)
 }  // namespace
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```powershell
 cmake --build build
@@ -711,7 +715,7 @@ cmake --build build
 
 Expected: 编译失败，`gamev2/faction/era.hpp` 不存在。
 
-- [ ] **Step 3: 写组件与身份表**
+- [x] **Step 3: 写组件与身份表**
 
 创建 `include/gamev2/faction/faction.hpp`：
 
@@ -957,7 +961,7 @@ struct FactionDiagnostics
 inline constexpr std::uint32_t kNoCaveHeaven = 0xFFFFFFFFu;
 ```
 
-- [ ] **Step 4: 写输出类型**
+- [x] **Step 4: 写输出类型**
 
 创建 `include/gamev2/faction/era.hpp`：
 
@@ -1083,7 +1087,7 @@ struct EraReport
 }  // namespace gamev2::faction
 ```
 
-- [ ] **Step 5: 实现身份表**
+- [x] **Step 5: 实现身份表**
 
 创建 `src/faction/setup.cpp`：
 
@@ -1123,7 +1127,7 @@ const FactionIdentity& identity(Sect sect)
 }  // namespace gamev2::faction
 ```
 
-- [ ] **Step 6: 更新 CMakeLists**
+- [x] **Step 6: 更新 CMakeLists**
 
 追加 `faction` 静态库与 `faction_tests` 可执行文件（放在 `history` 那段
 之后）：
@@ -1149,7 +1153,7 @@ target_link_libraries(faction_tests PRIVATE faction)
 留到 Task 3。若链接器报错「undefined reference to simulate」，说明
 `era.hpp` 声明了它而没有实现：**Task 3 之前不要加任何调用它的测试**。
 
-- [ ] **Step 7: 构建并运行测试**
+- [x] **Step 7: 构建并运行测试**
 
 ```powershell
 cmake -S . -B build -G "Unix Makefiles" -DCMAKE_CXX_COMPILER=clang++
@@ -1159,7 +1163,7 @@ cmake --build build
 
 Expected: 3 条测试通过。
 
-- [ ] **Step 8: 向用户报告并等待提交指令**
+- [x] **Step 8: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 供用户参考的暂存命令：
 
@@ -1190,7 +1194,7 @@ git add CMakeLists.txt
   - `gamev2::faction::simulate(const World&, const Ledger&,
     FactionDiagnostics&)`（在 `era.cpp` 里实现）
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 在 `tests/test_faction_economy.cpp` 的匿名 namespace 里追加。同时在文件
 顶部补上 `#include "gamev2/world/generate.hpp"`——本任务起要自己生成
@@ -1259,7 +1263,7 @@ TEST(a_world_before_the_epoch_yields_an_empty_era)
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```powershell
 cmake --build build
@@ -1267,7 +1271,7 @@ cmake --build build
 
 Expected: 链接失败，`simulate` 未定义。
 
-- [ ] **Step 3: 写私有头**
+- [x] **Step 3: 写私有头**
 
 创建 `src/faction/systems.hpp`：
 
@@ -1338,7 +1342,7 @@ private:
 }  // namespace gamev2::faction
 ```
 
-- [ ] **Step 4: 实现建实体**
+- [x] **Step 4: 实现建实体**
 
 在 `src/faction/setup.cpp` 里追加实现。要点：
 
@@ -1385,7 +1389,7 @@ private:
 archetype/chunk 顺序，与台账的顺序没有对应关系；不自己记一份，就没法
 按脉编号取回实体。
 
-- [ ] **Step 5: 实现 `simulate`**
+- [x] **Step 5: 实现 `simulate`**
 
 创建 `src/faction/era.cpp`：
 
@@ -1487,7 +1491,7 @@ if (vein.stock == 0u && vein.owner != Sect::unowned)
 **这两处对账是本层的基本正确性判据**：它们不阻止推演跑完，只把
 「哪里对不上」报出来。
 
-- [ ] **Step 6: 构建并运行测试**
+- [x] **Step 6: 构建并运行测试**
 
 ```powershell
 cmake --build build
@@ -1496,7 +1500,7 @@ cmake --build build
 
 Expected: 6 条测试通过（Task 2 留下 4 条，本任务加 2 条）。
 
-- [ ] **Step 7: 向用户报告并等待提交指令**
+- [x] **Step 7: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 供用户参考的暂存命令：
 
@@ -1532,7 +1536,7 @@ git add tests/test_faction_economy.cpp
     （见 Global Constraints「测试只走公共入口」）。它们是纯函数，
     声明在组件所在的公共头上不算扩散。
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 在 `tests/test_faction_economy.cpp` 追加：
 
@@ -1598,7 +1602,7 @@ TEST(the_deficit_is_the_gap_between_demand_and_supply)
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```powershell
 cmake --build build
@@ -1606,7 +1610,7 @@ cmake --build build
 
 Expected: 编译失败，`decay_of` 未声明。
 
-- [ ] **Step 3: 写经济函数**
+- [x] **Step 3: 写经济函数**
 
 在 `include/gamev2/faction/faction.hpp` 里追加这三个函数的声明（**不是**
 私有头 `src/faction/systems.hpp`：测试要直接调它们，而测试不许包含私有
@@ -1692,7 +1696,7 @@ std::uint32_t deficit_of(std::uint32_t demand, std::uint32_t supply)
 余数不能混用，但**有效流速的整数结果必须相同**——那正是 Task 9 的
 等价性测试要守住的。
 
-- [ ] **Step 4: 构建并运行测试**
+- [x] **Step 4: 构建并运行测试**
 
 ```powershell
 cmake --build build
@@ -1701,7 +1705,7 @@ cmake --build build
 
 Expected: 9 条测试通过。
 
-- [ ] **Step 5: 向用户报告并等待提交指令**
+- [x] **Step 5: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 供用户参考的暂存命令：
 
@@ -1731,7 +1735,7 @@ git add tests/test_faction_economy.cpp
   - `class OvertakeSystem` —— 写 `VeinStock`、`FactionBalance`
   - `gamev2::world::Stream::faction`（值 18，`kStreamIds` 同步扩容到 19）
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 在 `tests/test_faction_economy.cpp` 追加：
 
@@ -1845,7 +1849,7 @@ TEST(the_overmining_actually_happens)
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```powershell
 cmake --build build
@@ -1853,7 +1857,7 @@ cmake --build build
 
 Expected: 编译失败，`years_simulated` 未声明。
 
-- [ ] **Step 3: 写四个 system**
+- [x] **Step 3: 写四个 system**
 
 在 `src/faction/systems.hpp` 追加声明，在 `src/faction/systems.cpp`
 实现。形状如下（其余三个照此写）：
@@ -1938,7 +1942,7 @@ private:
 **一条脉至多报一次**（`VeinStock::overmine_reported`）。发现的年份按
 `(年, 派系, 脉)` 无状态派生（`Stream::faction`）。
 
-- [ ] **Step 4: 新增随机流**
+- [x] **Step 4: 新增随机流**
 
 在 `include/gamev2/world/enums.hpp` 的 `Stream` 枚举里追加：
 
@@ -1951,15 +1955,15 @@ private:
 `static_cast<std::uint32_t>(Stream::faction)`。**两处必须同改**——
 枚举旁的注释写着「新增一条流必须同改」。
 
-- [ ] **Step 5: 装订推演器**
+- [x] **Step 5: 装订推演器**
 
 在 `src/faction/setup.cpp` 里实现 `Simulation::run`：
 
 ```cpp
 void Simulation::run()
 {
-    // 注册顺序即冲突系统的执行顺序（Scheduler::plan 按注册顺序
-    // 贪心分层）。所以这四行的顺序不能改。
+    // 执行顺序由每个 system 自己的 `order` 声明（设计 §3.13），
+    // 下面这几行的注册顺序只作同 order 时的次级键。
     gamev2::ecs::Scheduler scheduler(1);
     ClockSystem clock(clock_);
     AssessSystem assess;
@@ -1983,7 +1987,7 @@ void Simulation::run()
 `View::each_parallel` 的行为依赖批内位置（见 Global Constraints）。
 串行是刻意的选择，不是省事。
 
-- [ ] **Step 6: 构建并运行测试**
+- [x] **Step 6: 构建并运行测试**
 
 ```powershell
 cmake --build build
@@ -1992,7 +1996,7 @@ cmake --build build
 
 Expected: 11 条测试通过。
 
-- [ ] **Step 7: 向用户报告并等待提交指令**
+- [x] **Step 7: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 供用户参考的暂存命令：
 
@@ -2019,7 +2023,7 @@ git add tests/test_faction_economy.cpp
   - `class DepleteSystem` —— 写 `VeinStock`、`CaveHeavenState`
   - `EraReport::veins[i].depleted_year`（已有）
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 在 `tests/test_faction_economy.cpp` 追加：
 
@@ -2121,7 +2125,7 @@ TEST(a_cave_heaven_is_lost_with_its_vein)
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```powershell
 cmake --build build
@@ -2129,7 +2133,7 @@ cmake --build build
 
 Expected: 编译失败或该测试挂（公有化还没实现）。
 
-- [ ] **Step 3: 写 `DepleteSystem` 与公有化**
+- [x] **Step 3: 写 `DepleteSystem` 与公有化**
 
 先写一个文件内的辅助函数——洞天要知道它那条脉的状态：
 
@@ -2234,7 +2238,7 @@ private:
 **洞天失效只记事件，不改动力学**（设计 §3.12）：洞天是用灵石供养的
 蓄电池，而灵石账本层明确不做。
 
-- [ ] **Step 4: 构建并运行测试**
+- [x] **Step 4: 构建并运行测试**
 
 ```powershell
 cmake --build build
@@ -2243,7 +2247,7 @@ cmake --build build
 
 Expected: 12 条测试通过。
 
-- [ ] **Step 5: 向用户报告并等待提交指令**
+- [x] **Step 5: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 供用户参考的暂存命令：
 
@@ -2269,7 +2273,7 @@ git add tests/test_faction_economy.cpp
 - Produces:
   - `class ResolveSystem` —— 写 `VeinOwner`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `tests/test_faction_era.cpp`：
 
@@ -2403,7 +2407,7 @@ TEST(the_events_are_ordered_by_year)
 }  // namespace
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```powershell
 cmake --build build
@@ -2411,7 +2415,7 @@ cmake --build build
 
 Expected: 编译失败，`kRedraftPeriod` 未声明。
 
-- [ ] **Step 3: 写重勘的清单生成**
+- [x] **Step 3: 写重勘的清单生成**
 
 在 `src/faction/resolve.cpp` 里实现：
 
@@ -2448,7 +2452,7 @@ struct Transfer
 
 **试算只涉及两个派系与一条脉**，不重跑全年。
 
-- [ ] **Step 4: 写表决**
+- [x] **Step 4: 写表决**
 
 表决的规则（设计 §3.11.4）：
 
@@ -2467,7 +2471,7 @@ const bool passed = approved_weight * kVoteThresholdDen
                     > total_weight * kVoteThresholdNum;
 ```
 
-- [ ] **Step 5: 写 `ResolveSystem`**
+- [x] **Step 5: 写 `ResolveSystem`**
 
 `ResolveSystem` 每年的工作：
 
@@ -2495,7 +2499,7 @@ const bool passed = approved_weight * kVoteThresholdDen
   这个字段此前**全仓无人赋值**，恒为 0——而 Task 7 的验收标准正是
   `report.owner_changes > 0`。不填，验收测试必红。
 
-- [ ] **Step 6: 收紧正派的越采条件**
+- [x] **Step 6: 收紧正派的越采条件**
 
 正派宗门的越采必须**先走完重勘程序**：只有当年是重勘年（或执掌盟约者
 当年已提过案）而程序没能满足它的缺口，它才越线（设计 §3.7）。
@@ -2513,7 +2517,7 @@ if (!procedure_used)
 
 **魔修与散修不受此限**（它们不在盟约里，程序管不着它们）。
 
-- [ ] **Step 7: 改 `collect`，填真实归属**
+- [x] **Step 7: 改 `collect`，填真实归属**
 
 把 Task 6 留的临时状态改掉：`Simulation::collect` 的 `VeinReport::owner`
 必须填**真实的** `VeinOwner::owner`，不是初始持有者。
@@ -2521,7 +2525,7 @@ if (!procedure_used)
 **这一步不做，Task 6 的公有化测试就一直是假的**（它会绿着，而公有化
 根本没发生）。
 
-- [ ] **Step 8: 构建并运行测试**
+- [x] **Step 8: 构建并运行测试**
 
 ```powershell
 cmake --build build
@@ -2530,7 +2534,7 @@ cmake --build build
 
 Expected: 全部测试通过，且 `owner_changes > 0` 那条不挂。
 
-- [ ] **Step 9: 向用户报告并等待提交指令**
+- [x] **Step 9: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 供用户参考的暂存命令：
 
@@ -2554,7 +2558,7 @@ git add tests/test_faction_era.cpp
 - Produces: `gamev2::faction::export_era(const EraReport&,
   const FactionDiagnostics&, const std::filesystem::path&)`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 在 `tests/test_faction_era.cpp` 追加：
 
@@ -2617,7 +2621,7 @@ TEST(the_era_is_exportable_as_text)
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```powershell
 cmake --build build
@@ -2625,7 +2629,7 @@ cmake --build build
 
 Expected: 链接失败，`export_era` 未定义。
 
-- [ ] **Step 3: 实现 `export_era`**
+- [x] **Step 3: 实现 `export_era`**
 
 在 `src/faction/era.cpp` 里实现，格式仿 `history::export_ledger`：
 
@@ -2676,7 +2680,7 @@ Expected: 链接失败，`export_era` 未定义。
 以及 `EraReport` 的 `total_extracted` / `total_balance`——它们此前
 **无人赋值**，导出会打成 0。
 
-- [ ] **Step 4: 构建并运行测试**
+- [x] **Step 4: 构建并运行测试**
 
 ```powershell
 cmake --build build
@@ -2685,7 +2689,7 @@ cmake --build build
 
 Expected: 全部测试通过。
 
-- [ ] **Step 5: 向用户报告并等待提交指令**
+- [x] **Step 5: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 供用户参考的暂存命令：
 
@@ -2706,7 +2710,7 @@ git add tests/test_faction_era.cpp
 **Interfaces:**
 - Produces: `tests/test_faction_determinism.cpp` 里的三条测试
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `tests/test_faction_determinism.cpp`：
 
@@ -2864,7 +2868,7 @@ TEST(the_tide_drives_the_supply)
 }  // namespace
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 ```powershell
 cmake --build build
@@ -2872,13 +2876,13 @@ cmake --build build
 
 Expected: 编译失败，`legal_extracted` 未声明（`VeinReport` 里还没有它）。
 
-- [ ] **Step 3: 补上合法开采的累计**
+- [x] **Step 3: 补上合法开采的累计**
 
 `VeinReport` 里已经有 `legal_extracted` 字段（Task 2 写好了）。缺的是
 `ExtractSystem` 对它的写入：合法开采时
 `legal_extracted += take;`，越采时不碰它。
 
-- [ ] **Step 4: 构建并运行测试**
+- [x] **Step 4: 构建并运行测试**
 
 ```powershell
 cmake --build build
@@ -2894,7 +2898,7 @@ Task 1 的搬家与 Task 4 的定点口径，**不要改测试**。三处最可�
 2. `take_effective` 里衰减的乘法位置；
 3. 台账改用共享原语时，截断的顺序变了。
 
-- [ ] **Step 5: 接入 demo**
+- [x] **Step 5: 接入 demo**
 
 在 `src/demo/main.cpp` 里：
 
@@ -2925,7 +2929,7 @@ target_link_libraries(worldgen_demo PRIVATE faction)
 5. `CMakeLists.txt` 的 `FACTION_TEST_SOURCES` 追加
    `tests/test_faction_era.cpp` 与 `tests/test_faction_determinism.cpp`。
 
-- [ ] **Step 6: 跑全量测试**
+- [x] **Step 6: 跑全量测试**
 
 ```powershell
 cmake --build build
@@ -2938,7 +2942,7 @@ cmake --build build
 Expected: 四个套件全绿。ecs 111、worldgen 180、history 38，加上
 faction 的若干条。
 
-- [ ] **Step 7: 跑一次 demo 看输出**
+- [x] **Step 7: 跑一次 demo 看输出**
 
 ```powershell
 ./build/worldgen_demo.exe
@@ -2948,7 +2952,7 @@ Expected: 退出码 0，`agent-temp/worldgen/era.txt` 被写出。打开它看
 一眼：**当代格局那一段必须读得懂**。如果读不懂，是导出格式的问题，
 不是推演的问题。
 
-- [ ] **Step 8: 向用户报告并等待提交指令**
+- [x] **Step 8: 向用户报告并等待提交指令**
 
 **不得执行 `git commit`。** 供用户参考的暂存命令：
 

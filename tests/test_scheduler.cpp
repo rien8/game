@@ -652,3 +652,152 @@ TEST(scheduler_same_batch_systems_view_disjoint_components)
     CHECK(!saw_parallelize_a.load());
     CHECK(!saw_parallelize_b.load());
 }
+
+namespace {
+
+/// 执行序记录器。批次内是并行派发的，所以只能断言「批的先后」，不能断言
+/// 同批内谁先跑——下面的断言都刻意留了同批这一层不确定性。
+std::mutex g_log_mutex;
+std::vector<int> g_execution_log;
+
+void log_execution(int tag)
+{
+    const std::lock_guard lock{g_log_mutex};
+    g_execution_log.push_back(tag);
+}
+
+/// 写 Health，与 Later 同为 Health 的写者，因此必然被分进不同批次。
+/// 与 Earlier 没有任何共读写集，本可同批并行——order 是唯一把二者分开的手段。
+struct Earlier final : gamev2::ecs::System
+{
+    static constexpr int order = 0;
+    using ReadSet = std::tuple<>;
+    using WriteSet = std::tuple<Health>;
+    int tag = 1;
+
+    void execute(World&, CommandBuffer&) override
+    {
+        log_execution(tag);
+    }
+};
+
+struct Later final : gamev2::ecs::System
+{
+    static constexpr int order = 1;
+    using ReadSet = std::tuple<>;
+    using WriteSet = std::tuple<Health>;
+    int tag = 2;
+
+    void execute(World&, CommandBuffer&) override
+    {
+        log_execution(tag);
+    }
+};
+
+struct First final : gamev2::ecs::System
+{
+    static constexpr int order = 0;
+    using ReadSet = std::tuple<>;
+    using WriteSet = std::tuple<Position>;
+    int tag = 1;
+    void execute(World&, CommandBuffer&) override { log_execution(tag); }
+};
+
+struct Second final : gamev2::ecs::System
+{
+    static constexpr int order = 1;
+    using ReadSet = std::tuple<>;
+    using WriteSet = std::tuple<Velocity>;
+    int tag = 2;
+    void execute(World&, CommandBuffer&) override { log_execution(tag); }
+};
+
+/// 两个 system，各自在 execute 里创建一个实体并把新句柄回写到自己身上。
+/// 两者同写 Health 因此必分进不同批，先后由 order 决定。
+template<int Order>
+struct Creator final : gamev2::ecs::System
+{
+    static constexpr int order = Order;
+    using ReadSet = std::tuple<>;
+    using WriteSet = std::tuple<Health>;
+    gamev2::ecs::EntityId born{};
+
+    void execute(World&, CommandBuffer& cmd) override
+    {
+        cmd.create(born, Position{});
+    }
+};
+
+}  // namespace
+
+TEST(system_order_overrides_registration_order)
+{
+    // 访问集只保证「不并行」，批次之间的先后原先纯属 plan() 按注册顺序
+    // 贪心的副产品。这里故意先注册 Later：没有 System::order 时它会落在
+    // 第一批，Earlier 被挤到第二批，先后正好反了。
+    auto world = World{};
+    auto cmd = CommandBuffer{};
+
+    Earlier earlier;
+    Later later;
+    Scheduler scheduler{2};
+    scheduler.add(later);
+    scheduler.add(earlier);
+
+    g_execution_log.clear();
+    scheduler.run(world, cmd);
+
+    CHECK_EQ(g_execution_log.size(), std::size_t{2});
+    if (g_execution_log.size() == 2)
+    {
+        CHECK_EQ(g_execution_log[0], earlier.tag);
+        CHECK_EQ(g_execution_log[1], later.tag);
+    }
+}
+
+TEST(system_order_does_not_serialize_non_conflicting_systems)
+{
+    // order 只决定「谁先参与分层」，不制造冲突。Position 的两个互不冲突的
+    // 写者即使声明了先后，仍应留在同一批并行派发——否则每个带 order 的
+    // system 都会把整条流水线退化成串行。
+    auto world = World{};
+    auto cmd = CommandBuffer{};
+
+    Second second;
+    First first;
+    Scheduler scheduler{2};
+    scheduler.add(second);
+    scheduler.add(first);
+    scheduler.plan();
+
+    // 写集不相交 => 同一批 => 一次 plan 就够。
+    CHECK_EQ(scheduler.batch_count(), std::size_t{1});
+}
+
+/// 命令序列必须跟着执行次序走，也就是跟着 order 走——不能跟着注册顺序走。
+///
+/// 观测量是**句柄**：create 在 flush 时才分配槽位，谁的 create 命令先落地，
+/// 谁拿到的 EntityId 就小。故意把 Later 排在前面注册，于是「注册序」与
+/// 「执行序」恰好相反，两种合并顺序给出的答案也就相反。
+///
+/// 批内次序取 batch 自身的下标顺序（plan 按 order 稳定排序后依次入列），
+/// 因此与并行派发的真实完成次序无关。本例两个批各只有一个 member，不涉及
+/// 批内次序。
+TEST(command_merge_follows_batch_order_not_registration_order)
+{
+    auto world = World{};
+    auto cmd = CommandBuffer{};
+
+    Creator<1> later;
+    Creator<0> earlier;
+    Scheduler scheduler{1};
+    scheduler.add(later);    // 注册在前
+    scheduler.add(earlier);  // 执行在前
+    scheduler.run(world, cmd);
+
+    // earlier 排在更早的批，它的 create 先落地 ⇒ 句柄更小。
+    CHECK(earlier.born);
+    CHECK(later.born);
+    CHECK(earlier.born.index() < later.born.index());
+    CHECK_EQ(world.entity_count(), std::size_t{2});
+}

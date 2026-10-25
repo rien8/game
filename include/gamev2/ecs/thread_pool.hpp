@@ -1,3 +1,12 @@
+/// @file thread_pool.hpp
+/// @brief 固定大小的 worker 线程池：一次性提交一批互相独立的任务并等待全部
+///        完工，服务于 Scheduler 并行派发同批 System 与 View 的按 chunk 并行
+///        遍历。
+///
+/// 任务分发用原子自增游标而非逐任务加锁；调用线程本身也参与执行，因此 worker
+/// 数为 0 时行为自然退化为串行。池不支持并发重入，具体约束见 run() 的前置
+/// 条件——它被 Scheduler 与 View 两处共用，任何一方重入都会覆盖共享的任务
+/// 游标并让任务成批丢失。
 #pragma once
 
 #include <atomic>

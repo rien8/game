@@ -160,6 +160,92 @@ target_link_libraries(faction_tests PRIVATE faction)
 
 add_executable(worldgen_demo src/demo/main.cpp)
 target_link_libraries(worldgen_demo PRIVATE faction)
+set(GENETICS_SOURCES
+    src/genetics/locus.cpp
+    src/genetics/species.cpp
+    src/genetics/expression.cpp
+    src/genetics/breeding.cpp
+    src/genetics/survival.cpp
+    src/genetics/statistics.cpp
+    src/genetics/population.cpp
+    src/ecs/adapt/genetics_systems.cpp
+)
+add_library(genetics STATIC ${GENETICS_SOURCES})
+target_include_directories(genetics PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(genetics PUBLIC ecs)
+
+set(GENETICS_TEST_SOURCES
+    tests/main.cpp
+    tests/test_genetics_smoke.cpp
+    tests/test_genetics_locus.cpp
+    tests/test_genetics_species.cpp
+    tests/test_genetics_expression.cpp
+    tests/test_genetics_random.cpp
+    tests/test_genetics_breeding.cpp
+    tests/test_genetics_survival.cpp
+    tests/test_genetics_statistics.cpp
+    tests/test_genetics_population.cpp
+    tests/test_genetics_determinism.cpp
+    tests/test_genetics_performance.cpp
+    tests/test_genetics_systems.cpp
+)
+add_executable(genetics_tests ${GENETICS_TEST_SOURCES})
+# environment 只挂在可执行目标上，不挂 genetics——见下面那条不变量。链路
+# genetics_tests -> environment -> genetics -> ecs 无环；本轮起 genetics_tests
+# 要直接构造 EnvironmentWorld / EnvironmentSystem，而它们的 out-of-line 符号在
+# src/ecs/adapt/environment_systems.cpp，属 environment 目标。
+target_link_libraries(genetics_tests PRIVATE genetics environment)
+
+set(ENVIRONMENT_SOURCES
+    src/environment/climate.cpp
+    src/environment/resource.cpp
+    src/environment/sites.cpp
+    src/ecs/adapt/environment_systems.cpp
+    src/ecs/adapt/movement_system.cpp
+)
+# 不变量：genetics 的任何 TU 都不得引用 src/environment/*.cpp 定义的符号。
+# 今天成立是因为 genetics 只用到纯聚合体 EnvironmentSnapshot（零 out-of-line
+# 符号），从不碰 ClimateField / CellIndex / kGridSide，因此没有链接期需求。
+# 源头硬约束：src/environment/ 不得 include 任何 genetics/ 或 ecs/ 头文件。
+# 将来 genetics 若真要调用 ClimateField 的 out-of-line 函数，正确做法是拆出
+# 独立目标，或显式拆掉上面那条硬约束；不是给 genetics 加
+# target_link_libraries(... environment)——两边都是 STATIC 时 CMake 允许依赖
+# 环、不会报错，只会在链接期以 undefined reference 的形式爆出来。
+add_library(environment STATIC ${ENVIRONMENT_SOURCES})
+target_include_directories(environment PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(environment PUBLIC genetics)
+
+set(ENVIRONMENT_TEST_SOURCES
+    tests/main.cpp
+    tests/test_environment_smoke.cpp
+    tests/test_environment_climate.cpp
+    tests/test_environment_resource.cpp
+    tests/test_environment_sites.cpp
+    tests/test_environment_systems.cpp
+)
+add_executable(environment_tests ${ENVIRONMENT_TEST_SOURCES})
+target_link_libraries(environment_tests PRIVATE environment)
+
+set(ECOLOGY_SOURCES
+    src/ecology/ecology.cpp
+)
+add_library(ecology STATIC ${ECOLOGY_SOURCES})
+target_include_directories(ecology PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(ecology PUBLIC environment)
+
+set(ECOLOGY_TEST_SOURCES
+    tests/main.cpp
+    tests/test_ecology_module.cpp
+)
+add_executable(ecology_tests ${ECOLOGY_TEST_SOURCES})
+target_link_libraries(ecology_tests PRIVATE ecology)
+
+# 演示入口：ecology 模块的调用方，自带 main。刻意不进下面的 ASan foreach ——
+# 那条列表把所有 *_TEST_SOURCES 连同 tests/main.cpp 编成单个可执行目标，而本
+# 目标自带 main，合并会撞 duplicate symbol。ecology 设计文档 §7 警告过「ASan
+# 列表漏掉整个模块」，因此这里显式记一笔：这是排除，不是遗漏。
+add_executable(sim src/sim/main.cpp)
+target_link_libraries(sim PRIVATE ecology)
 
 # Opt-in sanitizer build. Off by default so the pinned build stays untouched;
 # the `active_` invariant in ThreadPool is a lifetime race that no ordinary
@@ -179,8 +265,18 @@ if(GAMEV2_ENABLE_ASAN)
     #
     # 源文件路径必须绝对化：相对路径按消费它的目录解析，放在子目录里就找不到了。
     set(ECS_ASAN_SOURCES)
-    foreach(f IN LISTS ECS_SOURCES ECS_TEST_SOURCES)
+    foreach(f IN LISTS ECS_SOURCES ECS_TEST_SOURCES
+                  GENETICS_SOURCES GENETICS_TEST_SOURCES
+                  ENVIRONMENT_SOURCES ENVIRONMENT_TEST_SOURCES
+                  ECOLOGY_SOURCES ECOLOGY_TEST_SOURCES
+                  WORLDGEN_SOURCES WORLDGEN_TEST_SOURCES
+                  HISTORY_SOURCES HISTORY_TEST_SOURCES
+                  FACTION_SOURCES FACTION_TEST_SOURCES)
         list(APPEND ECS_ASAN_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/${f}")
     endforeach()
+    # 每个可执行目标都自带 tests/main.cpp（它定义了 main 与 test::run_all），
+    # 合并源列表后同一份 TU 会进数组两次，直接编译成可执行文件会在链接期
+    # 撞上 duplicate symbol。
+    list(REMOVE_DUPLICATES ECS_ASAN_SOURCES)
     add_subdirectory(cmake/asan)
 endif()

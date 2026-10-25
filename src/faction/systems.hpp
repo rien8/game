@@ -103,6 +103,15 @@ private:
 class ClockSystem final : public gamev2::ecs::System
 {
 public:
+    /// 年内次序，设计 §3.13 的第 1 步。七个 system 的 order 一律写死：
+    /// 调度器按 order 定序，注册顺序只是同 order 时的次级键——靠注册序
+    /// 兑现先后，等于把语义押在「注册代码不动」上。
+    ///
+    /// order 只在两个 system 本来就会冲突时才兑现批次先后。这七对两两
+    /// 冲突（时钟被所有人读、脉状态与派系账被多人写），因此 order 说的
+    /// 就是批次先后。
+    static constexpr int order = 1;
+
     /// 读写集。`const SimClock` 出现在别的 system 的读集里，是为了让
     /// 调度器把「写钟的」与「读钟的」分到不同批次——同批次是并行跑的。
     using ReadSet = std::tuple<>;
@@ -125,6 +134,9 @@ private:
 class TribulateSystem final : public gamev2::ecs::System
 {
 public:
+    /// 年内次序，设计 §3.13 的第 2 步。
+    static constexpr int order = 2;
+
     /// `const SimClock` 必须在读集里：调度器只靠读写集判冲突，本 system
     /// 要读当年的年份，不声明成读，它就会与写钟的 ClockSystem 落进同一批
     /// 并行跑。
@@ -158,6 +170,9 @@ private:
 class AssessSystem final : public gamev2::ecs::System
 {
 public:
+    /// 年内次序，设计 §3.13 的第 3 步。
+    static constexpr int order = 3;
+
     /// `const SimClock` 必须在读集里：调度器只靠读写集判冲突，
     /// 潮位不声明成读，本 system 就会与写钟的 ClockSystem 落进
     /// 同一批并行跑，读到旧值或撕裂值。
@@ -179,6 +194,9 @@ private:
 class ExtractSystem final : public gamev2::ecs::System
 {
 public:
+    /// 年内次序，设计 §3.13 的第 4 步。
+    static constexpr int order = 4;
+
     /// 同 AssessSystem：`const SimClock` 声明成读，调度器才不会把
     /// 本 system 与写钟的 ClockSystem 分进同一批。
     ///
@@ -210,6 +228,9 @@ private:
 class OvertakeSystem final : public gamev2::ecs::System
 {
 public:
+    /// 年内次序，设计 §3.13 的第 5 步。
+    static constexpr int order = 5;
+
     /// 读集里带 `const VeinId`（简报清单之外的追加）：发现事件要写
     /// 脉编号，随机也按脉编号无状态派生。
     ///
@@ -245,6 +266,9 @@ private:
 class DepleteSystem final : public gamev2::ecs::System
 {
 public:
+    /// 年内次序，设计 §3.13 的第 6 步。
+    static constexpr int order = 6;
+
     /// `const SimClock` 必须在读集里：枯竭年要用当年的年份，调度器只靠
     /// 读写集判冲突，不声明成读，本 system 就会与写钟的 ClockSystem
     /// 落进同一批并行跑。
@@ -274,6 +298,9 @@ private:
 class ResolveSystem final : public gamev2::ecs::System
 {
 public:
+    /// 年内次序，设计 §3.13 的第 7 步。
+    static constexpr int order = 7;
+
     /// 读集是它真读的东西：时钟、脉的编号与配额、脉的归属与物理状态、
     /// 派系的身份与账、提案记录。
     ///

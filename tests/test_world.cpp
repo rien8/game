@@ -4,6 +4,7 @@
 #include "gamev2/ecs/view.hpp"
 #include "gamev2/ecs/world.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <functional>
 #include <string>
@@ -249,6 +250,87 @@ TEST(world_recycled_slot_bumps_version)
     CHECK(second.version() != first.version());
     CHECK(!world.is_alive(first));
     CHECK(world.is_alive(second));
+}
+
+TEST(world_for_each_entity_visits_exactly_the_alive_set)
+{
+    // adapt 层三个 system 全靠它拿句柄：多遍历到一个会重复结算，少一个会
+    // 漏结算，因此「集合恰好等于存活集合」是它们共同的前置。
+    World world;
+    std::size_t visited_empty = 0;
+    world.for_each_entity([&visited_empty](EntityId) { ++visited_empty; });
+    CHECK_EQ(visited_empty, std::size_t{0});
+
+    std::vector<EntityId> expected;
+    std::vector<EntityId> doomed;
+    for (int i = 0; i < 20; ++i)
+    {
+        const auto e = world.create();
+        if (i % 3 == 0)
+        {
+            doomed.push_back(e);
+            world.destroy(e);
+        }
+        else
+        {
+            expected.push_back(e);
+        }
+    }
+    // 回收槽位：销毁过的下标会被复用，新句柄与旧句柄同下标、不同版本。
+    for (std::size_t i = 0; i < doomed.size(); ++i)
+    {
+        expected.push_back(world.create());
+    }
+
+    std::vector<EntityId> visited;
+    world.for_each_entity([&visited](EntityId e) { visited.push_back(e); });
+
+    CHECK_EQ(visited.size(), world.entity_count());
+    // EntityId 只定义了 operator==，排序只能投影到 value 字段。
+    std::ranges::sort(visited, {}, &EntityId::value);
+    std::ranges::sort(expected, {}, &EntityId::value);
+    CHECK(visited == expected);
+
+    for (const auto e : visited)
+    {
+        CHECK(world.is_alive(e));
+    }
+    // 销毁过的旧句柄一个都不能再出现：它们的版本号已被递增，出现在这里
+    // 就意味着 for_each_entity 绕过了 slot_of 的版本校验。
+    for (const auto e : doomed)
+    {
+        CHECK(std::ranges::find(visited, e) == visited.end());
+    }
+}
+
+TEST(world_for_each_entity_yields_real_version_numbers)
+{
+    // 版本号取自 slot 自身，因此造出的句柄一定能通过 slot_of 的版本校验；
+    // 版本号为 0 则与非法哨兵 EntityId{} 撞值，必须能被区分出来。
+    World world;
+    std::vector<EntityId> first_round;
+    for (int i = 0; i < 4; ++i)
+    {
+        first_round.push_back(world.create());
+    }
+    for (const auto e : first_round)
+    {
+        world.destroy(e);
+    }
+    const auto reborn = world.create();
+
+    std::vector<EntityId> visited;
+    world.for_each_entity([&visited](EntityId e) { visited.push_back(e); });
+
+    CHECK_EQ(visited.size(), std::size_t{1});
+    if (!visited.empty())
+    {
+        CHECK(visited[0] == reborn);
+        CHECK(visited[0] != EntityId{});
+        // destroy 已把版本号从 1 递增到 2；仍是 1 或 0 都说明读的是别处。
+        CHECK_EQ(visited[0].version(), std::uint32_t{2});
+        CHECK(world.is_alive(visited[0]));
+    }
 }
 
 TEST(world_add_relocates_tail_entity_slot)

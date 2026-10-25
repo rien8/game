@@ -163,12 +163,12 @@ void Simulation::seed_entities()
 
 void Simulation::run(FactionDiagnostics& diagnostics)
 {
-    // 注册顺序即冲突系统的执行顺序（Scheduler::plan 按注册顺序
-    // 贪心分层）。所以这七行的顺序不能改：ClockSystem 写潮位，
-    // 另六个读它，读者自动落到写者之后的批次；TribulateSystem 要排在
-    // 开采与评估之前——劫云抽干的那一年，被抽走的配额不该再被采；
-    // DepleteSystem 还要排在开采与越采之后——枯竭年是余额归零的那一年；
-    // ResolveSystem 排在最后——公有化与归属变更都要看当年的开采结果。
+    // 执行顺序由每个 system 自己的 `order` 声明（设计 §3.13），下面这七行
+    // 的注册顺序只作同 order 时的次级键。语义仍然不能改：ClockSystem 写
+    // 潮位，另六个读它；TribulateSystem 要排在开采与评估之前——劫云抽干的
+    // 那一年，被抽走的配额不该再被采；DepleteSystem 还要排在开采与越采
+    // 之后——枯竭年是余额归零的那一年；ResolveSystem 排在最后——公有化与
+    // 归属变更都要看当年的开采结果。
     //
     // 工作线程数给 1：本层规模下并行是零收益，而多线程会让
     // View::each_parallel 的行为依赖批内的位置。串行是刻意的选择。

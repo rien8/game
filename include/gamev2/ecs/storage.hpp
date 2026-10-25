@@ -1,3 +1,11 @@
+/// @file storage.hpp
+/// @brief archetype 存储：把组件按「组件集合」分组存放，同组实体的各类组件
+///        分列排布，每列再切成长度固定的 chunk。
+///
+/// 这个布局让 View 的遍历退化成按 chunk 扫连续内存，无需为每个实体跳列；代价
+/// 是增删组件会移动实体，对应路径为「复制共有成分 → 迁到另一个 archetype 尾行
+/// → 析构源行 → 填洞」。行只有 RAW 与 LIVE 两种状态，所有搬运用移动构造进入
+/// RAW 存储，边界条件见 Column::move_construct_into_raw。
 #pragma once
 
 #include "gamev2/ecs/component.hpp"
@@ -308,6 +316,8 @@ struct ComponentKeyEqual
     }
 };
 
+/// 全部 archetype 的所有者，同时维护「组件集合 → ArchetypeId」的索引，
+/// 使增删组件时的目标 archetype 查找为均摊常数时间。
 class Storage
 {
 public:
