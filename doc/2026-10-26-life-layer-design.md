@@ -275,8 +275,8 @@ worldgen 生成 World
 
 个体规模数千、每步都可能掷骰（突破、遭遇、性格推移、生子）。沿用
 `world/rng.hpp` 铁律：**随机流按 `(seed, 流号, 年, 实体id)` 派生，与
-遍历顺序无关**。新增 `Stream::life = 19`（`kStreamIds` 同步扩到 20，
-`static_assert` 守重复）。**不共用既有任何流**：混流会让调 life 层
+遍历顺序无关**。新增 `Stream::life = 20`（19 已被渡劫占用，
+`kStreamIds` 同步扩到 21，`static_assert` 守重复）。**不共用既有任何流**：混流会让调 life 层
 参数扰动 history/faction 的既有 fixture。
 
 同一实体在任何遍历顺序下抽到同一个性格、同一个突破结果。同 seed
