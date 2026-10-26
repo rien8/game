@@ -1,5 +1,5 @@
 /// @file generate.hpp
-/// @brief 私有头：人口生成的中间形态。只被 setup.cpp 包含。
+/// @brief 私有头：人口生成的中间形态。被 setup.cpp 与 systems.cpp 包含。
 #pragma once
 
 #include "gamev2/life/constants.hpp"
@@ -22,6 +22,14 @@ struct PersonInit
     Temper temper;
     Aptitude aptitude;
 };
+
+/// 一个人的全部随机字段。无状态派生：只依赖 (seed, 流号, 序号)。
+///
+/// 收徒与散修批（systems.cpp）走同一条姓名/属性派生——两套实现会
+/// 静默分岔，名册与众生长得像两个世界的人。
+[[nodiscard]] PersonInit make_person(std::uint64_t seed,
+                                     std::uint32_t index,
+                                     history::Sect sect, Realm realm);
 
 /// 按 (seed, Stream::life, 序号) 无状态生成全体众生。
 ///

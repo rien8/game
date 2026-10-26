@@ -161,6 +161,7 @@ set(LIFE_SOURCES
     src/life/generate.cpp
     src/life/setup.cpp
     src/life/chronicle.cpp
+    src/life/systems.cpp
 )
 add_library(life STATIC ${LIFE_SOURCES})
 target_include_directories(life PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -169,6 +170,7 @@ target_link_libraries(life PUBLIC faction ecs)
 set(LIFE_TEST_SOURCES
     tests/main.cpp
     tests/test_life_setup.cpp
+    tests/test_life_cultivation.cpp
 )
 add_executable(life_tests ${LIFE_TEST_SOURCES})
 target_link_libraries(life_tests PRIVATE life)

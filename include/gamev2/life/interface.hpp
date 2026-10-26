@@ -62,14 +62,24 @@ public:
     {
         return ecs_world_;
     }
-    [[nodiscard]] std::uint32_t year() const noexcept { return year_; }
+
+    /// 推进 n 年：设计 §1.2 年循环的前四步（Clock→Aging→Birth→
+    /// Cultivate）。玩家窗口与派系交接随后续刀加入。
+    void run_years(std::uint32_t n);
+
+    /// 当前年（seed 后等于开局年，run_years 后逐年推进）。非 const：
+    /// 读的是可变的推演状态，与 ecs_world() 同理由。
+    [[nodiscard]] std::uint32_t year();
 
 private:
     gamev2::ecs::World ecs_world_;
     const gamev2::world::World& world_;
     const gamev2::faction::EraReport& era_;
     LifeDiagnostics& diagnostics_;
-    std::uint32_t year_ = 0;
+    gamev2::ecs::EntityId clock_{};
+    /// 新生实体的下一个序号。从初始人口总数起单调递增，让「初始队列
+    /// vs 新生队列」可按 index 区分。
+    std::uint32_t next_index_ = 0;
     Roster roster_;
     std::vector<gamev2::ecs::EntityId> souls_;
 };

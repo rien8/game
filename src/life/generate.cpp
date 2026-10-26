@@ -15,41 +15,6 @@
 namespace gamev2::life {
 namespace {
 
-/// 一个人的全部随机字段。无状态派生：只依赖 (seed, 流号, 序号)，
-/// 与遍历顺序无关（设计 §4.1——调整循环次序不得换一个世界）。
-PersonInit make_person(std::uint64_t seed, std::uint32_t index,
-                       history::Sect sect, Realm realm)
-{
-    const auto stream = static_cast<std::uint32_t>(world::Stream::life);
-    world::Pcg32 rng(
-        world::stage_seed(world::stage_seed(seed, stream), index));
-
-    PersonInit p;
-    p.name = std::string(kSurnames[rng.below(
-                 static_cast<std::uint32_t>(kSurnames.size()))])
-             + std::string(kGivenNames[rng.below(
-                 static_cast<std::uint32_t>(kGivenNames.size()))]);
-    p.sect = sect;
-    p.realm = realm;
-
-    // 年龄折半封顶：名册里不该有「行将就木还只是引气」的人；寿元的
-    // 硬上限由 kRealmLifespan 的测试从名册侧独立复算。
-    const auto lifespan = kRealmLifespan[static_cast<std::size_t>(realm)];
-    p.age = kMinAge + rng.below(lifespan / 2u - kMinAge);
-
-    p.temper.greed = static_cast<std::uint8_t>(1u + rng.below(5));
-    p.temper.valor = static_cast<std::uint8_t>(1u + rng.below(5));
-    p.temper.order = static_cast<std::uint8_t>(1u + rng.below(5));
-    p.temper.mercy = static_cast<std::uint8_t>(1u + rng.below(5));
-    p.temper.vigor = static_cast<std::uint8_t>(1u + rng.below(5));
-    p.aptitude.comprehension = static_cast<std::uint8_t>(1u + rng.below(9));
-    p.aptitude.sense = static_cast<std::uint8_t>(1u + rng.below(9));
-    p.aptitude.body = static_cast<std::uint8_t>(1u + rng.below(9));
-    p.aptitude.fortitude = static_cast<std::uint8_t>(1u + rng.below(9));
-    p.office = OfficeKind::none;
-    return p;
-}
-
 /// 给一个宗门指派职位。[begin, begin+n) 是该宗在表里的区间。
 void assign_offices(std::vector<PersonInit>& people, std::size_t begin,
                     std::uint32_t n)
@@ -99,6 +64,41 @@ void assign_offices(std::vector<PersonInit>& people, std::size_t begin,
 }
 
 }  // namespace
+
+/// 一个人的全部随机字段。无状态派生：只依赖 (seed, 流号, 序号)，
+/// 与遍历顺序无关（设计 §4.1——调整循环次序不得换一个世界）。
+PersonInit make_person(std::uint64_t seed, std::uint32_t index,
+                       history::Sect sect, Realm realm)
+{
+    const auto stream = static_cast<std::uint32_t>(world::Stream::life);
+    world::Pcg32 rng(
+        world::stage_seed(world::stage_seed(seed, stream), index));
+
+    PersonInit p;
+    p.name = std::string(kSurnames[rng.below(
+                 static_cast<std::uint32_t>(kSurnames.size()))])
+             + std::string(kGivenNames[rng.below(
+                 static_cast<std::uint32_t>(kGivenNames.size()))]);
+    p.sect = sect;
+    p.realm = realm;
+
+    // 年龄折半封顶：名册里不该有「行将就木还只是引气」的人；寿元的
+    // 硬上限由 kRealmLifespan 的测试从名册侧独立复算。
+    const auto lifespan = kRealmLifespan[static_cast<std::size_t>(realm)];
+    p.age = kMinAge + rng.below(lifespan / 2u - kMinAge);
+
+    p.temper.greed = static_cast<std::uint8_t>(1u + rng.below(5));
+    p.temper.valor = static_cast<std::uint8_t>(1u + rng.below(5));
+    p.temper.order = static_cast<std::uint8_t>(1u + rng.below(5));
+    p.temper.mercy = static_cast<std::uint8_t>(1u + rng.below(5));
+    p.temper.vigor = static_cast<std::uint8_t>(1u + rng.below(5));
+    p.aptitude.comprehension = static_cast<std::uint8_t>(1u + rng.below(9));
+    p.aptitude.sense = static_cast<std::uint8_t>(1u + rng.below(9));
+    p.aptitude.body = static_cast<std::uint8_t>(1u + rng.below(9));
+    p.aptitude.fortitude = static_cast<std::uint8_t>(1u + rng.below(9));
+    p.office = OfficeKind::none;
+    return p;
+}
 
 std::vector<PersonInit> generate_population(std::uint64_t seed)
 {

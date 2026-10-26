@@ -44,10 +44,12 @@ struct SoulId
     history::Sect sect = history::Sect::unowned;
 };
 
-/// 境界。境界内进度随刀 2 加入。
+/// 境界与境内年资。
 struct Cultivation
 {
     Realm realm = Realm::yinqi;
+    /// 境内年资（刀 1 注释预告的进度轴）。CultivateSystem 逐年写。
+    std::uint32_t progress = 0;
 };
 
 /// 能力四轴（1..9 档）。天生的，出生后不变。
@@ -84,6 +86,12 @@ struct Mortal
 struct Office
 {
     OfficeKind kind = OfficeKind::none;
+};
+
+/// 年时钟。与 faction::SimClock 无关（那个还带潮位），故不同名。
+struct LifeClock
+{
+    std::uint32_t year = 0;
 };
 
 }  // namespace gamev2::life

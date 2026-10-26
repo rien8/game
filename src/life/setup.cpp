@@ -3,6 +3,8 @@
 #include "gamev2/life/interface.hpp"
 // 私有头与本文件同目录，不在也不该在 life 目标的包含路径里。
 #include "generate.hpp"
+#include "systems.hpp"
+#include "gamev2/ecs/scheduler.hpp"
 
 #include <cassert>
 #include <cstdint>
@@ -15,8 +17,7 @@ Life::Life(const gamev2::world::World& world,
            LifeDiagnostics& diagnostics)
     : world_(world),
       era_(era),
-      diagnostics_(diagnostics),
-      year_(era.now)
+      diagnostics_(diagnostics)
 {
 }
 
@@ -43,13 +44,13 @@ void Life::seed()
         (void)ecs_world_.add<Cultivation>(e, Cultivation{p.realm});
         (void)ecs_world_.add<Aptitude>(e, p.aptitude);
         (void)ecs_world_.add<Temper>(e, p.temper);
-        (void)ecs_world_.add<Mortal>(e, Mortal{year_ - p.age, p.age});
+        (void)ecs_world_.add<Mortal>(e, Mortal{era_.now - p.age, p.age});
         (void)ecs_world_.add<Office>(e, Office{p.office});
     }
 
     // 名册从实体回读，不从 PersonInit 抄：这样「组件真的挂上了」是
     // 被名册测试顺手钉住的事实（照 faction collect() 的先例）。
-    roster_.year = year_;
+    roster_.year = era_.now;
     roster_.entries.reserve(souls_.size());
     for (const gamev2::ecs::EntityId e : souls_)
     {
@@ -75,6 +76,43 @@ void Life::seed()
         entry.temper = *temper;
         entry.aptitude = *apt;
         roster_.entries.push_back(entry);
+    }
+
+    // 时钟从当代起算：开局即 8914，run_years 每年推一格。
+    clock_ = ecs_world_.create();
+    (void)ecs_world_.add<LifeClock>(clock_, LifeClock{era_.now});
+    // 新生序号从初始人口总数起：初始队列的 index 全部小于它。
+    next_index_ = static_cast<std::uint32_t>(roster_.entries.size());
+}
+
+std::uint32_t Life::year()
+{
+    auto* clock = ecs_world_.get_if<LifeClock>(clock_);
+    assert(clock != nullptr);  // 时钟是 seed 亲手挂的：缺了是内部错误
+    return clock->year;
+}
+
+void Life::run_years(std::uint32_t n)
+{
+    // 注册顺序即执行顺序（Scheduler::plan 按注册顺序贪心分层，冲突者
+    // 落后一批）：Clock 写年，另三个读它（各自读集里都有 const
+    // LifeClock）；Aging 写 Mortal，另两个不碰。串行是刻意的：本层
+    // 规模下并行零收益，each_parallel 的行为又依赖批内位置。
+    ecs::Scheduler scheduler(1);
+    ClockSystem clock(clock_);
+    AgingSystem aging(souls_);
+    BirthSystem birth(world_.params().seed, clock_, souls_, next_index_);
+    CultivateSystem cultivate(world_.params().seed, clock_, souls_);
+    scheduler.add(clock);
+    scheduler.add(aging);
+    scheduler.add(birth);
+    scheduler.add(cultivate);
+    scheduler.plan();
+
+    ecs::CommandBuffer cmd;
+    for (std::uint32_t i = 0; i < n; ++i)
+    {
+        scheduler.run(ecs_world_, cmd);
     }
 }
 
