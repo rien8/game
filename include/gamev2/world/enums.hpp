@@ -121,10 +121,15 @@ enum class Stream : std::uint32_t
     /// 与 faction 同源竞争 18 号：派系层先发布，本层让号改占 19。改号会
     /// 换掉渡劫的抽样结果，所以这条一旦定下就不要再动。
     tribulation = 19,
+    /// 众生层的个体生成抽样（属性、姓名、年龄）。
+    ///
+    /// 19 已被渡劫占用，本层让号改占 20。改号会换掉整份开局名册，
+    /// 所以这条一旦定下就不要再动。
+    life = 20,
 };
 
 /// 全部已占用的流号。清单与枚举必须同步维护。
-inline constexpr std::array<std::uint32_t, 20> kStreamIds{
+inline constexpr std::array<std::uint32_t, 21> kStreamIds{
     static_cast<std::uint32_t>(Stream::elevation),
     static_cast<std::uint32_t>(Stream::rain),
     static_cast<std::uint32_t>(Stream::temperature),
@@ -145,6 +150,7 @@ inline constexpr std::array<std::uint32_t, 20> kStreamIds{
     static_cast<std::uint32_t>(Stream::ledger),
     static_cast<std::uint32_t>(Stream::faction),
     static_cast<std::uint32_t>(Stream::tribulation),
+    static_cast<std::uint32_t>(Stream::life),
 };
 
 /// 流号两两不同。重复即意味着两个阶段共用一条随机流——那不是确定性缺陷，
