@@ -37,6 +37,16 @@ std::string_view office_name(OfficeKind office)
     }
 }
 
+std::string_view sex_name(Sex sex)
+{
+    switch (sex)
+    {
+        case Sex::male: return "男";
+        case Sex::female: return "女";
+        default: return "?";
+    }
+}
+
 std::string_view realm_name(Realm realm)
 {
     switch (realm)
@@ -70,8 +80,8 @@ bool export_roster(const Roster& roster, const std::filesystem::path& path)
     {
         // 限定查名：e.sect 的 ADL 会把 history::sect_name 也拉进候选，
         // 二者同名重载又都收 Sect，不加限定就是二义。
-        out << e.soul << ' ' << e.name << ' ' << life::sect_name(e.sect)
-            << ' ' << office_name(e.office) << ' ' << realm_name(e.realm)
+        out << e.soul << ' ' << e.name << ' ' << sex_name(e.sex) << ' '
+            << life::sect_name(e.sect) << ' ' << office_name(e.office) << ' ' << realm_name(e.realm)
             << ' ' << e.age << ' '
             << static_cast<unsigned>(e.temper.greed) << ' '
             << static_cast<unsigned>(e.temper.valor) << ' '

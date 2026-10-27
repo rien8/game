@@ -96,6 +96,10 @@ PersonInit make_person(std::uint64_t seed, std::uint32_t index,
     p.aptitude.sense = static_cast<std::uint8_t>(1u + rng.below(9));
     p.aptitude.body = static_cast<std::uint8_t>(1u + rng.below(9));
     p.aptitude.fortitude = static_cast<std::uint8_t>(1u + rng.below(9));
+    // 性别 1:1 均匀，标定值（设定未给分布，男女对玩法无别）。派生放
+    // 抽签序列末尾：插进中间会平移同 seed 的全部既有名册，刀 1/2 钉住
+    // 的世界会无故换掉。
+    p.sex = rng.below(2u) == 0u ? Sex::male : Sex::female;
     p.office = OfficeKind::none;
     return p;
 }

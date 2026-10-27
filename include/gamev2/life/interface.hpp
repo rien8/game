@@ -19,6 +19,7 @@ struct RosterEntry
 {
     std::uint32_t soul = 0;
     std::string name;
+    Sex sex = Sex::male;
     history::Sect sect = history::Sect::unowned;
     OfficeKind office = OfficeKind::none;
     Realm realm = Realm::yinqi;

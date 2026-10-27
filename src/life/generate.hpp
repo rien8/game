@@ -15,6 +15,7 @@ namespace gamev2::life {
 struct PersonInit
 {
     std::string name;
+    Sex sex = Sex::male;
     history::Sect sect = history::Sect::unowned;
     OfficeKind office = OfficeKind::none;
     Realm realm = Realm::yinqi;

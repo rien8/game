@@ -121,6 +121,7 @@ TEST(the_same_seed_gives_the_same_roster)
         const auto& y = r2.entries[i];
         CHECK_EQ(x.soul, y.soul);
         CHECK(x.name == y.name);
+        CHECK(x.sex == y.sex);
         CHECK(x.sect == y.sect);
         CHECK(x.office == y.office);
         CHECK(x.realm == y.realm);
@@ -176,6 +177,34 @@ TEST(the_different_seed_gives_a_different_roster)
         }
     }
     CHECK(differs);
+}
+
+TEST(the_roster_has_both_sexes)
+{
+    // 性别派生真的被用过且大致对半（1:1 标定值，设定未给分布）。全 male
+    // 的生成器在这里红：both 为 0。上界防「常量当随机」，970 人下 1:1
+    // 均匀的实测偏离远小于一成。
+    const Stack s = make_stack(roster_world(13));
+    CHECK(s.world.has_value());
+    if (!s.world)
+    {
+        return;
+    }
+    gamev2::life::LifeDiagnostics diag;
+    gamev2::life::Life life(*s.world, s.era, diag);
+    life.seed();
+
+    std::uint32_t males = 0;
+    for (const auto& e : life.roster().entries)
+    {
+        males += (e.sex == gamev2::life::Sex::male) ? 1u : 0u;
+    }
+    const std::uint32_t total =
+        static_cast<std::uint32_t>(life.roster().entries.size());
+    CHECK(males > 0u);
+    CHECK(males < total);
+    CHECK(males > total * 4u / 10u);
+    CHECK(males < total * 6u / 10u);
 }
 
 TEST(the_population_pyramid_matches_the_constants)
@@ -380,15 +409,21 @@ TEST(the_roster_is_exportable_as_text)
     CHECK(lines[0].contains("970 人"));
     // 名册里必须看得见宗主那一行——玩家开局选宗主要靠它。
     bool saw_master = false;
+    // 每行都要有性别列（男/女）——少一列会让所有后面的列错位。
+    std::uint32_t saw_sex = 0;
     for (const auto& line : lines)
     {
         if (line.contains("宗主"))
         {
             saw_master = true;
-            break;
+        }
+        if (line.contains("男") || line.contains("女"))
+        {
+            ++saw_sex;
         }
     }
     CHECK(saw_master);
+    CHECK_EQ(saw_sex, life.roster().entries.size());
 }
 
 TEST(an_empty_roster_still_exports)

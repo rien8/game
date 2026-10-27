@@ -35,12 +35,20 @@ enum class OfficeKind : std::uint8_t
     count,       ///< 哨兵：职位数，不是职位
 };
 
+/// 性别（设计 §2.1 的 SoulId 字段之一）。出生即定，此后只读。
+enum class Sex : std::uint8_t
+{
+    male,
+    female,
+};
+
 /// 身份。建实体时写一次，此后只读（写入者表见实施计划 Global
 /// Constraints；后续刀的迁移事件是经批准的例外）。
 struct SoulId
 {
     std::uint32_t index = 0;  ///< 创建次序：身位的稳定标识
     std::string name;
+    Sex sex = Sex::male;
     history::Sect sect = history::Sect::unowned;
 };
 

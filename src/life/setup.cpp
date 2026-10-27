@@ -40,7 +40,7 @@ void Life::seed()
         const PersonInit& p = people[i];
         const gamev2::ecs::EntityId e = ecs_world_.create();
         souls_.push_back(e);
-        (void)ecs_world_.add<SoulId>(e, SoulId{i, p.name, p.sect});
+        (void)ecs_world_.add<SoulId>(e, SoulId{i, p.name, p.sex, p.sect});
         (void)ecs_world_.add<Cultivation>(e, Cultivation{p.realm});
         (void)ecs_world_.add<Aptitude>(e, p.aptitude);
         (void)ecs_world_.add<Temper>(e, p.temper);
@@ -69,6 +69,7 @@ void Life::seed()
         RosterEntry entry;
         entry.soul = id->index;
         entry.name = id->name;
+        entry.sex = id->sex;
         entry.sect = id->sect;
         entry.office = office->kind;
         entry.realm = cult->realm;

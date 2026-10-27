@@ -101,7 +101,8 @@ void BirthSystem::execute(gamev2::ecs::World& world,
                 make_person(seed_, index, sect, Realm::yinqi);
             const gamev2::ecs::EntityId e = world.create();
             souls_.push_back(e);
-            (void)cmd.add<SoulId>(e, SoulId{index, p.name, p.sect});
+            (void)cmd.add<SoulId>(e,
+                                  SoulId{index, p.name, p.sex, p.sect});
             (void)cmd.add<Cultivation>(e, Cultivation{p.realm, 0u});
             (void)cmd.add<Aptitude>(e, p.aptitude);
             (void)cmd.add<Temper>(e, p.temper);
