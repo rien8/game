@@ -375,6 +375,13 @@ TEST(a_world_before_the_epoch_has_no_populace)
     life.seed();
     CHECK(life.roster().entries.empty());
     CHECK_EQ(diag.no_contemporary_state, 1u);
+
+    // 空格局不建时钟，年号与年循环仍必须可用：名册里的年号就是当前年，
+    // 推进年数是一次退化空转而不是解引用空指针。旧实现断言时钟非空，
+    // 这里两条都会崩。
+    CHECK_EQ(life.year(), era.now);
+    life.run_years(5);
+    CHECK_EQ(life.year(), era.now);
 }
 
 TEST(the_roster_is_exportable_as_text)

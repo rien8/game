@@ -26,9 +26,13 @@ void Life::seed()
 {
     // 当代格局是众生的出身地：没有当代（台账为空）就没有可初始化的
     // 众生。这是退化不是错误，由诊断报出（设计 §7）。
+    //
+    // 空格局不建时钟，但年号仍要落位：名册是玩家读得到的对象，year()
+    // 在没有时钟时返回的就是它，缺了它连「现在哪一年」都答不上。
     if (era_.veins.empty())
     {
         ++diagnostics_.no_contemporary_state;
+        roster_.year = era_.now;
         return;
     }
 
@@ -105,13 +109,21 @@ void Life::seed()
 
 std::uint32_t Life::year()
 {
+    // 空格局下 seed 不建时钟（没有众生可推演），名册里的年号就是唯一
+    // 的时间来源。有时钟时以时钟为准：它才是逐年推进的那一份。
     auto* clock = ecs_world_.get_if<LifeClock>(clock_);
-    assert(clock != nullptr);  // 时钟是 seed 亲手挂的：缺了是内部错误
-    return clock->year;
+    return clock != nullptr ? clock->year : roster_.year;
 }
 
 void Life::run_years(std::uint32_t n)
 {
+    // 没有时钟就没有年循环可推进：空格局是退化态，不是让五个 system
+    // 空转一遍再崩在解引用上。
+    if (ecs_world_.get_if<LifeClock>(clock_) == nullptr)
+    {
+        return;
+    }
+
     // 注册顺序即执行顺序（Scheduler::plan 按注册顺序贪心分层，冲突者
     // 落后一批）：年循环五步 Clock→Aging→Birth→Cultivate→Economy，
     // Clock 写年、另四个读它（各自读集里都有 const LifeClock）。串行是
