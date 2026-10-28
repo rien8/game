@@ -113,8 +113,8 @@ TEST(the_mint_matches_the_vein_anchors)
     life.seed();
 
     const auto& mint = life.economy().mint_per_year;
-    CHECK_EQ(mint[0], 300000u);  // 太玄：1 龙脉 + 5 主脉
-    CHECK_EQ(mint[1], 40000u);   // 丹霞：1 主脉
+    CHECK_EQ(mint[0], 260000u);  // 太玄：1 龙脉 + 4 主脉
+    CHECK_EQ(mint[1], 80000u);   // 丹霞：2 主脉
     CHECK_EQ(mint[2], 40000u);   // 寒江：1 主脉
     CHECK_EQ(mint[3], 40000u);   // 万兽：1 主脉
     CHECK_EQ(mint[4], 0u);       // 青囊：失脉
@@ -205,8 +205,9 @@ TEST(the_same_seed_gives_the_same_ledger)
 
 TEST(the_rich_sect_pays_and_accumulates)
 {
-    // 设计 §3.3：宗主最高优先、长老高份额。首年太玄铸 300000、需求
-    // 95400——全员足额，金库结余 204600（口径裁定 1 的探针表读数）。
+    // 设计 §3.3：宗主最高优先、长老高份额。首年太玄铸 260000、需求
+    // 95400——全员足额，金库结余 164600（main 上的活脉分布：1 龙脉
+    // + 4 主脉）。
     // 私囊实得要与「份额 − 当年烧毁」对得上：宗主引气级不可能，
     // 拿外门引气弟子的账做精确断言（份额 150 − 烧毁 37 = 113）。
     const Stack s = make_stack(economy_world(13));
@@ -220,7 +221,7 @@ TEST(the_rich_sect_pays_and_accumulates)
     life.seed();
     life.run_years(1);
 
-    CHECK_EQ(life.economy().vault[0], 204600u);
+    CHECK_EQ(life.economy().vault[0], 164600u);
 
     using gamev2::life::Office;
     using gamev2::life::OfficeKind;
@@ -235,7 +236,7 @@ TEST(the_rich_sect_pays_and_accumulates)
         {
             if (id.index >= 970u)  // 初始队列之外是本年新生儿：组件随
             {                      // 年末 flush 才落地，经济步发不到，
-                return;            // 探针表 204600 也按初始名单算
+                return;            // 探针表 164600 也按初始名单算
             }
             if (id.sect != gamev2::history::Sect::taixuan
                 || office.kind != OfficeKind::outer
@@ -250,11 +251,12 @@ TEST(the_rich_sect_pays_and_accumulates)
     CHECK(checked > 0u);
 }
 
-TEST(the_starving_sect_cuts_from_the_bottom)
+TEST(the_short_sect_cuts_from_the_bottom)
 {
     // 设计 §3.3 的克扣次序：外门先饿、内门次之、长老宗主不动。丹霞
-    // 首年铸 40000、需求 86750——宗主足额 35000，剩 5000 给 6 长老
-    // （各 833、余 2 入库），内门外门分文不得（探针表读数）。
+    // 首年铸 80000（main 上两条主脉）、需求 86750——宗主足额 35000、
+    // 长老足额各 3000、内门足额各 500，剩下 3000 给 65 名外门：每人
+    // 46（份额 150 的三成），余 10 入库。钱不够时先摊薄底层。
     const Stack s = make_stack(economy_world(13));
     CHECK(s.world.has_value());
     if (!s.world)
@@ -266,20 +268,19 @@ TEST(the_starving_sect_cuts_from_the_bottom)
     life.seed();
     life.run_years(1);
 
-    CHECK_EQ(life.economy().vault[1], 2u);
+    CHECK_EQ(life.economy().vault[1], 10u);
 
     using gamev2::life::Office;
     using gamev2::life::OfficeKind;
     using gamev2::life::Purse;
-    using gamev2::life::Realm;
     using gamev2::life::SoulId;
-    std::uint32_t outer_with_stones = 0;
+    std::uint32_t outer_seen = 0;
     std::uint32_t inner_with_stones = 0;
     std::uint32_t elders_seen = 0;
     life.ecs_world().view<const SoulId, const Office, const Purse,
                           const gamev2::life::Cultivation>().each(
         [&](const SoulId& id, const Office& office, const Purse& purse,
-            const gamev2::life::Cultivation& cult)
+            const gamev2::life::Cultivation&)
         {
             if (id.index >= 970u)  // 同太玄测试：断言只对初始队列，
             {
@@ -291,24 +292,63 @@ TEST(the_starving_sect_cuts_from_the_bottom)
             }
             if (office.kind == OfficeKind::outer)
             {
-                // 外门被克扣到 0：烧毁只烧得动已入账的钱。
-                outer_with_stones += purse.stone > 0u ? 1u : 0u;
-                CHECK_EQ(purse.stone, 0u);
+                // 外门先饿：份额 150 被摊薄到 46（实得还要再减烧毁）。
+                ++outer_seen;
+                CHECK(purse.stone <= 46u);
             }
             else if (office.kind == OfficeKind::inner)
             {
+                // 内门次之，但这里仍够：实得减烧毁不超过标准份 500。
+                CHECK(purse.stone <= 500u);
                 inner_with_stones += purse.stone > 0u ? 1u : 0u;
             }
             else if (office.kind == OfficeKind::elder)
             {
                 ++elders_seen;
-                // 长老不动：份额 833 − 各自境界烧毁，非负且小于份额。
-                CHECK(purse.stone <= 833u);
+                // 长老不动：拿到足额 3000（减各自境界的烧毁）。
+                CHECK(purse.stone <= 3000u);
+            }
+            else if (office.kind == OfficeKind::sect_master)
+            {
+                CHECK(purse.stone <= 35000u);
             }
         });
-    CHECK_EQ(outer_with_stones, 0u);
-    CHECK_EQ(inner_with_stones, 0u);
+    CHECK(outer_seen > 0u);
+    CHECK(inner_with_stones > 0u);
     CHECK(elders_seen > 0u);
+}
+
+TEST(the_empty_vault_leaves_everyone_with_nothing)
+{
+    // 断供的另一端：金库一滴不剩（金库空），全宗分文不得。天机阁无地
+    // 无脉（铸币 0），首年便是这一态——它没有份额可发。
+    const Stack s = make_stack(economy_world(13));
+    CHECK(s.world.has_value());
+    if (!s.world)
+    {
+        return;
+    }
+    gamev2::life::LifeDiagnostics diag;
+    gamev2::life::Life life(*s.world, s.era, diag);
+    life.seed();
+    life.run_years(1);
+
+    CHECK_EQ(life.economy().vault[5], 0u);
+
+    using gamev2::life::Purse;
+    using gamev2::life::SoulId;
+    std::uint32_t members = 0;
+    life.ecs_world().view<const SoulId, const Purse>().each(
+        [&](const SoulId& id, const Purse& purse)
+        {
+            if (id.sect != gamev2::history::Sect::tianji)
+            {
+                return;
+            }
+            ++members;
+            CHECK_EQ(purse.stone, 0u);
+        });
+    CHECK(members > 0u);
 }
 
 TEST(the_free_cultivator_needs_thirty_three_years)
@@ -412,3 +452,4 @@ TEST(income_has_exactly_one_source)
         });
     CHECK(silver > 100u * gamev2::life::kFreeCultivatorIncomeLiang);
 }
+
