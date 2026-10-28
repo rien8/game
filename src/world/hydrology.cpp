@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <functional>
 #include <queue>
-#include <ranges>
 #include <utility>
 #include <vector>
 
@@ -247,12 +246,18 @@ void mark_rivers(World& world)
 
 /// 洼地成湖，水位铺满整个洼底。只标最低那一格会让湖缩成一个点，
 /// 也撑不起排水量扩散所需的源。
+///
+/// 一次多源泛洪，按水位分桶、从高到低铺。洼底是平的，同一片湖的每一
+/// 个洼底格共享同一个填平高度；逐洼地重灌会把同一片湖灌 N 次（64²
+/// 的平底湖实测约 7 秒，256² 约 0.4 秒）。多源泛洪里每格只写一次，
+/// 代价与格子数线性。
 void carve_lakes(World& world, const FilledDem& dem)
 {
     const WorldParams& p = world.params();
     const auto n = static_cast<std::size_t>(p.width) * p.height;
-    std::vector<std::uint32_t> seeds;
 
+    std::vector<std::uint8_t> water(n, 0);
+    std::vector<std::vector<std::uint32_t>> buckets(256);
     for (std::uint32_t y = 0; y < p.height; ++y)
     {
         for (std::uint32_t x = 0; x < p.width; ++x)
@@ -273,27 +278,24 @@ void carve_lakes(World& world, const FilledDem& dem)
             {
                 continue;
             }
-            seeds.push_back(i);
-            world.lake_depth.at(i) =
-                static_cast<std::uint8_t>(std::min(depth, 255));
+            water[i] = dem.level[i];
+            buckets[dem.level[i]].push_back(i);
         }
     }
 
-    std::vector<bool> seen(n, false);
-    std::vector<std::uint32_t> queue;
-    for (const std::uint32_t seed : seeds)
+    for (int level = 255; level > 0; --level)
     {
-        // 逐湖重置：两个湖的洼底可以部分重叠，共用一个 seen 会让后一个
-        // 的水面缺一块。
-        std::ranges::fill(seen, false);
-        const std::uint8_t level = dem.level[seed];
-        queue.clear();
-        queue.push_back(seed);
-        seen[seed] = true;
-
-        for (std::size_t head = 0; head < queue.size(); ++head)
+        auto& bucket = buckets[static_cast<std::size_t>(level)];
+        // 边遍历边追加：泛洪的新格与源同水位，进同一个桶。按下标走，
+        // push_back 引起的扩容不影响手里这个引用。
+        for (std::size_t head = 0; head < bucket.size(); ++head)
         {
-            const std::uint32_t i = queue[head];
+            const std::uint32_t i = bucket[head];
+            // 已被更高水位覆盖：低水位桶里的旧条目作废。
+            if (water[i] != level)
+            {
+                continue;
+            }
             const auto x = static_cast<int>(i % p.width);
             const auto y = static_cast<int>(i / p.width);
             for (int d = 0; d < 4; ++d)
@@ -310,19 +312,25 @@ void carve_lakes(World& world, const FilledDem& dem)
                 // 海格也挡：洼地若从边界泄出去，水位会漫过低于它的海面，把海
                 // 标成湖。群系判定先看 lake_depth 再看高程，那样的格会被贴上
                 // Biome::lake，尽管它在海平面以下。
-                if (seen[j] || world.is_ocean(
-                        static_cast<std::uint32_t>(nx),
-                        static_cast<std::uint32_t>(ny))
-                    || world.elevation.at(j) >= level)
+                if (world.is_ocean(static_cast<std::uint32_t>(nx),
+                                   static_cast<std::uint32_t>(ny))
+                    || world.elevation.at(j) >= level || water[j] >= level)
                 {
                     continue;
                 }
-                seen[j] = true;
-                world.lake_depth.at(j) = static_cast<std::uint8_t>(
-                    level - world.elevation.at(j));
-                queue.push_back(j);
+                water[j] = static_cast<std::uint8_t>(level);
+                bucket.push_back(j);
             }
         }
+    }
+
+    for (std::uint32_t i = 0; i < n; ++i)
+    {
+        world.lake_depth.at(i) =
+            water[i] > world.elevation.at(i)
+                ? static_cast<std::uint8_t>(water[i]
+                                            - world.elevation.at(i))
+                : 0;
     }
 }
 
@@ -368,6 +376,13 @@ void derive_drainage(World& world)
     {
         for (const std::uint32_t i : buckets[level])
         {
+            // 桶里的条目可能已过时：源点先按自身水位入桶，之后可能被
+            // 更强的源抬升（湖口的河池正是如此）。拿旧档位向下扩散会把
+            // 湖口一圈写成「几乎不湿」——实测离湖一格排水量 90。
+            if (wetness[i] != level)
+            {
+                continue;
+            }
             const auto x = static_cast<int>(i % p.width);
             const auto y = static_cast<int>(i / p.width);
             for (int d = 0; d < 4; ++d)
@@ -381,15 +396,16 @@ void derive_drainage(World& world)
                 const std::uint32_t j = world.elevation.index_of(
                     static_cast<std::uint32_t>(nx),
                     static_cast<std::uint32_t>(ny));
-                if (wetness[j] != 0)
+                // 每向外一格衰减一档，下限 0。
+                const auto next = static_cast<std::uint8_t>(level - 1);
+                if (next <= wetness[j])
                 {
                     continue;
                 }
-                // 每向外一格衰减一档，下限 0。
-                wetness[j] = static_cast<std::uint8_t>(level - 1);
-                if (level > 1)
+                wetness[j] = next;
+                if (next > 0)
                 {
-                    buckets[level - 1].push_back(j);
+                    buckets[next].push_back(j);
                 }
             }
         }

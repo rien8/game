@@ -650,6 +650,30 @@ TEST(adapt_breeding_keeps_positionless_entities_out_of_every_bucket)
     CHECK_EQ(offspring_count(1), std::size_t{0});
 }
 
+TEST(adapt_breeding_does_not_turn_zero_fecundity_into_one_child)
+{
+    // progeny_for == 0 时旧路径仍发站点，而 settle 为兼容旧调用方把 0
+    // 按 1 处理——零繁殖力的物种于是每季凭空产一胎。亲代取成必然存活
+    // 的表型（Metabolism 0 / Speed 1），零子代才只可能来自预算为零。
+    World w;
+    Harness h;
+    for (int i = 0; i < 2; ++i)
+    {
+        const EntityId e = h.spawn(w);
+        auto* p = w.get_if<CreaturePhenotype>(e);
+        set_trait(*p, TraitKind::Speed, 1.0f);
+        set_trait(*p, TraitKind::Lifespan, 5.0f);
+        set_trait(*p, TraitKind::Fecundity, 0.0f);
+    }
+
+    BreedingSystem sys{h.table, h.species, h.config, 7, 0};
+    CommandBuffer cmd;
+    sys.execute(w, cmd);
+    cmd.flush(w);
+
+    CHECK_EQ(w.entity_count(), std::size_t{2});
+}
+
 TEST(adapt_breeding_without_environment_still_works)
 {
     World w;

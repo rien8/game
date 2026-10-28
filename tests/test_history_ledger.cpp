@@ -306,6 +306,51 @@ TEST(the_balance_starts_at_the_surveyed_total)
     CHECK(overmined > 0);
 }
 
+TEST(an_epoch_snapshot_records_no_overmining_yet)
+{
+    // 8300 == epoch：推演一年都没走，越采案无从落地。若在这里就把越采
+    // 记满，「累计越采」会在开采发生之前凭空出现——事件表空、extracted
+    // 为 0，宗级汇总里却有一笔越采。
+    WorldParams p;
+    p.width = 128;
+    p.height = 128;
+    p.z_levels = 3;
+    p.seed = 26;
+    p.spirit_year = 8300;
+    const auto generated = generate_world(p);
+    CHECK(generated.has_value());
+    if (!generated)
+    {
+        return;
+    }
+    const World& w = *generated;
+    const Ledger ledger = gamev2::history::build_ledger(w);
+
+    // 守卫：这个世界确实有越采脉，否则下面的断言在空集上恒真。
+    std::size_t overmined_veins = 0;
+    std::uint32_t booked = 0;
+    for (const auto& entry : ledger.veins)
+    {
+        if (w.veins[entry.vein].overmined)
+        {
+            ++overmined_veins;
+        }
+        // 快照瞬间：一分未采，越采更无从谈起。
+        CHECK_EQ(entry.extracted, 0u);
+        CHECK_EQ(entry.overmined_amount, 0u);
+        CHECK_EQ(entry.balance, entry.surveyed_total);
+        booked += entry.overmined_amount;
+    }
+    CHECK(overmined_veins > 0);
+    CHECK(ledger.events.empty());
+    CHECK_EQ(booked, 0u);
+    CHECK_EQ(ledger.overmining_deviation, 0);
+    for (const auto& sect : ledger.sects)
+    {
+        CHECK_EQ(sect.overmined_amount, 0u);
+    }
+}
+
 TEST(the_diagnostics_are_reset_between_runs)
 {
     // 诊断量是「本次推演的结果」，不是累计值：调用方复用同一个结构时，

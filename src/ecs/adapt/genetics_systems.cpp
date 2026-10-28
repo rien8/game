@@ -297,8 +297,14 @@ void BreedingSystem::execute(World& world, CommandBuffer& cmd)
             {
                 parents.push_back(Parent{i, &pool_genomes[i], 1.0f});
             }
-            sites.push_back(ParentPool{parents, SpeciesId{s}, std::nullopt,
-                                       progeny_for(pool_phenotypes)});
+            const auto progeny = progeny_for(pool_phenotypes);
+            // progeny == 0 不发站点：settle 为兼容旧调用方把 0 按 1 处理，
+            // 零繁殖力的物种会因此每季凭空多出一胎。
+            if (progeny > 0u)
+            {
+                sites.push_back(ParentPool{parents, SpeciesId{s},
+                                           std::nullopt, progeny});
+            }
         }
 
         // 子代认回自己的格靠顺序：settle 按 sites 顺序逐个追加子代，而

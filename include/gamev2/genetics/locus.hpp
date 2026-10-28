@@ -111,6 +111,9 @@ enum class LocusConfigError
     /// 它恒为 0 会让 outlived(p, 0) 恒真，全员判死、亲代池恒空、整季零子代
     /// 且不报错。
     BadTraitRange,
+    /// jitter_step < 0：突变步长会构造出 [j, −j] 这样下界大于上界的区间
+    /// （breeding 的 std::clamp 前置条件），是未定义行为。
+    NegativeJitterStep,
 };
 
 /// 只在加载配置时调用一次。热路径零校验：配置期不成立的条件是配置错误，

@@ -47,14 +47,16 @@ public:
 
     /// 本格当前有多少个体。季内没有移动，季初数一次即可；
     /// run_season 与 build_sites 共用同一份计数。
-    [[nodiscard]] std::uint16_t occupants(CellIndex cell) const noexcept;
+    /// 用 32 位而非 16 位：一格的个体数没有结构上限，65536 人同格在
+    /// 16 位下会回绕成 0，人均份额随之变成 inf。
+    [[nodiscard]] std::uint32_t occupants(CellIndex cell) const noexcept;
 
     /// 清零后按 foragers 的坐标重数一遍。
     void count_occupants(std::span<const Forager> foragers);
 
 private:
     std::array<ResourceCell, kCellCount> cells_{};
-    std::array<std::uint16_t, kCellCount> occupants_{};
+    std::array<std::uint32_t, kCellCount> occupants_{};
     float regen_rate_ = 0.25f;
 };
 

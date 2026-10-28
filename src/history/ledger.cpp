@@ -299,6 +299,12 @@ Ledger build_ledger(const gamev2::world::World& world,
         return ledger;
     }
 
+    // 越采目标：worldgen 按罚没比例反推出来的「这条脉本该被采走多少」。
+    // 它与 QuotaEntry::overmined_amount（推演真正入账的越采）刻意分开：
+    // now == epoch 时推演一步都不走，把目标直接记成已采，会让台账在开采
+    // 尚未发生时先报出一笔累计越采。
+    std::vector<std::uint32_t> overmine_targets;
+
     for (const auto& vein : world.veins)
     {
         // 荒脉无灵眼、不可采：不进台账，只计数。
@@ -312,6 +318,7 @@ Ledger build_ledger(const gamev2::world::World& world,
         QuotaEntry entry;
         entry.vein = vein.id;
         entry.rank = vein.rank;
+        std::uint32_t overmine_target = 0;
         if (vein.overmined)
         {
             // worldgen 把越采脉的储量按 kOverminePenalty 削减，8300 年的原值
@@ -326,7 +333,7 @@ Ledger build_ledger(const gamev2::world::World& world,
             entry.surveyed_total_hi =
                 ((vein.reserve + 1u) * 100u + (100u - kOverminePenalty) - 1u)
                 / (100u - kOverminePenalty);
-            entry.overmined_amount = entry.surveyed_total - vein.reserve;
+            overmine_target = entry.surveyed_total - vein.reserve;
         }
         else
         {
@@ -338,6 +345,7 @@ Ledger build_ledger(const gamev2::world::World& world,
             eye.flow > 0 ? eye.flow : world.ley_nodes[eye.node].flow;
         entry.balance = entry.surveyed_total;
         ledger.veins.push_back(entry);
+        overmine_targets.push_back(overmine_target);
     }
 
     // 持有格局是设定给定的，不是推演出来的（设计 8.1）。
@@ -534,6 +542,7 @@ Ledger build_ledger(const gamev2::world::World& world,
         for (std::size_t i = 0; i < ledger.veins.size(); ++i)
         {
             ledger.veins[i].extracted = 0;
+            ledger.veins[i].overmined_amount = 0;
             ledger.veins[i].tribulation_loss = 0;
             ledger.veins[i].balance = ledger.veins[i].surveyed_total;
             states[i].drain_year = 0;
@@ -557,10 +566,11 @@ Ledger build_ledger(const gamev2::world::World& world,
                 if (with_overmining && states[i].overmine_year == year)
                 {
                     const std::uint32_t over =
-                        std::min(entry.balance, entry.overmined_amount);
+                        std::min(entry.balance, overmine_targets[i]);
                     if (over > 0u)
                     {
                         entry.extracted += over;
+                        entry.overmined_amount += over;
                         entry.balance = entry.surveyed_total
                                         - entry.extracted
                                         - entry.tribulation_loss;
@@ -673,7 +683,7 @@ Ledger build_ledger(const gamev2::world::World& world,
     for (std::size_t i = 0; i < ledger.veins.size(); ++i)
     {
         const QuotaEntry& entry = ledger.veins[i];
-        if (entry.overmined_amount == 0u)
+        if (overmine_targets[i] == 0u)
         {
             continue;
         }
@@ -684,7 +694,7 @@ Ledger build_ledger(const gamev2::world::World& world,
             const std::uint32_t start_balance =
                 (t == 0) ? entry.surveyed_total
                           : trajectory[i * years + t - 1u];
-            if (start_balance >= entry.overmined_amount)
+            if (start_balance >= overmine_targets[i])
             {
                 last_ok = t;
             }

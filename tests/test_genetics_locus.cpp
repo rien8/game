@@ -188,6 +188,19 @@ TEST(locus_rejects_inverted_trait_bounds)
     CHECK(r.error() == LocusConfigError::BadTraitRange);
 }
 
+TEST(locus_rejects_negative_jitter_step)
+{
+    // breeding 以 [−j, j] 为突变步长区间：j = −1 时下界 1 大于上界 −1，
+    // std::clamp 的前置条件被破坏（UB），必须在配置期拦下。
+    auto table = blank_table();
+    fill_trait_loci(table, kLocusCount);
+    auto cfg = ranged_config();
+    cfg.jitter_step = -1;
+    const auto r = validate(table, cfg);
+    CHECK(!r.has_value());
+    CHECK(r.error() == LocusConfigError::NegativeJitterStep);
+}
+
 TEST(locus_accepts_a_well_formed_table)
 {
     auto table = blank_table();

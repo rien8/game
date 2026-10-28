@@ -443,6 +443,53 @@ TEST(capacity_is_split_between_species_by_current_share)
     CHECK_EQ(sites[0].species_key, std::uint32_t{1});
 }
 
+TEST(per_species_rounding_cannot_overspend_the_cell_budget)
+{
+    // 出生预算是整格的整数配额。headroom 1.2、两个物种各 1 人时，
+    // 逐物种 lround(0.6) = 1 会发出两胎，Σprogeny = 2 > lround(1.2) = 1。
+    const EnvironmentConfig config{};
+    const ClimateField climate{5, config};
+    ResourceField field{climate, config};
+
+    // 找一格 capacity ∈ [3, 3.5)：floor − 1 = 2 个占位者留出的 headroom
+    // ∈ [1, 1.5)，整数预算恒为 1，而两个物种的期望值各在 [0.5, 0.75)。
+    CellIndex cell{};
+    bool found = false;
+    for (std::uint16_t i = 0; i < gamev2::environment::kCellCount; ++i)
+    {
+        const auto candidate = CellIndex{i};
+        const float capacity = field.capacity(candidate);
+        if (capacity >= 3.0f && capacity < 3.5f)
+        {
+            cell = candidate;
+            found = true;
+            break;
+        }
+    }
+    CHECK(found);
+    if (!found)
+    {
+        return;
+    }
+
+    const auto capacity = field.capacity(cell);
+    const auto n = static_cast<std::size_t>(std::floor(capacity)) - 1;
+    CHECK_EQ(n, std::size_t{2});
+    const auto foragers = crowd_in(cell, n);
+    const std::vector<std::uint32_t> keys{1, 2};
+    field.count_occupants(foragers);
+
+    const auto sites = build_sites(field, climate, foragers, keys, config);
+
+    std::uint32_t total = 0;
+    for (const auto& site : sites)
+    {
+        total += site.progeny;
+    }
+    // 旧算法：两个物种各 lround(headroom / 2) = 1，总数 2。
+    CHECK_EQ(total, 1u);
+}
+
 TEST(sites_are_identical_under_forager_permutation)
 {
     const EnvironmentConfig config{};

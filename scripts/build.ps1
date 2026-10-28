@@ -13,7 +13,7 @@
 #   pwsh -File scripts/build.ps1 -Clean           # wipe build/ first
 #   pwsh -File scripts/build.ps1 -BuildType Release
 #   pwsh -File scripts/build.ps1 -Asan            # GAMEV2_ENABLE_ASAN=ON
-#   pwsh -File scripts/build.ps1 -Test            # build, then run all 7 suites
+#   pwsh -File scripts/build.ps1 -Test            # build, then run all 8 suites
 #   pwsh -File scripts/build.ps1 -Test -Asan      # ASan build + run suites
 
 [CmdletBinding()]
@@ -80,6 +80,7 @@ $suites = @(
     'worldgen_tests'
     'history_tests'
     'faction_tests'
+    'life_tests'
 )
 Write-Host '=== test ==='
 $failed = @()
