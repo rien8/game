@@ -78,7 +78,7 @@ TEST(resource_occupants_start_at_zero)
     const ResourceField field{climate, config};
 
     CHECK_EQ(field.occupants(CellIndex::of(0.5f, 0.5f)),
-             std::uint16_t{0});
+             std::uint32_t{0});
 }
 
 TEST(regen_rate_comes_from_config)
@@ -110,12 +110,27 @@ TEST(count_occupants_tallies_cells_by_position)
 
     field.count_occupants(foragers);
     CHECK_EQ(field.occupants(CellIndex::of(1.5f, 1.5f)),
-             std::uint16_t{3});
+             std::uint32_t{3});
     // 这一条专门杀 x/y 取反：取反后 {1.5, 3.5} 会落进 of(3.5, 1.5)，该格变成 1。
     CHECK_EQ(field.occupants(CellIndex::of(3.5f, 1.5f)),
-             std::uint16_t{0});
+             std::uint32_t{0});
 
     field.count_occupants({});
     CHECK_EQ(field.occupants(CellIndex::of(1.5f, 1.5f)),
-             std::uint16_t{0});
+             std::uint32_t{0});
+}
+
+TEST(count_occupants_does_not_wrap_past_65535)
+{
+    const EnvironmentConfig config{};
+    const ClimateField climate{3, config};
+    ResourceField field{climate, config};
+
+    // 16 位计数在 65536 人同格时回绕成 0，share = stock / 0 = inf，
+    // 整格 feeding 变成 NaN。65537 是第一个能区分 16 位与 32 位的读数。
+    const std::vector<Forager> foragers(65537,
+                                        Forager{1.5f, 1.5f, 1.0f});
+    field.count_occupants(foragers);
+    CHECK_EQ(field.occupants(CellIndex::of(1.5f, 1.5f)),
+             std::uint32_t{65537});
 }

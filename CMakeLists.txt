@@ -173,6 +173,7 @@ set(LIFE_TEST_SOURCES
     tests/main.cpp
     tests/test_life_setup.cpp
     tests/test_life_cultivation.cpp
+    tests/test_life_birth.cpp
     tests/test_life_economy.cpp
 )
 add_executable(life_tests ${LIFE_TEST_SOURCES})
@@ -291,7 +292,8 @@ if(GAMEV2_ENABLE_ASAN)
                   ECOLOGY_SOURCES ECOLOGY_TEST_SOURCES
                   WORLDGEN_SOURCES WORLDGEN_TEST_SOURCES
                   HISTORY_SOURCES HISTORY_TEST_SOURCES
-                  FACTION_SOURCES FACTION_TEST_SOURCES)
+                  FACTION_SOURCES FACTION_TEST_SOURCES
+                  LIFE_SOURCES LIFE_TEST_SOURCES)
         list(APPEND ECS_ASAN_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/${f}")
     endforeach()
     # 每个可执行目标都自带 tests/main.cpp（它定义了 main 与 test::run_all），

@@ -81,6 +81,14 @@ validate(const LocusTable& table, const GeneticsConfig& config)
         }
     }
 
+    // breeding 用 uniform_index(2 × jitter_step + 1) 抽步长，再把结果
+    // clamp 到 [−jitter_step, jitter_step]。负步长让计数转成天文数、且
+    // clamp 的下界大于上界——两者都是 UB，只能在配置期拦。
+    if (config.jitter_step < 0)
+    {
+        return std::unexpected(LocusConfigError::NegativeJitterStep);
+    }
+
     return {};
 }
 

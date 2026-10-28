@@ -10,6 +10,22 @@
 
 namespace gamev2::life {
 
+namespace {
+
+/// 活人判据：组件齐全且寿元未尽。Aging 的 destroy 排在年末 flush，
+/// 经济步在同一帧里仍看得见寿尽者——散修营生与买入都必须过这一关，
+/// 否则死者会领银两、把公账灵石买走后立刻烧掉。
+[[nodiscard]] bool is_alive(gamev2::ecs::World& world,
+                            const gamev2::ecs::EntityId e)
+{
+    const auto* mortal = world.get_if<Mortal>(e);
+    const auto* cult = world.get_if<Cultivation>(e);
+    return mortal != nullptr && cult != nullptr
+           && !lifespan_reached(*mortal, *cult);
+}
+
+}  // namespace
+
 EconomySystem::EconomySystem(gamev2::ecs::EntityId clock,
                              const std::vector<gamev2::ecs::EntityId>& souls,
                              EconomyLedger& ledger,
@@ -109,7 +125,7 @@ void EconomySystem::execute(gamev2::ecs::World& world,
     {
         const auto* id = world.get_if<SoulId>(e);
         auto* purse = world.get_if<Purse>(e);
-        if (id == nullptr || purse == nullptr)
+        if (id == nullptr || purse == nullptr || !is_alive(world, e))
         {
             continue;
         }
@@ -127,7 +143,7 @@ void EconomySystem::execute(gamev2::ecs::World& world,
     {
         const auto* id = world.get_if<SoulId>(e);
         auto* purse = world.get_if<Purse>(e);
-        if (id == nullptr || purse == nullptr)
+        if (id == nullptr || purse == nullptr || !is_alive(world, e))
         {
             continue;
         }

@@ -807,6 +807,54 @@ TEST(settle_treats_a_zero_progeny_as_one)
     CHECK_EQ(out.offspring.size(), std::size_t{1});
 }
 
+TEST(settle_reports_the_site_each_offspring_came_from)
+{
+    // 站点 A 的亲代本季必死（Speed 0 → survival_rate 0），一个子代也产不出；
+    // 站点 B 的亲代健壮，产两个。若调用方按计划产量把站点序列摊平，B 的
+    // 两个孩子会落进 A 的格——这正是「中部 shortfall」错位。offspring_sites
+    // 让它们各自认回站点 1。
+    const std::vector<Genome> genomes{uniform_genome(0), uniform_genome(0),
+                                      uniform_genome(1), uniform_genome(1)};
+    const std::vector<Phenotype> phenotypes{unescapable_phenotype(),
+                                            unescapable_phenotype(),
+                                            robust_phenotype(),
+                                            robust_phenotype()};
+    const std::vector<EnvironmentSnapshot> envs(4, EnvironmentSnapshot{});
+    const std::vector<float> threats(4, 0.0f);
+    const std::vector<std::uint32_t> species_ids(4, 1);
+
+    std::vector<Parent> site_a{Parent{0, &genomes[0], 1.0f},
+                               Parent{1, &genomes[1], 1.0f}};
+    std::vector<Parent> site_b{Parent{2, &genomes[2], 1.0f},
+                               Parent{3, &genomes[3], 1.0f}};
+    const std::vector<ParentPool> sites{
+        ParentPool{site_a, SpeciesId{1}, std::nullopt, 2},
+        ParentPool{site_b, SpeciesId{1}, std::nullopt, 2}};
+
+    SpeciesRegistry registry;
+    (void)registry.register_species(all_loci());
+
+    auto rng = RandomStreams{61, 0};
+    const auto out = settle(
+        SeasonInput{genomes, phenotypes, envs, threats, species_ids, sites,
+                    false},
+        neutral_table(), registry, GeneticsConfig{}, rng);
+
+    CHECK_EQ(out.offspring.size(), std::size_t{2});
+    CHECK_EQ(out.offspring_sites.size(), out.offspring.size());
+    // 站点的产出与计划无关：A 少产的两个不能让 B 的子代顶到 A 的格。
+    for (const auto site : out.offspring_sites)
+    {
+        CHECK_EQ(site, std::size_t{1});
+    }
+    // 对照：子代确实带着站点 B 的基因，而不是从 A 的空池里凭空抽出来的。
+    for (const auto& child : out.offspring)
+    {
+        CHECK_EQ(static_cast<int>(child.a[0].allele), 1);
+        CHECK_EQ(static_cast<int>(child.b[0].allele), 1);
+    }
+}
+
 TEST(settle_population_holds_a_steady_size_over_thirty_two_seasons)
 {
     // 回归 C1：每个物种池每季只产 1 个子代时 N' = s·N + 1，子代数与种群规模

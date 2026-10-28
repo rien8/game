@@ -53,6 +53,9 @@ struct BreedingSite
 /// 对每个有占用的格、每个出现在该格的物种算一次子代预算。
 /// 算出 0 的格不发站点——settle 把 progeny == 0 按 1 处理。
 ///
+/// 同一格的 Σprogeny ≤ lround(headroom)：出生预算是整格的整数配额，
+/// 逐物种各自取整会超发。各物种再受 here × offspring_scale 约束。
+///
 /// 输出按 (cell, species_key) 排序后成组，因此与输入实体顺序无关。
 ///
 /// \pre `foragers` 与 `species_keys` 等长同序；

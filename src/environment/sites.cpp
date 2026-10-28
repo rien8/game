@@ -129,36 +129,100 @@ build_sites(const ResourceField& field, const ClimateField& climate,
     std::vector<BreedingSite> sites;
     for (std::size_t begin = 0; begin < pairs.size();)
     {
-        std::size_t end = begin;
-        while (end < pairs.size() && pairs[end] == pairs[begin])
+        // 同一格的所有物种一起分配：出生预算是整格的预算。逐物种各自
+        // lround 会让总量超过 lround(headroom)——headroom = 1.25、两个
+        // 物种对半分时各拿 lround(0.625) = 1，凭空多出一胎。
+        const std::uint32_t cell_index = pairs[begin].first;
+        std::size_t cell_end = begin;
+        while (cell_end < pairs.size()
+               && pairs[cell_end].first == cell_index)
         {
-            ++end;
+            ++cell_end;
         }
 
-        const auto cell =
-            CellIndex{static_cast<std::uint16_t>(pairs[begin].first)};
-        const auto here = static_cast<float>(end - begin);
+        const auto cell = CellIndex{static_cast<std::uint16_t>(cell_index)};
         const auto all = static_cast<float>(field.occupants(cell));
-
         // 生态上限：生境承载力减去在场数，负的部分不算数。
         const float headroom = std::max(0.0f, field.capacity(cell) - all);
-        // share = here / all，按当前物种构成分配空余容量：新物种无法
-        // 凭空出现在一个已经被占满的格子里。
-        const std::uint32_t eco_ceiling = static_cast<std::uint32_t>(
-            std::lround(headroom * here / all));
+        const auto budget =
+            static_cast<std::uint32_t>(std::lround(headroom));
 
-        // 繁殖上限保证一个独苗产不出满窝后代：那会是一次纯自交，
-        // 直接毁掉多样性，而这正是遗传系统最不该丢掉的东西。
-        const std::uint32_t parent_ceiling = static_cast<std::uint32_t>(
-            std::lround(here * config.offspring_scale));
-
-        const auto progeny = std::min(eco_ceiling, parent_ceiling);
-        if (progeny > 0)
+        struct Group
         {
-            sites.push_back(BreedingSite{cell, pairs[begin].second, progeny,
-                                         climate.at(cell)});
+            std::uint32_t species = 0;
+            std::uint32_t here = 0;
+            std::uint32_t share = 0;
+            float remainder = 0.0f;
+        };
+        std::vector<Group> groups;
+        for (std::size_t g = begin; g < cell_end;)
+        {
+            std::size_t g_end = g;
+            while (g_end < cell_end && pairs[g_end] == pairs[g])
+            {
+                ++g_end;
+            }
+            // share = here / all，按当前物种构成分配空余容量：新物种无法
+            // 凭空出现在一个已经被占满的格子里。
+            const auto here = static_cast<std::uint32_t>(g_end - g);
+            const float exact = headroom * static_cast<float>(here) / all;
+            const auto share =
+                static_cast<std::uint32_t>(std::floor(exact));
+            groups.push_back(Group{pairs[g].second, here, share,
+                                   exact - static_cast<float>(share)});
+            g = g_end;
         }
-        begin = end;
+
+        std::uint32_t assigned = 0;
+        for (const auto& group : groups)
+        {
+            assigned += group.share;
+        }
+        // 余数按最大余数法补一：预算 − Σfloor 至多等于物种数，因此每
+        // 物种至多补一个。同余数时物种号小的先拿——组按 (格, 物种)
+        // 升序压成，这个次序与输入实体顺序无关。
+        std::vector<bool> extra(groups.size(), false);
+        for (std::uint32_t left =
+                 budget > assigned ? budget - assigned : 0u;
+             left > 0; --left)
+        {
+            std::size_t best = groups.size();
+            for (std::size_t i = 0; i < groups.size(); ++i)
+            {
+                if (extra[i])
+                {
+                    continue;
+                }
+                if (best == groups.size()
+                    || groups[i].remainder > groups[best].remainder)
+                {
+                    best = i;
+                }
+            }
+            if (best == groups.size())
+            {
+                break;
+            }
+            extra[best] = true;
+        }
+
+        for (std::size_t i = 0; i < groups.size(); ++i)
+        {
+            const auto& group = groups[i];
+            // 繁殖上限保证一个独苗产不出满窝后代：那会是一次纯自交，
+            // 直接毁掉多样性，而这正是遗传系统最不该丢掉的东西。
+            const auto parent_ceiling = static_cast<std::uint32_t>(
+                std::lround(static_cast<float>(group.here)
+                            * config.offspring_scale));
+            const auto progeny = std::min(
+                group.share + (extra[i] ? 1u : 0u), parent_ceiling);
+            if (progeny > 0u)
+            {
+                sites.push_back(BreedingSite{cell, group.species, progeny,
+                                             climate.at(cell)});
+            }
+        }
+        begin = cell_end;
     }
 
     return sites;

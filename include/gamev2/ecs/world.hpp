@@ -207,6 +207,12 @@ std::expected<void, EcsError> World::add(EntityId e, Args&&... args)
         return std::unexpected(EcsError::component_exists);
     }
 
+    // 新组件先构造在暂存对象里，再动存储：构造参数可能引用本实体已有的
+    // 组件（add<T>(e, get_if<U>(e)->field)），而下面的共有组件迁移会把
+    // 那些列移空。构造抛出时存储尚未被改动；此后三步（push_back、
+    // copy_shared、移动构造进列）只剩分配这一处失败点，且都在提交之前。
+    T value = T(std::forward<Args>(args)...);
+
     const auto target = storage_.with(src_id, cid, true);
     // with() 可能新建 archetype 并触发 archetypes_ 重新分配，
     // 因此对存储的引用必须在它之后再取，否则悬垂。
@@ -219,7 +225,7 @@ std::expected<void, EcsError> World::add(EntityId e, Args&&... args)
 
     Storage::copy_shared(src, slot.chunk, slot.row, dst, dc, dr);
     dst.column_at(dst.find(cid))
-        .template construct<T>(dc, dr, std::forward<Args>(args)...);
+        .template construct<T>(dc, dr, std::move(value));
 
     // 先把源行析构回 RAW 再填洞：填补是对 RAW 存储做移动构造，对仍处于
     // LIVE 的旧对象赋值既是非法操作，也会漏掉旧对象的资源释放。

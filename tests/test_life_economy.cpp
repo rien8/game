@@ -414,6 +414,76 @@ TEST(the_free_cultivator_needs_thirty_three_years)
     CHECK_EQ(life.economy().vault[7], 0u);
 }
 
+TEST(the_dead_neither_work_nor_buy)
+{
+    // 寿尽者的账消在年末 flush 之后，经济步当帧仍看得见他们。营生与
+    // 买入都必须过寿元判据：否则死者领完银两、把公账灵石买走，随实体
+    // 销毁一起烧掉——公账在账外少一枚。
+    const Stack s = make_stack(economy_world(13));
+    CHECK(s.world.has_value());
+    if (!s.world)
+    {
+        return;
+    }
+    gamev2::life::LifeDiagnostics diag;
+    gamev2::life::Life life(*s.world, s.era, diag);
+    life.seed();
+
+    using gamev2::ecs::EntityId;
+    using gamev2::life::Cultivation;
+    using gamev2::life::Mortal;
+    using gamev2::life::Purse;
+    using gamev2::life::Realm;
+    using gamev2::life::SoulId;
+
+    // 两名初始散修推到寿元线上，账户分别刚好够一枚（2000 两）与差
+    // 一年（1940 两，靠今年营生才够）。两条合起来同时钉住「不营生」
+    // 与「不买入」：任一条失守，公账都会少一枚。
+    const std::array<std::uint32_t, 2> silver{2000u, 1940u};
+    std::size_t found = 0;
+    life.ecs_world().for_each_entity(
+        [&](const EntityId e)
+        {
+            if (found == silver.size())
+            {
+                return;
+            }
+            const auto* id = life.ecs_world().get_if<SoulId>(e);
+            if (id == nullptr || id->index >= 970u
+                || id->sect != gamev2::history::Sect::unowned)
+            {
+                return;
+            }
+            auto* cult = life.ecs_world().get_if<Cultivation>(e);
+            auto* mortal = life.ecs_world().get_if<Mortal>(e);
+            auto* purse = life.ecs_world().get_if<Purse>(e);
+            CHECK(cult != nullptr && mortal != nullptr && purse != nullptr);
+            if (cult == nullptr || mortal == nullptr || purse == nullptr)
+            {
+                return;
+            }
+            cult->realm = Realm::yinqi;
+            mortal->age = gamev2::life::kRealmLifespan[
+                static_cast<std::size_t>(Realm::yinqi)];
+            purse->silver = silver[found];
+            ++found;
+        });
+    CHECK_EQ(found, 2u);
+    if (found != silver.size())
+    {
+        return;
+    }
+
+    // 公账预置两枚，并同步记进铸造总额：守恒对账不因夹具而破。
+    life.economy().vault[7] = 2;
+    life.economy().minted_total += 2;
+
+    life.run_years(1);
+
+    CHECK_EQ(life.economy().vault[7], 2u);
+    CHECK_EQ(diag.stone_conservation_broken, 0u);
+}
+
 TEST(income_has_exactly_one_source)
 {
     // 设计 §3.5：「当年 Σ收入 = 脉产出 × kVeinToStone（没有第二个

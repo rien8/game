@@ -74,11 +74,17 @@ void BirthSystem::execute(gamev2::ecs::World& world,
     assert(clock != nullptr);
 
     // 各宗在册数：序号表里活着且有宗籍的。空 get_if = 已死。
+    //
+    // 已寿尽、destroy 还排在年末 flush 的人也在序号表里：只查 SoulId 会把
+    // 死者算进在册数，收徒人数因此在除数边界上多收一人。
     std::array<std::uint32_t, 7> alive{};
     for (const gamev2::ecs::EntityId e : souls_)
     {
         const auto* id = world.get_if<SoulId>(e);
-        if (id == nullptr)
+        const auto* mortal = world.get_if<Mortal>(e);
+        const auto* cult = world.get_if<Cultivation>(e);
+        if (id == nullptr || mortal == nullptr || cult == nullptr
+            || lifespan_reached(*mortal, *cult))
         {
             continue;
         }

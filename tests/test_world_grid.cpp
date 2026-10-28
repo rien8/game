@@ -1,6 +1,8 @@
 #include "gamev2/world/world.hpp"
 #include "test_framework.hpp"
 
+#include <limits>
+
 namespace {
 
 using gamev2::world::Biome;
@@ -56,6 +58,24 @@ TEST(params_reject_degenerate_sizes)
     CHECK(!gamev2::world::WorldParams{.z_levels = 0}.is_valid());
     CHECK(!gamev2::world::WorldParams{.z_cell_depth = 0}.is_valid());
     CHECK(!gamev2::world::WorldParams{.ocean_percent = 101}.is_valid());
+}
+
+TEST(params_reject_a_total_depth_that_does_not_fit_an_int)
+{
+    // 两个字段各自都大于 0，乘积却溢出 int：strata 把总格深转成 int 后
+    // 做 depth - 1，那一步是有符号溢出。
+    WorldParams p;
+    p.z_levels = 1;
+    p.z_cell_depth = 0x80000000u;
+    CHECK(!p.is_valid());
+
+    // 上界是「恰好装进 int」，不是「够用就行」：边界两侧都要钉住。
+    const auto limit = static_cast<std::uint32_t>(
+        std::numeric_limits<int>::max());
+    p.z_cell_depth = limit;
+    CHECK(p.is_valid());
+    p.z_cell_depth = limit + 1u;
+    CHECK(!p.is_valid());
 }
 
 TEST(celsius_scale_round_trips)

@@ -3,6 +3,7 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
 
 namespace gamev2::world {
 
@@ -24,11 +25,20 @@ struct WorldParams
     std::uint32_t spirit_year = 8914;
 
     /// 只拦下会让分配或下标计算失去意义的参数，其余字段一律放行。
+    ///
+    /// 总格深必须装得进 int：strata 把 depth 转成 int 后做 `depth - 1`，
+    /// z_cell_depth = 0x80000000、z_levels = 1 时那一步是有符号溢出（UB），
+    /// 而这两个值各自都「大于 0」。乘积在 uint64 里比较，避免先在 uint32
+    /// 里回绕成小值。
     [[nodiscard]] constexpr bool is_valid() const noexcept
     {
+        constexpr std::uint64_t kMaxDepth =
+            static_cast<std::uint64_t>(std::numeric_limits<int>::max());
         return width > 0 && height > 0 && z_levels > 0
                && z_cell_depth > 0 && ocean_percent <= 100
-               && spirit_year >= 1;
+               && spirit_year >= 1
+               && static_cast<std::uint64_t>(z_levels) * z_cell_depth
+                      <= kMaxDepth;
     }
 };
 

@@ -45,7 +45,7 @@ float ResourceField::capacity(const CellIndex cell) const noexcept
     return cells_[cell.value].capacity;
 }
 
-std::uint16_t ResourceField::occupants(const CellIndex cell) const noexcept
+std::uint32_t ResourceField::occupants(const CellIndex cell) const noexcept
 {
     return occupants_[cell.value];
 }

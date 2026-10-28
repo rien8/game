@@ -81,10 +81,13 @@ public:
 
     /// 推进 n 年：设计 §1.2 年循环的五步（Clock→Aging→Birth→
     /// Cultivate→Economy）。玩家窗口与派系交接随后续刀加入。
+    ///
+    /// 当代格局为空时 seed 不建时钟，本函数直接返回、不推进任何年号。
     void run_years(std::uint32_t n);
 
     /// 当前年（seed 后等于开局年，run_years 后逐年推进）。非 const：
-    /// 读的是可变的推演状态，与 ecs_world() 同理由。
+    /// 读的是可变的推演状态，与 ecs_world() 同理由。空格局下同样返回
+    /// 开局年（名册里的年号），不依赖时钟实体是否存在。
     [[nodiscard]] std::uint32_t year();
 
 private:

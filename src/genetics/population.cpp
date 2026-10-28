@@ -118,8 +118,10 @@ SeasonOutput settle(const SeasonInput& input, const LocusTable& table,
     // 子代近交系数的累加器，见 SeasonOutput::offspring_inbreeding。
     double inbreeding_accum = 0.0;
     std::size_t inbreeding_count = 0;
-    for (const auto& site : input.sites)
+    for (std::size_t site_index = 0; site_index < input.sites.size();
+         ++site_index)
     {
+        const auto& site = input.sites[site_index];
         living.clear();
         for (const auto& parent : site.parents)
         {
@@ -161,6 +163,7 @@ SeasonOutput settle(const SeasonInput& input, const LocusTable& table,
                 break;
             }
             out.offspring.push_back(*child);
+            out.offspring_sites.push_back(site_index);
             out.offspring_environments.push_back(env);
             out.offspring_phenotypes.push_back(
                 phenotype_of(*child, table, species.mask(site.species), env,
