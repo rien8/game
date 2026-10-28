@@ -1,5 +1,5 @@
 /// @file systems.cpp
-/// @brief 众生层：年循环的四个 system。
+/// @brief 众生层：年循环的五个 system。
 #include "systems.hpp"
 // 私有头与本文件同目录，不在也不该在 life 目标的包含路径里。
 #include "generate.hpp"
@@ -48,9 +48,9 @@ void AgingSystem::execute(gamev2::ecs::World& world,
         }
         ++mortal->age;
         // 寿元上限只查表不存表：kRealmLifespan 是设定 §5.1 的逐字
-        // 落地、唯一权威（刀 1 的 Mortal 注释）。
-        const auto realm = static_cast<std::size_t>(cult->realm);
-        if (mortal->age >= kRealmLifespan[realm])
+        // 落地、唯一权威（刀 1 的 Mortal 注释）。判定走共享谓词——
+        // 与 Economy 的「死者账消」同一判据，分叉就对不上账。
+        if (lifespan_reached(*mortal, *cult))
         {
             cmd.destroy(e);
         }
@@ -113,6 +113,7 @@ void BirthSystem::execute(gamev2::ecs::World& world,
                 e, Office{sect == history::Sect::unowned
                               ? OfficeKind::none
                           : OfficeKind::outer});
+            (void)cmd.add<Purse>(e, Purse{});
         }
     };
 
@@ -146,8 +147,9 @@ void CultivateSystem::execute(gamev2::ecs::World& world,
     for (const gamev2::ecs::EntityId e : souls_)
     {
         auto* cult = world.get_if<Cultivation>(e);
+        auto* mortal = world.get_if<Mortal>(e);
         const auto* apt = world.get_if<Aptitude>(e);
-        if (cult == nullptr || apt == nullptr)
+        if (cult == nullptr || mortal == nullptr || apt == nullptr)
         {
             continue;  // 死者留下的空位
         }
@@ -155,14 +157,22 @@ void CultivateSystem::execute(gamev2::ecs::World& world,
         {
             continue;  // 大乘不再进（kRealmYears 的哨兵 0）
         }
+        // 寿尽者不突破：Aging 已按此刻的境界判他今年死，销毁在年末
+        // flush。若这里还让他突破，境界上移、寿元上限跟着变长，Economy
+        // 再判就成了活人——发份额、烧灵石，到年末实体销毁、私囊在账外
+        // 消失，守恒恒等式从此每年破一次（终审 B1）。死人不会突破。
+        if (lifespan_reached(*mortal, *cult))
+        {
+            continue;
+        }
         ++cult->progress;
         const auto realm = static_cast<std::size_t>(cult->realm);
         if (cult->progress < kRealmYears[realm])
         {
             continue;
         }
-        // 刀 2 假设供给充足：设定 §5.1 的资源门槛不记账，记账是刀 3
-        // 的 Purse。这里只有年资 + 悟性两轴，常数是标定值。
+        // 资源门槛不记账（刀 2 口径裁定 12：断供不杀人）：这里只有
+        // 年资 + 悟性两轴，门槛并入 Purse 的判定是刀 4 的决策面。
         std::int32_t chance =
             static_cast<std::int32_t>(kBreakthroughBasePermille);
         chance += (static_cast<std::int32_t>(apt->comprehension) - 5)

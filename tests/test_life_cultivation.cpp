@@ -135,11 +135,13 @@ TEST(the_cohort_shrinks_as_the_years_pass)
     // 寿元死亡不是死代码：跑 200 年，初始队列（index < 初始人口数）
     // 必须有人死去，同时世界不能空。
     //
-    // 上下界由探针实测钉死：初始 970 人里，引气/炼气死于寿元；金丹、
-    // 元婴的最大年龄 +200 仍小于寿元（600/1200），必全活——这是存活
-    // 者下界的硬依据。筑基不然：初始最大 149，+200 后 349 ≥ 300，
-    // 会部分死。实测环境与读数：128×128 / seed 13 / 200 年 / 实测
-    // 存活 87——下界取 80。
+    // 上下界由探针实测钉死（刀 3 重标后复测，2026-10-27）：实测环境
+    // 与读数 128×128 / seed 13 / 200 年 / 初始队列存活 900 —— 九成初始
+    // 人口在 200 年内突破到长寿境界（金丹/元婴寿 600/1200），故下界
+    // 取 80（防世界掏空）；真正证明「寿元死亡不是死代码」的是上界断言
+    // （970−900 = 70 人确实死于寿元）。
+    // 刀 2 旧读数「存活 87」与实测不符（除数与经济均已排除为成因），
+    // 已按本次探针订正。
     const Stack s = make_stack(roster_world(13));
     CHECK(s.world.has_value());
     if (!s.world)
@@ -168,9 +170,10 @@ TEST(the_populace_refills_from_below)
     // 确实在长（index ≥ 初始人口数的在册者出现）。设计 §1.4 的
     // 「金字塔随年演化」就是这个：底部持续有水进来。
     //
-    // 总量上界由探针钉死（Step 4）：不塌（>500，初始筑基以上 133 人
-    // 全活）也不炸。实测环境与读数：128×128 / seed 13 / 100 年实测
-    // total 3554——上界取 5400（实测 +50% 余量）。
+    // 总量上下界由探针钉死（刀 3 重标后复测，2026-10-27）：实测环境
+    // 与读数 128×128 / seed 13 / 100 年实测 total 1923（200 年 2850）
+    // ——不塌（>500，初始筑基以上 133 人全活）也不炸。刀 2 旧读数
+    // 3554 已过时；上界 5400 沿用（较新读数宽松，只防爆炸不误报）。
     const Stack s = make_stack(roster_world(13));
     CHECK(s.world.has_value());
     if (!s.world)
@@ -344,4 +347,50 @@ TEST(the_same_seed_gives_the_same_realm_histogram)
     const auto h3 = histogram(life3);  // seed 14：掷运不同，必须不同
     CHECK(h1 == h2);
     CHECK(h1 != h3);
+}
+
+TEST(the_breakthrough_roll_can_pass_and_fail)
+{
+    // 掷运的变异钉住（刀 2 计划携带项 ②）：
+    //   恒成功变异 → 晋级即清零，快照里无人进度达标 → 「有人掷输」
+    //   断言红；
+    //   恒失败变异 → 无人晋级，新队列永远到不了筑基 → 「有人突破」
+    //   断言红。
+    // 正常掷运（中位 300‰）两头都不触界。
+    const Stack s = make_stack(roster_world(13));
+    CHECK(s.world.has_value());
+    if (!s.world)
+    {
+        return;
+    }
+    gamev2::life::LifeDiagnostics diag;
+    gamev2::life::Life life(*s.world, s.era, diag);
+    life.seed();
+    life.run_years(200);
+
+    using gamev2::life::Cultivation;
+    using gamev2::life::Realm;
+    using gamev2::life::SoulId;
+    using gamev2::life::kRealmYears;
+    std::uint32_t breakthroughs = 0;   // 新队列上筑基的人数
+    std::uint32_t failed_this_year = 0;  // 进度达标而未晋级的人数
+    life.ecs_world().view<const SoulId, const Cultivation>().each(
+        [&](const SoulId& id, const Cultivation& c)
+        {
+            if (id.index >= initial_population()
+                && static_cast<std::size_t>(c.realm)
+                       >= static_cast<std::size_t>(Realm::zhuji))
+            {
+                ++breakthroughs;
+            }
+            if (c.realm != Realm::dacheng
+                && c.progress
+                       >= kRealmYears[static_cast<std::size_t>(
+                           c.realm)])
+            {
+                ++failed_this_year;
+            }
+        });
+    CHECK(breakthroughs > 0u);        // 掷运会成功（恒失败时红）
+    CHECK(failed_this_year > 0u);     // 掷运会失败（恒成功时红）
 }

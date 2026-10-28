@@ -4,6 +4,7 @@
 
 #include "gamev2/ecs/world.hpp"
 #include "gamev2/faction/era.hpp"
+#include "gamev2/life/economy.hpp"
 #include "gamev2/life/soul.hpp"
 #include "gamev2/world/world.hpp"
 
@@ -41,6 +42,10 @@ struct LifeDiagnostics
 {
     /// 当代早于纪元：没有当代格局，就没有众生可初始化。
     std::uint32_t no_contemporary_state = 0;
+    /// 灵石恒等式对账不通过的年份（设计 §7）。
+    std::uint32_t stone_conservation_broken = 0;
+    /// 有职位但无宗门归属（内部一致性，设计 §7）。
+    std::uint32_t office_without_sect = 0;
 };
 
 /// 众生层的容器。刀 1 只做种子与名册；年循环在刀 2。
@@ -64,8 +69,18 @@ public:
         return ecs_world_;
     }
 
-    /// 推进 n 年：设计 §1.2 年循环的前四步（Clock→Aging→Birth→
-    /// Cultivate）。玩家窗口与派系交接随后续刀加入。
+    /// 逐宗金库账。非 const：读的是可变推演状态，与 ecs_world() 同理由。
+    [[nodiscard]] gamev2::life::EconomyLedger& economy()
+    {
+        return economy_;
+    }
+    [[nodiscard]] const gamev2::life::EconomyLedger& economy() const
+    {
+        return economy_;
+    }
+
+    /// 推进 n 年：设计 §1.2 年循环的五步（Clock→Aging→Birth→
+    /// Cultivate→Economy）。玩家窗口与派系交接随后续刀加入。
     void run_years(std::uint32_t n);
 
     /// 当前年（seed 后等于开局年，run_years 后逐年推进）。非 const：
@@ -83,6 +98,7 @@ private:
     std::uint32_t next_index_ = 0;
     Roster roster_;
     std::vector<gamev2::ecs::EntityId> souls_;
+    EconomyLedger economy_;
 };
 
 /// 导出人可读名册文本。返回 false 表示文件写不动。
