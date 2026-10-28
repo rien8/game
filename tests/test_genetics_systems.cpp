@@ -650,6 +650,73 @@ TEST(adapt_breeding_keeps_positionless_entities_out_of_every_bucket)
     CHECK_EQ(offspring_count(1), std::size_t{0});
 }
 
+TEST(adapt_breeding_keeps_outlived_parents_out_of_the_pool)
+{
+    // 寿尽是硬判定：AgingSystem 的 destroy 经 CommandBuffer 排队到帧末，
+    // BreedingSystem 在同一帧里仍看得见那个个体。不把他排出父池，本季已
+    // 寿尽的亲代就会继续繁殖——这正是「先跑 Aging 再繁殖」要避免的事。
+    gamev2::environment::EnvironmentConfig config{};
+    config.capacity_base = 40.0f;
+
+    const auto offspring_count = [&](const bool expire_one,
+                                     const bool use_targets)
+    {
+        World w;
+        Harness h;
+        std::vector<EntityId> founders;
+        for (int i = 0; i < 2; ++i)
+        {
+            const auto e = h.spawn(w);
+            founders.push_back(e);
+            (void)w.add<Position>(e, Position{0.5f, 0.6f});
+            auto* p = w.get_if<CreaturePhenotype>(e);
+            set_trait(*p, TraitKind::SenseRange, 1.0f);
+            set_trait(*p, TraitKind::Fecundity, 2.0f);
+            set_trait(*p, TraitKind::Metabolism, 0.12f);
+            set_trait(*p, TraitKind::BodySize, 1.0f);
+            set_trait(*p, TraitKind::Speed, 1.0f);
+            set_trait(*p, TraitKind::Lifespan, 5.0f);
+        }
+        if (expire_one)
+        {
+            // 与 outlived(phenotype, age) 逐字同一判据：age >= Lifespan。
+            w.get_if<Vitality>(founders[1])->age_seasons = 5;
+        }
+
+        EnvironmentWorld env{31, config};
+        EnvironmentSystem environment{env, h.species, 0};
+        CommandBuffer env_cmd;
+        environment.execute(w, env_cmd);
+        env_cmd.flush(w);
+        CHECK(!environment.targets().empty());
+
+        CommandBuffer cmd;
+        if (use_targets)
+        {
+            BreedingSystem sys{h.table, h.species, h.config, 7, 0,
+                               &environment.targets(), 1.0f};
+            sys.execute(w, cmd);
+            // create 把 newborn_ 元素的地址交给了队列：system 必须先于
+            // flush 活着，否则 flush 写的是已经释放的 vector 缓冲区。
+            cmd.flush(w);
+        }
+        else
+        {
+            BreedingSystem sys{h.table, h.species, h.config, 7, 0};
+            sys.execute(w, cmd);
+            cmd.flush(w);
+        }
+        return offspring_genomes(w, founders).size();
+    };
+
+    // 对照组：两个都能生育，两条路径都该有子代，下面的零子代才不是恒真。
+    CHECK(offspring_count(false, true) > 0);
+    CHECK(offspring_count(false, false) > 0);
+    // 只剩一个能生育的亲代：凑不成一对，两条路径都必须零子代。
+    CHECK_EQ(offspring_count(true, true), std::size_t{0});
+    CHECK_EQ(offspring_count(true, false), std::size_t{0});
+}
+
 TEST(adapt_breeding_does_not_turn_zero_fecundity_into_one_child)
 {
     // progeny_for == 0 时旧路径仍发站点，而 settle 为兼容旧调用方把 0

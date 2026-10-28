@@ -26,8 +26,8 @@ using namespace gamev2::genetics;
 namespace {
 
 /// 一个待提交的子代。物种随子代一起记下：SeasonOutput 只给基因型与表型，
-/// 不回传子代出自哪个父池。cell 同理——settle 按 sites 顺序追加子代，
-/// 「哪个子代属于哪个格」只能靠这个顺序对回去。
+/// 不回传子代出自哪个父池。出生格由 SeasonOutput::offspring_sites 的站点
+/// 下标对回 target_cells——不能按计划产量摊平，那会在某个站点少产时错位。
 struct StagedOffspring
 {
     SpeciesId species;
@@ -152,6 +152,11 @@ void BreedingSystem::execute(World& world, CommandBuffer& cmd)
     /// 亲代，而环境层从来不为它产出过站点。
     std::vector<std::uint8_t> has_position;
     std::vector<float> feedings;
+    /// 与上面几个 vector 同序。本季寿尽的个体仍留在数组里让 settle 判死
+    /// （Lifespan <= 0 由 settle 处理，其余由 AgingSystem 排队销毁），但不
+    /// 能进任何父池：AgingSystem 的 destroy 经队列排队到帧末，本 system 在
+    /// 同一帧里仍看得见它，不挡住就会让本季已寿尽的亲代继续繁殖。
+    std::vector<std::uint8_t> expired;
     /// 与上面六个 vector 同序，用来把 settle 的 survived 下标对回实体
     std::vector<EntityId> handles;
 
@@ -191,6 +196,14 @@ void BreedingSystem::execute(World& world, CommandBuffer& cmd)
         // 降级路径，两者必须给出同一个答案。
         const auto* fed = world.get_if<Feeding>(e);
         feedings.push_back(fed == nullptr ? 1.0f : fed->satisfaction);
+        // 缺 Vitality 的个体没有年龄记录，按未过期处理：它们此前就参与
+        // 繁殖，这里不改变其语义。缺了组件就说「不知道它几岁」，而不是
+        // 凭空判它寿尽。
+        const auto* vitality = world.get_if<Vitality>(e);
+        expired.push_back(vitality != nullptr
+                              && outlived(p->phenotype, vitality->age_seasons)
+                          ? 1
+                          : 0);
         species_ids.push_back(tag->species.value);
         handles.push_back(e);
     });
@@ -265,6 +278,10 @@ void BreedingSystem::execute(World& world, CommandBuffer& cmd)
                 std::vector<Parent> bucket;
                 for (std::size_t i = 0; i < members.size(); ++i)
                 {
+                    if (expired[members[i]] != 0)
+                    {
+                        continue;
+                    }
                     if (has_position[members[i]] == 0)
                     {
                         continue;
@@ -279,8 +296,7 @@ void BreedingSystem::execute(World& world, CommandBuffer& cmd)
                 if (bucket.size() < 2)
                 {
                     // 池内不足两个个体时 make_offspring 必然失败，
-                    // 与其让它空转一轮，不如不产出子代——省下的格子
-                    // 才能让子代认对位置。
+                    // 与其让它空转一轮，不如不发这个站点。
                     continue;
                 }
                 buckets.push_back(std::move(bucket));
@@ -295,6 +311,10 @@ void BreedingSystem::execute(World& world, CommandBuffer& cmd)
             parents.reserve(members.size());
             for (std::size_t i = 0; i < members.size(); ++i)
             {
+                if (expired[members[i]] != 0)
+                {
+                    continue;
+                }
                 parents.push_back(Parent{i, &pool_genomes[i], 1.0f});
             }
             const auto progeny = progeny_for(pool_phenotypes);
@@ -307,33 +327,10 @@ void BreedingSystem::execute(World& world, CommandBuffer& cmd)
             }
         }
 
-        // 子代认回自己的格靠顺序：settle 按 sites 顺序逐个追加子代，而
-        // birth_cells 是按 sites[k].progeny 摊平的同一个序列。
+        // 子代认回自己的格靠 settle 回报的站点下标：某个站点的亲代本季
+        // 死绝时它一个子代也产不出，计划产量与实际产量之间的差额会把
+        // 「按产量摊平的站点序列」从那里起整体错位。
         //
-        // **已知限制**：摊平按下标对位，因此只在「每个站点要么足额、要么整站
-        // 缺席」时成立，而后者由上面的 bucket.size() < 2 保证。settle 还会在
-        // 建池后把本季死亡的亲代剔掉，于是某个站点可以**中途少产**：站点 A 产
-        // 0、站点 B 产 2 时，B 的两个孩子都落进 A 的格。触发条件是同格亲代整批
-        // 团灭（make_offspring 因池里活着的不足两个而失败），而饥荒正是把
-        // survival_rate 压下来、把这一支变成常态分支的机制。
-        //
-        // 修它需要 settle 按站点回报实际产量（遗传层的契约变更），已作为独立
-        // 任务推迟；在此之前，下面的 std::min 只兜得住尾部 shortfall。
-        //
-        // 另有一处不对称：settle 把 `progeny == 0` 按 1 处理，这里摊 0 份。
-        // 这一半不可达——build_sites 只在 progeny > 0 时才发站点。
-        std::vector<environment::CellIndex> birth_cells;
-        if (targets_ != nullptr)
-        {
-            for (std::size_t k = 0; k < sites.size(); ++k)
-            {
-                for (std::uint32_t n = 0; n < sites[k].progeny; ++n)
-                {
-                    birth_cells.push_back(target_cells[k]);
-                }
-            }
-        }
-
         // 统计交给 PopulationStatisticsSystem：settle 里那份每季 O(S·N) 重算
         // 一遍等位基因频率，生产路径上没人读。
         //
@@ -379,15 +376,12 @@ void BreedingSystem::execute(World& world, CommandBuffer& cmd)
         }
         for (std::size_t i = 0; i < out.offspring.size(); ++i)
         {
-            // 兜底的 min 只挡住**尾部** shortfall：settle 因「本季死绝、活下
-            // 来的亲代不足两个」而少于预算数时，多出的子代认回最后一个站点，
-            // 好过越界读。**中部** shortfall（站点 A 产 0、站点 B 产 2）会让
-            // B 的子代落进 A 的格，那个形状这里挡不住——见上面 birth_cells
-            // 的已知限制。
+            // sites 与 target_cells 成对填充，settle 回传的站点下标因此
+            // 必落在 target_cells 内。未接入环境层时 target_cells 为空，
+            // 而那时出生格本来就不被使用。
             const auto cell =
-                birth_cells.empty()
-                    ? environment::CellIndex{}
-                    : birth_cells[std::min(i, birth_cells.size() - 1)];
+                targets_ != nullptr ? target_cells[out.offspring_sites[i]]
+                                    : environment::CellIndex{};
             born.push_back(StagedOffspring{SpeciesId{s}, out.offspring[i],
                                            out.offspring_phenotypes[i],
                                            out.offspring_environments[i],

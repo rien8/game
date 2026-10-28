@@ -17,6 +17,7 @@
 #include "gamev2/genetics/species.hpp"
 #include "gamev2/genetics/statistics.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -69,6 +70,13 @@ struct SeasonOutput
     std::vector<Genome> offspring;
     std::vector<Phenotype> offspring_phenotypes;
     std::vector<environment::EnvironmentSnapshot> offspring_environments;
+    /// 与 offspring 同序：每个子代出自 SeasonInput::sites 的哪一个站点。
+    ///
+    /// 调用方按站点给子代定位（出生格、出生位置）时必须读它，而不是按各站点
+    /// 的计划产量把站点序列摊平后按下标对位：settle 会剔掉本季死亡的亲代，
+    /// 某个站点可能一个子代也产不出，摊平序列从那里起整体错位——站点 A 产 0、
+    /// B 产 2 时，B 的两个孩子会落进 A 的格。
+    std::vector<std::size_t> offspring_sites;
     /// 与 genomes 同序，
     /// 表示本季活到下一季。
     std::vector<std::uint8_t> survived;
