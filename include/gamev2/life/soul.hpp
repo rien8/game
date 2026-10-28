@@ -96,6 +96,14 @@ struct Office
     OfficeKind kind = OfficeKind::none;
 };
 
+/// 灵石账（设计 §2.1）。stone 按品级折算成统一记账单位（下品），
+/// silver 是凡人货币——两本账不混：守恒恒等式只数 stone。
+struct Purse
+{
+    std::uint64_t stone = 0;   ///< 下品折算
+    std::uint32_t silver = 0;  ///< 两（设定 §6.4：一枚下品折两千两）
+};
+
 /// 年时钟。与 faction::SimClock 无关（那个还带潮位），故不同名。
 struct LifeClock
 {

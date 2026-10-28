@@ -7,6 +7,7 @@
 #include "gamev2/ecs/scheduler.hpp"
 
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -46,6 +47,7 @@ void Life::seed()
         (void)ecs_world_.add<Temper>(e, p.temper);
         (void)ecs_world_.add<Mortal>(e, Mortal{era_.now - p.age, p.age});
         (void)ecs_world_.add<Office>(e, Office{p.office});
+        (void)ecs_world_.add<Purse>(e, Purse{});
     }
 
     // 名册从实体回读，不从 PersonInit 抄：这样「组件真的挂上了」是
@@ -79,6 +81,21 @@ void Life::seed()
         roster_.entries.push_back(entry);
     }
 
+    // 铸币表：当代活脉的年产能 × kVeinToStone（口径裁定 1：快照代替
+    // 派系层逐年产出，刀 5 换 FactionOutcome）。枯脉不产——balance
+    // 为 0 或已标枯年就是死了，再铸就是给死人发饷。
+    for (const auto& vein : era_.veins)
+    {
+        if (vein.balance == 0u || vein.depleted_year != 0u)
+        {
+            continue;
+        }
+        const auto rank = static_cast<std::size_t>(vein.rank);
+        const auto owner = static_cast<std::size_t>(vein.owner);
+        economy_.mint_per_year[owner] += kRankAnnualYield[rank]
+                                         * kVeinToStone;
+    }
+
     // 时钟从当代起算：开局即 8914，run_years 每年推一格。
     clock_ = ecs_world_.create();
     (void)ecs_world_.add<LifeClock>(clock_, LifeClock{era_.now});
@@ -96,18 +113,21 @@ std::uint32_t Life::year()
 void Life::run_years(std::uint32_t n)
 {
     // 注册顺序即执行顺序（Scheduler::plan 按注册顺序贪心分层，冲突者
-    // 落后一批）：Clock 写年，另三个读它（各自读集里都有 const
-    // LifeClock）；Aging 写 Mortal，另两个不碰。串行是刻意的：本层
-    // 规模下并行零收益，each_parallel 的行为又依赖批内位置。
+    // 落后一批）：年循环五步 Clock→Aging→Birth→Cultivate→Economy，
+    // Clock 写年、另四个读它（各自读集里都有 const LifeClock）。串行是
+    // 刻意的：本层规模下并行零收益，each_parallel 的行为又依赖批内
+    // 位置。
     ecs::Scheduler scheduler(1);
     ClockSystem clock(clock_);
     AgingSystem aging(souls_);
     BirthSystem birth(world_.params().seed, clock_, souls_, next_index_);
     CultivateSystem cultivate(world_.params().seed, clock_, souls_);
+    EconomySystem economy(clock_, souls_, economy_, diagnostics_);
     scheduler.add(clock);
     scheduler.add(aging);
     scheduler.add(birth);
     scheduler.add(cultivate);
+    scheduler.add(economy);
     scheduler.plan();
 
     ecs::CommandBuffer cmd;

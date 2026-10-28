@@ -5,6 +5,7 @@
 #include "gamev2/life/soul.hpp"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <string_view>
 
@@ -31,6 +32,17 @@ inline constexpr std::array<std::uint32_t, 9> kRealmLifespan{{
     120, 150, 300, 600, 1200, 2400, 5000, 10000, 1000000,
 }};
 
+/// 寿元已尽。Aging 据此销毁、Cultivate 据此不再让他突破、Economy
+/// 据此跳过分配——同一谓词三处用：分叉会让「谁被跳过」与「谁被销毁」
+/// 判在不同人身上，账就对不上（终审 B1：当年寿尽又突破的人会被
+/// Economy 当活人结算，私囊随实体销毁在账外消失）。
+[[nodiscard]] constexpr bool lifespan_reached(
+    const Mortal& mortal, const Cultivation& cult) noexcept
+{
+    return mortal.age
+           >= kRealmLifespan[static_cast<std::size_t>(cult.realm)];
+}
+
 /// 最小入册年龄：低于此岁不入名册（弟子是少年，不是婴儿）。
 inline constexpr std::uint32_t kMinAge = 16;
 
@@ -44,13 +56,26 @@ inline constexpr std::uint32_t kInnerDen = 5;
 
 /// 宗门年收徒 = max(1, 在册数 / kSectRecruitDivisor)。
 ///
-/// 标定值（刀 3 重标）：锚点是「补员与寿元死亡同量级」。探针实测为
-/// 正反馈（100y 约 ×3.7），刀 3 并入断供后重标。除数 50 ≈ 百余人宗门
-/// 年收二徒。
-inline constexpr std::uint32_t kSectRecruitDivisor = 50;
+/// 标定值（刀 3 重标，2026-10-27）。探针实测（128²/seed13，跑 200 年）：
+/// 除数 50 是正反馈——100 年 4254 人、200 年 26002 人，末 50 年漂移
+/// 154%；100 降到 100 年 1979 人但漂移仍 42%；200 与 400/800 读数
+/// 逐位相同（100 年 1923 人、200 年 2850 人、末 50 年漂移 19.4%）。
+/// 取 200：再大无效——`max(1,·)` 的下限已绑定（每宗恒收一徒），
+/// 除数从此不再是旋钮。刀 2 记的 3554 是旧探针读数（与当前代码
+/// 不符），已作废，本注释的读数为本次实测。
+///
+/// 「稳态（漂移 < 10%）」这一锚未达成，且不是除数能解决的：残余漂移
+/// 来自金字塔上移——突破把寿元短的换成寿元长的，平均寿命随人口一起
+/// 涨。真正的稳态要靠收徒受供给约束（断供则不收徒）与断供出走，
+/// 两者都是刀 4 的行为面。
+inline constexpr std::uint32_t kSectRecruitDivisor = 200;
 
-/// 散修每十年多一批（设定 §8.3 逐字）。每批人数是标定值（刀 3 重标）：
-/// 锚点是与七宗年收徒总量同量级，让散修圈不被宗门吸空。
+/// 散修每十年多一批（设定 §8.3 逐字）。每批人数是标定值（刀 4 重标）：
+/// 锚点是与七宗年收徒总量同量级，让散修圈不被宗门吸空。刀 3 重标
+/// 除数后这条锚仍成立：除数 200 下各宗在册 200 年内未达 400 人，
+/// 七宗全程每宗恒收一徒（7 人/年），散修批 3 人/年，仍属同量级；
+/// 未被选用的除数 50 则是开局 10 人/年、随人口升档迅速爆炸。
+/// 但参照点已随除数移动——散修批的绝对量归刀 4 与收徒规则一起定。
 inline constexpr std::uint32_t kFreeBatchYears = 10;
 inline constexpr std::uint32_t kFreeBatch = 30;
 
@@ -70,7 +95,7 @@ inline constexpr std::array<std::uint32_t, 9> kFreePyramid{{
 
 /// 境内年资门槛（年）：攒够这些年资才开始掷突破。
 ///
-/// 元婴的一百年闭关逐字来自设定 §5.1；其余是标定值（刀 3 重标——
+/// 元婴的一百年闭关逐字来自设定 §5.1；其余是标定值（刀 4 重标——
 /// 资源门槛并入后整套要重估）。锚点：百年窗口内众生主要停在
 /// 筑基—金丹；化神及以上在 100 年内结构性不可能（四境门槛之和
 /// 120 > 100）。大乘的 0 是哨兵：大乘不再进。
@@ -80,8 +105,10 @@ inline constexpr std::array<std::uint32_t, 9> kRealmYears{{
 
 /// 突破成功率（千分制）：base + (悟性 − 5) × per，钳制在 [min, max]。
 ///
-/// 标定值（刀 3 重标）。锚点：悟性中位者三成年成功率，最愚钝两成、
-/// 最聪颖五成。
+/// 标定值（刀 4 重标）。当前公式给出的实际值：最愚钝 2%、中位 10%、
+/// 最聪颖 18%（钳制区间从不生效）。锚点——悟性中位者三成、最愚钝
+/// 两成、最聪颖五成——是刀 4 的目标，与现状差着一档，资源门槛并入
+/// 时一并重估。
 inline constexpr std::uint32_t kBreakthroughBasePermille = 100;
 inline constexpr std::uint32_t kBreakthroughPerAptitudePermille = 20;
 inline constexpr std::uint32_t kBreakthroughMinPermille = 20;
