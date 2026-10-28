@@ -15,6 +15,22 @@ namespace {
                                { return std::ranges::find(b, id) != b.end(); });
 }
 
+/// 系统执行上下文的作用域守卫。进入/退出必须成对发生在调用线程上，而
+/// 任务抛出时也要还原上下文——用析构而不是 catch 再重抛，后者在 clang +
+/// ASan + O2 下会崩在 __FrameHandler3::GetUnwindTryBlock（实测）。
+struct SystemExecutionScope
+{
+    explicit SystemExecutionScope(World& w) : world{w}
+    {
+        world.enter_system_execution();
+    }
+    ~SystemExecutionScope() { world.exit_system_execution(); }
+    SystemExecutionScope(const SystemExecutionScope&) = delete;
+    SystemExecutionScope& operator=(const SystemExecutionScope&) = delete;
+
+    World& world;
+};
+
 }  // namespace
 
 Scheduler::Scheduler(std::size_t worker_count)
@@ -47,6 +63,11 @@ void Scheduler::plan()
     // disjunct 因此恒被后两条蕴含、当前是冗余的。保留它作为写-写方向的
     // 独立守卫：若哪天 read_set_of 改成只含显式 ReadSet，它就是唯一还能
     // 拦住写-写冲突的一支。
+    //
+    // 结构变更方与所有 system 都算冲突：访问集表达不了 slots_ 与列缓冲的
+    // 重分配，而 order 的「严格先后」只在冲突时成立（system.hpp 的
+    // \warning）。漏掉这一项，独占批次的 mutates_structure 会被一个 order
+    // 更大的无关 system 抢先，后者的读发生在结构变更之前。
     std::vector<std::vector<bool>> conflict(count,
                                             std::vector<bool>(count, false));
     for (std::size_t a = 0; a < count; ++a)
@@ -54,7 +75,9 @@ void Scheduler::plan()
         for (std::size_t b = a + 1; b < count; ++b)
         {
             conflict[a][b] = conflict[b][a]
-                = intersects(entries_[a].writes, entries_[b].writes)
+                = entries_[a].mutates_structure
+                  || entries_[b].mutates_structure
+                  || intersects(entries_[a].writes, entries_[b].writes)
                   || intersects(entries_[a].writes, entries_[b].reads)
                   || intersects(entries_[a].reads, entries_[b].writes);
         }
@@ -149,7 +172,7 @@ void Scheduler::run(World& world, CommandBuffer& cmd)
             // 不存在环形等待。真正要挡的是同池并发：批内若两个 System 各自调
             // each_parallel，两个 run() 就会并发落在 World 的同一个池上，内层
             // 那个覆盖外层的 jobs_ 与 next_ / done_ / generation_。
-            world.enter_system_execution();
+            const SystemExecutionScope scope{world};
 
             std::vector<std::function<void()>> jobs;
             jobs.reserve(batch.size());
@@ -161,9 +184,8 @@ void Scheduler::run(World& world, CommandBuffer& cmd)
                         entries_[idx].system->execute(world, buffers[idx]);
                     });
             }
+            // 任务抛出时由 scope 析构还原上下文，异常原样向上传播。
             pool_.run(jobs);
-
-            world.exit_system_execution();
         }
     }
 

@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <mutex>
+#include <stdexcept>
 #include <thread>
 #include <tuple>
 #include <vector>
@@ -728,6 +729,50 @@ struct Creator final : gamev2::ecs::System
     }
 };
 
+/// 声明结构变更的系统。它真的创建一个实体——标记不是注释——但访问集为空，
+/// 因此只有 mutates_structure 能把它与无关 system 分开。
+struct StructuralMid final : gamev2::ecs::System
+{
+    static constexpr int order = 1;
+    static constexpr bool mutates_structure = true;
+    using ReadSet = std::tuple<>;
+    using WriteSet = std::tuple<>;
+    int tag = 2;
+
+    void execute(World& world, CommandBuffer&) override
+    {
+        (void)world.create();
+        log_execution(tag);
+    }
+};
+
+/// 顺序排在结构变更之后、访问集却与它不相交的读者。冲突矩阵漏掉
+/// mutates_structure 时，它会和 First 一起进第一批，把执行序变成 A→C→B。
+struct AfterStructural final : gamev2::ecs::System
+{
+    static constexpr int order = 2;
+    using ReadSet = std::tuple<const Velocity>;
+    using WriteSet = std::tuple<>;
+    int tag = 3;
+
+    void execute(World&, CommandBuffer&) override
+    {
+        log_execution(tag);
+    }
+};
+
+/// 与 WritesPosition 访问集不相交，因此两者同批；本 system 抛出。
+struct ThrowsWhileWritingHealth final : gamev2::ecs::System
+{
+    using ReadSet = std::tuple<>;
+    using WriteSet = std::tuple<Health>;
+
+    void execute(World&, CommandBuffer&) override
+    {
+        throw std::runtime_error{"system failed"};
+    }
+};
+
 }  // namespace
 
 TEST(system_order_overrides_registration_order)
@@ -753,6 +798,73 @@ TEST(system_order_overrides_registration_order)
         CHECK_EQ(g_execution_log[0], earlier.tag);
         CHECK_EQ(g_execution_log[1], later.tag);
     }
+}
+
+/// mutates_structure 必须进冲突矩阵，否则一个 order 更大的无关 system 会
+/// 抢在结构变更之前执行：两者访问集不相交，读/读不算冲突，于是同批并行，
+/// 而结构变更正踩在那批 system 的无锁遍历上。
+///
+/// 探针形状：First（order 0、写 Position）→ StructuralMid（order 1、结构
+/// 变更）→ AfterStructural（order 2、读 Velocity）。修复前 First 与 After
+/// 同批，执行序实测为 A→C→B；修复后三批，执行序 A→B→C。
+TEST(scheduler_structure_mutation_blocks_later_readers)
+{
+    auto world = World{};
+    auto cmd = CommandBuffer{};
+
+    First before;
+    StructuralMid structural;
+    AfterStructural after;
+
+    Scheduler scheduler{2};
+    scheduler.add(before);
+    scheduler.add(structural);
+    scheduler.add(after);
+    scheduler.plan();
+
+    CHECK_EQ(scheduler.batch_count(), std::size_t{3});
+
+    g_execution_log.clear();
+    scheduler.run(world, cmd);
+
+    CHECK_EQ(g_execution_log.size(), std::size_t{3});
+    if (g_execution_log.size() == 3)
+    {
+        CHECK_EQ(g_execution_log[0], before.tag);
+        CHECK_EQ(g_execution_log[1], structural.tag);
+        CHECK_EQ(g_execution_log[2], after.tag);
+    }
+}
+
+/// 批内 system 抛出时，Scheduler::run 必须先恢复 in_system_ 再把异常放走。
+/// 标志不是 RAII，漏掉这一恢复，一次异常就让此后所有
+/// parallelize_allowed() 永远为假。
+TEST(scheduler_restores_system_flag_when_a_batch_throws)
+{
+    auto world = World{};
+    auto cmd = CommandBuffer{};
+
+    WritesPosition writer;         // 写 Position
+    ThrowsWhileWritingHealth bad;  // 写 Health：与 writer 不相交 ⇒ 同批
+
+    Scheduler scheduler{0};
+    scheduler.add(writer);
+    scheduler.add(bad);
+    scheduler.plan();
+    CHECK_EQ(scheduler.batch_count(), std::size_t{1});
+    CHECK(world.parallelize_allowed());
+
+    bool threw = false;
+    try
+    {
+        scheduler.run(world, cmd);
+    }
+    catch (const std::runtime_error&)
+    {
+        threw = true;
+    }
+    CHECK(threw);
+    CHECK(world.parallelize_allowed());
 }
 
 TEST(system_order_does_not_serialize_non_conflicting_systems)

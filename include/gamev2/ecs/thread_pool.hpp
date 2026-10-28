@@ -13,6 +13,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <functional>
 #include <mutex>
 #include <thread>
@@ -63,6 +64,11 @@ private:
     /// 返回即销毁，仍在 drain 的 worker 解引用它就是悬垂。
     std::size_t active_ = 0;
     bool stop_ = false;
+    /// 本代有任务抛出时的早停标记。命中后不再开工新任务，done_ 直接记满，
+    /// 等待者才不会为永远不会执行的任务干等。
+    std::atomic<bool> failed_{false};
+    /// 第一个逃出的异常，由 mutex_ 保护；run() 在全部 worker 收尾后重抛。
+    std::exception_ptr failure_;
 };
 
 }  // namespace gamev2::ecs

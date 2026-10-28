@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <atomic>
 #include <functional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -104,6 +105,41 @@ struct Owned
     Owned& operator=(Owned&&) = default;
 };
 
+/// 构造可抛出，移动构造保持 noexcept（组件契约要求）。
+struct Throwing
+{
+    int value = 0;
+    Throwing() = default;
+    explicit Throwing(int v) : value{v}
+    {
+        if (v < 0)
+        {
+            throw std::runtime_error{"negative"};
+        }
+    }
+};
+
+/// 移动时把源值改写成 -1。共有组件迁移若先于新组件的构造，构造参数读到
+/// 的就是这个被移空的值——正是 add 的参数别名缺陷。
+struct Token
+{
+    int value = 0;
+    Token() = default;
+    explicit Token(int v) : value{v} {}
+    Token(const Token&) = default;
+    Token(Token&& other) noexcept : value{other.value} { other.value = -1; }
+    Token& operator=(const Token&) = default;
+    Token& operator=(Token&&) = default;
+};
+
+/// 从 Token 的引用读出值：读取发生在 add 内部的构造时刻，而不是调用点。
+struct Echo
+{
+    int value = 0;
+    Echo() = default;
+    explicit Echo(const Token& t) : value{t.value} {}
+};
+
 }  // namespace
 
 TEST(world_report_forwards_to_installed_handler)
@@ -177,6 +213,75 @@ TEST(world_add_on_dead_entity_returns_entity_invalid)
     const auto r = world.add<Position>(EntityId::make(99, 1), Position{});
     CHECK(!r.has_value());
     CHECK(r.error() == EcsError::entity_invalid);
+}
+
+TEST(world_add_constructor_exception_leaves_entity_untouched)
+{
+    World world;
+    const auto e = world.create();
+    (void)world.add<Token>(e, Token{42});
+    (void)world.add<Position>(e, Position{3, 4});
+
+    bool threw = false;
+    try
+    {
+        (void)world.add<Throwing>(e, -1);
+    }
+    catch (const std::runtime_error&)
+    {
+        threw = true;
+    }
+    CHECK(threw);
+
+    // 构造必须在触碰存储之前完成：抛出时源行没有被移空，目标 archetype
+    // 里也没有留下半截实体。旧实现先迁移共有组件再构造，Token 在那里
+    // 已被移成 -1，而目标行会多出一条永远没人收尾的记录。
+    CHECK(world.is_alive(e));
+    CHECK(!world.has<Throwing>(e));
+    const auto* token = world.get_if<Token>(e);
+    const auto* pos = world.get_if<Position>(e);
+    CHECK(token != nullptr && pos != nullptr);
+    if (token != nullptr && pos != nullptr)
+    {
+        CHECK_EQ(token->value, 42);
+        CHECK_EQ(pos->x, 3);
+        CHECK_EQ(pos->y, 4);
+    }
+    CHECK_EQ(world.entity_count(), std::size_t{1});
+
+    // 存储仍可用：同一实体可以补上刚才失败的组件，旧组件原样带过去。
+    CHECK(world.add<Throwing>(e, 7).has_value());
+    const auto* added = world.get_if<Throwing>(e);
+    CHECK(added != nullptr);
+    if (added != nullptr)
+    {
+        CHECK_EQ(added->value, 7);
+    }
+    const auto* kept = world.get_if<Token>(e);
+    CHECK(kept != nullptr);
+    if (kept != nullptr)
+    {
+        CHECK_EQ(kept->value, 42);
+    }
+}
+
+TEST(world_add_reads_arguments_before_shared_components_move)
+{
+    World world;
+    const auto e = world.create();
+    (void)world.add<Token>(e, Token{5});
+
+    // 参数是 Token 的引用而不是先读出来的 int：构造发生在 add 内部，
+    // 旧实现把它排到共有组件迁移之后，读到的就是移动后的 -1。
+    const auto r = world.add<Echo>(e, *world.get_if<Token>(e));
+    CHECK(r.has_value());
+
+    const auto* echo = world.get_if<Echo>(e);
+    CHECK(echo != nullptr);
+    if (echo != nullptr)
+    {
+        CHECK_EQ(echo->value, 5);
+    }
 }
 
 TEST(world_get_missing_component_returns_null)
@@ -695,6 +800,37 @@ TEST(thread_pool_without_workers_runs_on_calling_thread)
 
     CHECK(ran.load());
     CHECK(seen == caller);
+}
+
+TEST(thread_pool_rethrows_task_exception_and_stays_usable)
+{
+    ThreadPool pool{4};
+    const std::vector<std::function<void()>> failing{
+        [] { throw std::runtime_error{"job failed"}; }};
+
+    bool threw = false;
+    try
+    {
+        pool.run(failing);
+    }
+    catch (const std::runtime_error&)
+    {
+        threw = true;
+    }
+    CHECK(threw);
+
+    // 异常收尾必须把每次 run 的状态清干净：同一个池的下一批照常跑完，
+    // 而不是把上次的异常再抛一遍，或在等待谓词上永远挂住。旧实现在
+    // worker 上抛异常时直接 std::terminate，在调用线程上抛时会提前返回
+    // 且留下仍在跑的任务。
+    std::atomic<int> executed{0};
+    std::vector<std::function<void()>> jobs;
+    for (int i = 0; i < 64; ++i)
+    {
+        jobs.emplace_back([&executed] { executed.fetch_add(1); });
+    }
+    pool.run(jobs);
+    CHECK_EQ(executed.load(), 64);
 }
 
 TEST(view_each_visits_every_matching_entity)
