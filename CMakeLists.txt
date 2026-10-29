@@ -265,12 +265,36 @@ set(ECOLOGY_TEST_SOURCES
 add_executable(ecology_tests ${ECOLOGY_TEST_SOURCES})
 target_link_libraries(ecology_tests PRIVATE ecology)
 
+# 演示场景配置：位点蓝图、遗传与环境参数、初始种群。
+# 抽成库是因为 sim 与 demo_gui 要跑同一个世界——两份实现会让那些实测出来的
+# 调平衡数字各走各的，界面上的种群曲线就与 sim 打印的对不上了。
+add_library(demo_scenario STATIC src/demo/scenario.cpp)
+target_include_directories(demo_scenario PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(demo_scenario PUBLIC ecology)
+
 # 演示入口：ecology 模块的调用方，自带 main。刻意不进下面的 ASan foreach ——
 # 那条列表把所有 *_TEST_SOURCES 连同 tests/main.cpp 编成单个可执行目标，而本
 # 目标自带 main，合并会撞 duplicate symbol。ecology 设计文档 §7 警告过「ASan
 # 列表漏掉整个模块」，因此这里显式记一笔：这是排除，不是遗漏。
 add_executable(sim src/sim/main.cpp)
-target_link_libraries(sim PRIVATE ecology)
+target_link_libraries(sim PRIVATE demo_scenario)
+
+# Qt 演示程序。默认不建：Qt 是可选依赖，不装 Qt 的人不该被 configure 卡住。
+# 打开开关时用 -DCMAKE_PREFIX_PATH=<Qt 6.12 的 msvc2022_64 目录> 指路。
+option(GAMEV2_BUILD_GUI "构建 Qt 演示程序 demo_gui" OFF)
+if(GAMEV2_BUILD_GUI)
+    find_package(Qt6 REQUIRED COMPONENTS Widgets)
+    # AUTOMOC 必须在目标创建之前打开：views.hpp 里的 Q_OBJECT 类靠它生成 moc。
+    set(CMAKE_AUTOMOC ON)
+    add_executable(demo_gui
+        src/gui/main.cpp
+        src/gui/simulation.cpp
+        src/gui/views.cpp
+    )
+    target_link_libraries(demo_gui PRIVATE demo_scenario worldgen Qt6::Widgets)
+    # WIN32_EXECUTABLE：GUI 程序不该带一个黑控制台窗口。
+    set_target_properties(demo_gui PROPERTIES WIN32_EXECUTABLE TRUE)
+endif()
 
 # Opt-in sanitizer build. Off by default so the pinned build stays untouched;
 # the `active_` invariant in ThreadPool is a lifetime race that no ordinary

@@ -86,6 +86,19 @@ public:
         return entities_;
     }
 
+    /// 把某个实体交给外部驱动：MovementSystem 不再随机移动它，Position
+    /// 完全由调用方写。演示程序用它接管玩家个体。
+    void set_controlled_entity(gamev2::ecs::EntityId e) noexcept
+    {
+        movement_.set_controlled(e);
+    }
+
+    /// 交还控制权：受控实体重新参与随机游走。
+    void clear_controlled_entity() noexcept
+    {
+        movement_.clear_controlled();
+    }
+
     /// 只读暴露气候场与资源场。测试要读真实承载力，UI 要画地图。
     const gamev2::ecs::adapt::EnvironmentWorld& environment() const noexcept
     {

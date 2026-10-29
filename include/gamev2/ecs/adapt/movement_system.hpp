@@ -53,11 +53,28 @@ public:
         season_index_ = season_index;
     }
 
+    /// 把某个实体交给外部驱动：它不再参与随机游走，Position 完全由调用方
+    /// 写。演示程序用它接管玩家个体。
+    ///
+    /// 同时只受控一个实体——演示程序也只操控一个。
+    void set_controlled(EntityId e) noexcept
+    {
+        controlled_ = e;
+    }
+
+    /// 交还控制权：受控实体重新参与随机游走。
+    void clear_controlled() noexcept
+    {
+        controlled_ = EntityId{};
+    }
+
     void execute(World& world, CommandBuffer& cmd) override;
 
 private:
     std::uint64_t root_seed_;
     std::uint32_t season_index_;
+    /// 受控实体。空句柄表示无人接管。
+    EntityId controlled_{};
 };
 
 }  // namespace gamev2::ecs::adapt

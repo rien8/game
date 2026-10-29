@@ -1,20 +1,20 @@
-# Configure and build ecs-module with the toolchain this machine actually has.
+# Configure and build gamev2 with the toolchain this machine actually has.
 #
 # Two things are not on PATH by default and both are required:
 #   - clang++  : CMakeLists.txt pins CMAKE_CXX_COMPILER to clang++ and aborts
-#                on any other compiler, so it must resolve by name.
-#   - ninja.exe: no Makefile generator on this box (no make / mingw32-make),
-#                and the VS generator would select cl.exe before the pin is
-#                read, which CMakeLists.txt rejects.
-# Both live outside PATH; Ninja additionally ships only inside VS BuildTools.
+#     on any other compiler, so it must resolve by name.
+#   - make.exe : the generator is "Unix Makefiles" and the make program is
+#     D:/mingw64/bin/make.exe. The VS generator would select cl.exe before
+#     the pin is read, which CMakeLists.txt rejects.
 #
-# Usage:
+# 用法：
 #   pwsh -File scripts/build.ps1                  # configure + build
 #   pwsh -File scripts/build.ps1 -Clean           # wipe build/ first
 #   pwsh -File scripts/build.ps1 -BuildType Release
 #   pwsh -File scripts/build.ps1 -Asan            # GAMEV2_ENABLE_ASAN=ON
 #   pwsh -File scripts/build.ps1 -Test            # build, then run all 8 suites
-#   pwsh -File scripts/build.ps1 -Test -Asan      # ASan build + run suites
+#   pwsh -File scripts/build.ps1 -Gui             # 加 Qt 演示程序 demo_gui
+#   pwsh -File scripts/build.ps1 -Gui -QtPrefix D:\path\to\Qt\6.12.0\msvc2022_64
 
 [CmdletBinding()]
 param(
@@ -23,7 +23,11 @@ param(
 
     [switch] $Clean,
     [switch] $Asan,
-    [switch] $Test
+    [switch] $Test,
+    [switch] $Gui,
+
+    # Qt 6 的 msvc2022_64 目录。Qt 是可选依赖，默认构建不碰它。
+    [string] $QtPrefix = 'D:\Qt\Qt5.15.2Windows\6.12.0\msvc2022_64'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -31,19 +35,19 @@ $ErrorActionPreference = 'Stop'
 $repoRoot    = Split-Path -Parent $PSScriptRoot
 $buildDir    = Join-Path $repoRoot 'build'
 $clangBin    = 'C:\Program Files\LLVM\bin'
-$ninjaRoot   = 'C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja'
-$ninjaExe    = Join-Path $ninjaRoot 'ninja.exe'
+$makeExe     = 'D:\mingw64\bin\make.exe'
+$generator   = 'Unix Makefiles'
 
 if (-not (Test-Path (Join-Path $clangBin 'clang++.exe'))) {
     throw "clang++ not found in '$clangBin'. Install LLVM or edit `$clangBin in this script."
 }
-if (-not (Test-Path $ninjaExe)) {
-    throw "ninja.exe not found at '$ninjaExe'. Install VS BuildTools or edit `$ninjaRoot in this script."
+if (-not (Test-Path $makeExe)) {
+    throw "make.exe not found at '$makeExe'. Install MinGW/make or edit `$makeExe in this script."
 }
 
 # CMakeLists.txt resolves the compiler by name, so it has to be on PATH before
 # configure -- not merely passed as -DCMAKE_CXX_COMPILER.
-$env:PATH = "$clangBin;$ninjaRoot;$env:PATH"
+$env:PATH = "$clangBin;$(Split-Path -Parent $makeExe);$env:PATH"
 
 if ($Clean -and (Test-Path $buildDir)) {
     Write-Host "Removing stale $buildDir ..."
@@ -53,15 +57,22 @@ if ($Clean -and (Test-Path $buildDir)) {
 $configureArgs = @(
     '-S', $repoRoot,
     '-B', $buildDir,
-    '-G', 'Ninja',
+    '-G', $generator,
     '-DCMAKE_BUILD_TYPE=' + $BuildType,
-    "-DCMAKE_MAKE_PROGRAM=$($ninjaExe -replace '\\', '/')"
+    "-DCMAKE_MAKE_PROGRAM=$($makeExe -replace '\\', '/')"
 )
 if ($Asan) {
     $configureArgs += '-DGAMEV2_ENABLE_ASAN=ON'
 }
+if ($Gui) {
+    if (-not (Test-Path $QtPrefix)) {
+        throw "Qt prefix not found: '$QtPrefix'. Pass -QtPrefix <dir>."
+    }
+    $configureArgs += '-DGAMEV2_BUILD_GUI=ON'
+    $configureArgs += "-DCMAKE_PREFIX_PATH=$($QtPrefix -replace '\\', '/')"
+}
 
-Write-Host "=== configure ($BuildType$(if ($Asan) { ', ASan' })) ==="
+Write-Host "=== configure ($BuildType$(if ($Asan) { ', ASan' })$(if ($Gui) { ', GUI' })) ==="
 & cmake @configureArgs
 if ($LASTEXITCODE -ne 0) { throw "cmake configure failed with exit code $LASTEXITCODE" }
 

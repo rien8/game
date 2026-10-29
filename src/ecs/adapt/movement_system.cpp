@@ -56,9 +56,19 @@ void MovementSystem::execute(World& world, CommandBuffer& /*cmd*/)
             phenotype->phenotype.traits[trait_index(TraitKind::Speed)]);
         const float step = 1.0f + speed;
 
+        // 抽签照旧：受控实体也抽，只是把抽到的方向丢掉。省掉这一抽，后面
+        // 每个实体的随机序列就都错位一格——受控与否，世界轨迹不再是同一条。
+        const auto direction = uniform_index(rng, 4);
+
+        // 受控实体的位置由外部写：它不参与随机游走。
+        if (e == controlled_)
+        {
+            return;
+        }
+
         float x = position->x;
         float y = position->y;
-        switch (uniform_index(rng, 4))
+        switch (direction)
         {
         case 0:
             x += step;
