@@ -9,7 +9,14 @@ build-*/
 *.pdb
 *.ilk
 *.log
+output/
 temp/
 agent-temp/
+__pycache__/
+*.pyc
+# H3 生成过程的视频中间产物（约 49MB）。原始视频凭 <动作>.task.json 里的
+# node_id 可用 mcode-tools get_asset_url 免费重新拉取；处理后的片段和裁剪
+# 片段都能由 prepare_clip.py / make_anim_atlas.py 重新生成，不进仓库。
+assets/sprites/characters/anim/*/videos/
 # Obsidian 插件的索引缓存（.anh-fsdb），是工具产物不是仓库内容。
 novel-helper/

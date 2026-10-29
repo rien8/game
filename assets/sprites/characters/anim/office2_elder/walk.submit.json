@@ -1,0 +1,15 @@
+{
+ "model": "MiniMax-H3",
+ "reference_type": "first_frame",
+ "input_image": {
+  "url": "https://matrix-internal-cn.oss-cn-shanghai.aliyuncs.com/user_file_upload_tmp%2F2026-10-29%2F4247abc8-489f-4ca9-a9fd-9afe2b8a4efa.png?x-oss-credential=LTAI5tKjcNxbSxktvpFqdYgH%2F20261029%2Fcn-shanghai%2Foss%2Faliyun_v4_request&x-oss-date=20261029T090543Z&x-oss-expires=3600&x-oss-signature=633f87d7e6a45651cf6fd085d55164bf31ebaf855e83610bd53dc249f3344b3f&x-oss-signature-version=OSS4-HMAC-SHA256",
+  "mime_type": "image/png"
+ },
+ "last_frame_image": {
+  "url": "https://matrix-internal-cn.oss-cn-shanghai.aliyuncs.com/user_file_upload_tmp%2F2026-10-29%2F4247abc8-489f-4ca9-a9fd-9afe2b8a4efa.png?x-oss-credential=LTAI5tKjcNxbSxktvpFqdYgH%2F20261029%2Fcn-shanghai%2Foss%2Faliyun_v4_request&x-oss-date=20261029T090543Z&x-oss-expires=3600&x-oss-signature=633f87d7e6a45651cf6fd085d55164bf31ebaf855e83610bd53dc249f3344b3f&x-oss-signature-version=OSS4-HMAC-SHA256",
+  "mime_type": "image/png"
+ },
+ "prompt": "How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the 6.00-second mark of the target video.\n\nintegrated_multimodal_description: [Shot 1] Chibi pixel-art game sprite animation, two-head-tall proportions, crisp blocky pixels with hard pixel edges, no anti-aliasing, flat limited-palette colors, clean dark outlines, a front-facing static shot preserves the chibi Chinese immortal cultivator established by Picture 1 — a long white beard and white brows, a tall soft cloth hat with pale ear flaps, a deep purple robe with wide sleeves, both feet on the ground, his entire body inside the frame — and the flat solid magenta #FF00FF background established by Picture 1. The cultivator repeats an in-place treadmill walk cycle at a steady cadence: the feet alternate forward and back in place without travelling across the frame, the body bobs slightly with each step, the wide sleeves swing gently opposite the legs, and the hair sways with the motion. The figure stays at exactly the same screen position, keeps the same front-facing orientation, and the clip completes only whole left-right gait cycles so that the final frame lands on the same foot-contact phase as the opening frame. The overall framing and scale remain unchanged throughout. The camera holds a completely static shot. The motion progressively returns to the same action phase, pose, layer positions, and exact composition established by Picture 2 at the end of the shot. No blinking, no hand gestures, no head turning, no camera movement, no additional characters, no effects and no new props appear, no aura, no glow, no halo and no shadow on the ground. Any prop already held stays in the same hand and keeps its shape. The clip is completely silent.\n\noverall_soundscape: N/A\n\nnon_diegetic_music: N/A",
+ "duration": 6,
+ "resolution": "768P"
+}

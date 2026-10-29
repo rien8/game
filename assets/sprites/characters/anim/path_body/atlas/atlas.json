@@ -1,0 +1,371 @@
+{
+  "meta": {
+    "schema_version": 2,
+    "image": "atlas.png",
+    "cell_w": 32,
+    "cell_h": 32,
+    "fps_suggest": 12,
+    "duration_ms": 83,
+    "pivot": {
+      "x": 0.5,
+      "y": 0.9375,
+      "origin": "top-left"
+    },
+    "pivot_mode": "bottom-center",
+    "asset_kind": "character",
+    "facing": "front",
+    "color_space": "sRGB",
+    "alpha_mode": "straight",
+    "extrude_px": 1,
+    "max_texture_px": 4096,
+    "spec": {
+      "atlas_px": [
+        192,
+        64
+      ],
+      "cell_px": [
+        32,
+        32
+      ],
+      "grid": [
+        6,
+        2
+      ],
+      "file_kb": 7.3,
+      "decoded_mb": 0.0,
+      "total_frames": 10,
+      "fps_suggest": 12,
+      "quality_profile": "game-keyframes",
+      "background_mode": "transparent",
+      "transparent": true,
+      "color_space": "sRGB",
+      "alpha_mode": "straight",
+      "pivot": {
+        "x": 0.5,
+        "y": 0.9375,
+        "origin": "top-left"
+      },
+      "pivot_mode": "bottom-center",
+      "asset_kind": "character",
+      "facing": "front",
+      "padding_px": 1,
+      "extrude_px": 1,
+      "max_texture_px": 4096,
+      "moves": {
+        "idle": {
+          "frames": 4,
+          "type": "loop",
+          "end_behavior": "loop"
+        },
+        "walk": {
+          "frames": 6,
+          "type": "loop",
+          "end_behavior": "loop"
+        }
+      }
+    },
+    "qc": "PASS"
+  },
+  "moves": {
+    "idle": {
+      "frames": [
+        {
+          "index": 0,
+          "image": "atlas.png",
+          "x": 0,
+          "y": 0,
+          "w": 32,
+          "h": 32,
+          "duration_ms": 83,
+          "source_frame": 33,
+          "frame_file": "frames/idle/idle_000.png",
+          "rotated": false,
+          "trimmed": false,
+          "source_size": {
+            "w": 32,
+            "h": 32
+          },
+          "sprite_source_size": {
+            "x": 5,
+            "y": 7,
+            "w": 23,
+            "h": 22
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.9375,
+            "origin": "top-left"
+          }
+        },
+        {
+          "index": 1,
+          "image": "atlas.png",
+          "x": 32,
+          "y": 0,
+          "w": 32,
+          "h": 32,
+          "duration_ms": 83,
+          "source_frame": 35,
+          "frame_file": "frames/idle/idle_001.png",
+          "rotated": false,
+          "trimmed": false,
+          "source_size": {
+            "w": 32,
+            "h": 32
+          },
+          "sprite_source_size": {
+            "x": 5,
+            "y": 7,
+            "w": 23,
+            "h": 22
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.9375,
+            "origin": "top-left"
+          }
+        },
+        {
+          "index": 2,
+          "image": "atlas.png",
+          "x": 64,
+          "y": 0,
+          "w": 32,
+          "h": 32,
+          "duration_ms": 83,
+          "source_frame": 38,
+          "frame_file": "frames/idle/idle_002.png",
+          "rotated": false,
+          "trimmed": false,
+          "source_size": {
+            "w": 32,
+            "h": 32
+          },
+          "sprite_source_size": {
+            "x": 5,
+            "y": 7,
+            "w": 23,
+            "h": 22
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.9375,
+            "origin": "top-left"
+          }
+        },
+        {
+          "index": 3,
+          "image": "atlas.png",
+          "x": 96,
+          "y": 0,
+          "w": 32,
+          "h": 32,
+          "duration_ms": 83,
+          "source_frame": 41,
+          "frame_file": "frames/idle/idle_003.png",
+          "rotated": false,
+          "trimmed": false,
+          "source_size": {
+            "w": 32,
+            "h": 32
+          },
+          "sprite_source_size": {
+            "x": 5,
+            "y": 7,
+            "w": 23,
+            "h": 22
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.9375,
+            "origin": "top-left"
+          }
+        }
+      ],
+      "loop": true,
+      "playback": "forward",
+      "end_behavior": "loop",
+      "fps": 12,
+      "events": [],
+      "qc": "PASS"
+    },
+    "walk": {
+      "frames": [
+        {
+          "index": 0,
+          "image": "atlas.png",
+          "x": 128,
+          "y": 0,
+          "w": 32,
+          "h": 32,
+          "duration_ms": 83,
+          "source_frame": 38,
+          "frame_file": "frames/walk/walk_000.png",
+          "rotated": false,
+          "trimmed": false,
+          "source_size": {
+            "w": 32,
+            "h": 32
+          },
+          "sprite_source_size": {
+            "x": 6,
+            "y": 7,
+            "w": 21,
+            "h": 23
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.9375,
+            "origin": "top-left"
+          }
+        },
+        {
+          "index": 1,
+          "image": "atlas.png",
+          "x": 160,
+          "y": 0,
+          "w": 32,
+          "h": 32,
+          "duration_ms": 83,
+          "source_frame": 42,
+          "frame_file": "frames/walk/walk_001.png",
+          "rotated": false,
+          "trimmed": false,
+          "source_size": {
+            "w": 32,
+            "h": 32
+          },
+          "sprite_source_size": {
+            "x": 6,
+            "y": 8,
+            "w": 21,
+            "h": 22
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.9375,
+            "origin": "top-left"
+          }
+        },
+        {
+          "index": 2,
+          "image": "atlas.png",
+          "x": 0,
+          "y": 32,
+          "w": 32,
+          "h": 32,
+          "duration_ms": 83,
+          "source_frame": 45,
+          "frame_file": "frames/walk/walk_002.png",
+          "rotated": false,
+          "trimmed": false,
+          "source_size": {
+            "w": 32,
+            "h": 32
+          },
+          "sprite_source_size": {
+            "x": 6,
+            "y": 8,
+            "w": 21,
+            "h": 23
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.9375,
+            "origin": "top-left"
+          }
+        },
+        {
+          "index": 3,
+          "image": "atlas.png",
+          "x": 32,
+          "y": 32,
+          "w": 32,
+          "h": 32,
+          "duration_ms": 83,
+          "source_frame": 49,
+          "frame_file": "frames/walk/walk_003.png",
+          "rotated": false,
+          "trimmed": false,
+          "source_size": {
+            "w": 32,
+            "h": 32
+          },
+          "sprite_source_size": {
+            "x": 5,
+            "y": 7,
+            "w": 23,
+            "h": 22
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.9375,
+            "origin": "top-left"
+          }
+        },
+        {
+          "index": 4,
+          "image": "atlas.png",
+          "x": 64,
+          "y": 32,
+          "w": 32,
+          "h": 32,
+          "duration_ms": 83,
+          "source_frame": 53,
+          "frame_file": "frames/walk/walk_004.png",
+          "rotated": false,
+          "trimmed": false,
+          "source_size": {
+            "w": 32,
+            "h": 32
+          },
+          "sprite_source_size": {
+            "x": 4,
+            "y": 8,
+            "w": 25,
+            "h": 23
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.9375,
+            "origin": "top-left"
+          }
+        },
+        {
+          "index": 5,
+          "image": "atlas.png",
+          "x": 96,
+          "y": 32,
+          "w": 32,
+          "h": 32,
+          "duration_ms": 83,
+          "source_frame": 57,
+          "frame_file": "frames/walk/walk_005.png",
+          "rotated": false,
+          "trimmed": false,
+          "source_size": {
+            "w": 32,
+            "h": 32
+          },
+          "sprite_source_size": {
+            "x": 5,
+            "y": 8,
+            "w": 23,
+            "h": 23
+          },
+          "pivot": {
+            "x": 0.5,
+            "y": 0.9375,
+            "origin": "top-left"
+          }
+        }
+      ],
+      "loop": true,
+      "playback": "forward",
+      "end_behavior": "loop",
+      "fps": 12,
+      "events": [],
+      "qc": "PASS"
+    }
+  }
+}

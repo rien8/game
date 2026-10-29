@@ -1,0 +1,17 @@
+{
+ "task_id": "457570990379203",
+ "node_id": "457572068954693",
+ "code": 0,
+ "message": "ok",
+ "model": "MiniMax-H3",
+ "status": "succeeded",
+ "video_url": "https://matrix-internal-cn.oss-cn-shanghai.aliyuncs.com/Mavis/511521887214276616/files/457572068954693/457570990379203.mp4?Expires=1793271941&OSSAccessKeyId=LTAI5tD6kjGs53up52CwdPJ3&Signature=bwnt8s3RcrlJHUMwkf61mdm3%2BGg%3D",
+ "file_name": "457570990379203.mp4",
+ "resolution": "768P",
+ "duration": 6,
+ "ratio": "adaptive",
+ "created_at": 1793264470,
+ "updated_at": 1793264726,
+ "total_seconds": 6,
+ "output_seconds": 6
+}

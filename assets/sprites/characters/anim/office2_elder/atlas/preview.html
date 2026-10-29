@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Sprite Preview</title>
+<style>
+  body { font-family: -apple-system, sans-serif; background:#1c1c22; color:#eee;
+         display:flex; flex-direction:column; align-items:center; gap:16px; padding:24px; }
+  #stage { image-rendering: pixelated; background:
+           repeating-conic-gradient(#333 0% 25%, #3c3c44 0% 50%) 0 0 / 24px 24px;
+           border-radius:8px; max-height:55vh; max-width:90vw;
+           height:auto; width:auto; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; align-items:center; }
+  button { background:#33333d; color:#eee; border:1px solid #555; border-radius:6px;
+           padding:6px 14px; font-size:14px; cursor:pointer; }
+  button.active { background:#6c5ce7; border-color:#6c5ce7; }
+  label { font-size:13px; color:#aaa; }
+  select { background:#33333d; color:#eee; border:1px solid #555; border-radius:5px; }
+  #frameInfo { min-width:72px; text-align:center; font:12px ui-monospace, monospace; color:#aaa; }
+</style>
+</head>
+<body>
+<h3>H3 Sprite Atlas Preview</h3>
+<div id="spec" style="font-size:12px;color:#9a9aa5"></div>
+<canvas id="stage"></canvas>
+<div class="row" id="moves"></div>
+<div class="row">
+  <button id="playPause">暂停</button>
+  <button id="prev">◀ 上一帧</button>
+  <span id="frameInfo">1 / 1</span>
+  <button id="next">下一帧 ▶</button>
+  <label>FPS <input id="fps" type="range" min="1" max="60" value="10">
+  <span id="fpsv">10</span></label>
+</div>
+<div class="row">
+  <label>检查背景 <select id="stageBg">
+    <option value="checker">棋盘格</option><option value="dark">深色</option>
+    <option value="light">浅色</option></select></label>
+  <label><input id="showPivot" type="checkbox"> 显示 pivot</label>
+  <label><input id="pingpong" type="checkbox" autocomplete="off"> 往返预览（默认关闭，仅循环动作）</label>
+  <label><input id="repeatOnce" type="checkbox" checked autocomplete="off"> 重复预览一次性动作</label>
+  <label style="color:#888">按数字键 1-9 切换；▸ 导出语义为单次，预览可重复查看</label>
+</div>
+<script>
+const META = {"meta": {"schema_version": 2, "image": "atlas.png", "cell_w": 32, "cell_h": 32, "fps_suggest": 12, "duration_ms": 83, "pivot": {"x": 0.5, "y": 0.9375, "origin": "top-left"}, "pivot_mode": "bottom-center", "asset_kind": "character", "facing": "front", "color_space": "sRGB", "alpha_mode": "straight", "extrude_px": 1, "max_texture_px": 4096, "spec": {"atlas_px": [192, 64], "cell_px": [32, 32], "grid": [6, 2], "file_kb": 6.4, "decoded_mb": 0.0, "total_frames": 10, "fps_suggest": 12, "quality_profile": "game-keyframes", "background_mode": "transparent", "transparent": true, "color_space": "sRGB", "alpha_mode": "straight", "pivot": {"x": 0.5, "y": 0.9375, "origin": "top-left"}, "pivot_mode": "bottom-center", "asset_kind": "character", "facing": "front", "padding_px": 1, "extrude_px": 1, "max_texture_px": 4096, "moves": {"idle": {"frames": 4, "type": "loop", "end_behavior": "loop"}, "walk": {"frames": 6, "type": "loop", "end_behavior": "loop"}}}, "qc": "PASS"}, "moves": {"idle": {"frames": [{"index": 0, "image": "atlas.png", "x": 0, "y": 0, "w": 32, "h": 32, "duration_ms": 83, "source_frame": 88, "frame_file": "frames/idle/idle_000.png", "rotated": false, "trimmed": false, "source_size": {"w": 32, "h": 32}, "sprite_source_size": {"x": 7, "y": 5, "w": 20, "h": 26}, "pivot": {"x": 0.5, "y": 0.9375, "origin": "top-left"}}, {"index": 1, "image": "atlas.png", "x": 32, "y": 0, "w": 32, "h": 32, "duration_ms": 83, "source_frame": 101, "frame_file": "frames/idle/idle_001.png", "rotated": false, "trimmed": false, "source_size": {"w": 32, "h": 32}, "sprite_source_size": {"x": 6, "y": 5, "w": 22, "h": 26}, "pivot": {"x": 0.5, "y": 0.9375, "origin": "top-left"}}, {"index": 2, "image": "atlas.png", "x": 64, "y": 0, "w": 32, "h": 32, "duration_ms": 83, "source_frame": 112, "frame_file": "frames/idle/idle_002.png", "rotated": false, "trimmed": false, "source_size": {"w": 32, "h": 32}, "sprite_source_size": {"x": 6, "y": 5, "w": 22, "h": 26}, "pivot": {"x": 0.5, "y": 0.9375, "origin": "top-left"}}, {"index": 3, "image": "atlas.png", "x": 96, "y": 0, "w": 32, "h": 32, "duration_ms": 83, "source_frame": 127, "frame_file": "frames/idle/idle_003.png", "rotated": false, "trimmed": false, "source_size": {"w": 32, "h": 32}, "sprite_source_size": {"x": 6, "y": 5, "w": 22, "h": 26}, "pivot": {"x": 0.5, "y": 0.9375, "origin": "top-left"}}], "loop": true, "playback": "forward", "end_behavior": "loop", "fps": 12, "events": [], "qc": "PASS"}, "walk": {"frames": [{"index": 0, "image": "atlas.png", "x": 128, "y": 0, "w": 32, "h": 32, "duration_ms": 83, "source_frame": 0, "frame_file": "frames/walk/walk_000.png", "rotated": false, "trimmed": false, "source_size": {"w": 32, "h": 32}, "sprite_source_size": {"x": 7, "y": 5, "w": 20, "h": 26}, "pivot": {"x": 0.5, "y": 0.9375, "origin": "top-left"}}, {"index": 1, "image": "atlas.png", "x": 160, "y": 0, "w": 32, "h": 32, "duration_ms": 83, "source_frame": 30, "frame_file": "frames/walk/walk_001.png", "rotated": false, "trimmed": false, "source_size": {"w": 32, "h": 32}, "sprite_source_size": {"x": 7, "y": 6, "w": 19, "h": 25}, "pivot": {"x": 0.5, "y": 0.9375, "origin": "top-left"}}, {"index": 2, "image": "atlas.png", "x": 0, "y": 32, "w": 32, "h": 32, "duration_ms": 83, "source_frame": 54, "frame_file": "frames/walk/walk_002.png", "rotated": false, "trimmed": false, "source_size": {"w": 32, "h": 32}, "sprite_source_size": {"x": 9, "y": 5, "w": 16, "h": 26}, "pivot": {"x": 0.5, "y": 0.9375, "origin": "top-left"}}, {"index": 3, "image": "atlas.png", "x": 32, "y": 32, "w": 32, "h": 32, "duration_ms": 83, "source_frame": 78, "frame_file": "frames/walk/walk_003.png", "rotated": false, "trimmed": false, "source_size": {"w": 32, "h": 32}, "sprite_source_size": {"x": 10, "y": 5, "w": 14, "h": 26}, "pivot": {"x": 0.5, "y": 0.9375, "origin": "top-left"}}, {"index": 4, "image": "atlas.png", "x": 64, "y": 32, "w": 32, "h": 32, "duration_ms": 83, "source_frame": 100, "frame_file": "frames/walk/walk_004.png", "rotated": false, "trimmed": false, "source_size": {"w": 32, "h": 32}, "sprite_source_size": {"x": 9, "y": 6, "w": 16, "h": 25}, "pivot": {"x": 0.5, "y": 0.9375, "origin": "top-left"}}, {"index": 5, "image": "atlas.png", "x": 96, "y": 32, "w": 32, "h": 32, "duration_ms": 83, "source_frame": 126, "frame_file": "frames/walk/walk_005.png", "rotated": false, "trimmed": false, "source_size": {"w": 32, "h": 32}, "sprite_source_size": {"x": 8, "y": 5, "w": 18, "h": 26}, "pivot": {"x": 0.5, "y": 0.9375, "origin": "top-left"}}], "loop": true, "playback": "forward", "end_behavior": "loop", "fps": 12, "events": [], "qc": "PASS"}}};
+const img = new Image();
+img.src = "data:image/png;base64,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";
+const cv = document.getElementById("stage"), cx = cv.getContext("2d");
+// internal resolution = cell size; CSS max-height/width scales it to fit
+cv.width = META.meta.cell_w; cv.height = META.meta.cell_h;
+const SPEC = META.meta.spec;
+if (SPEC) document.getElementById("spec").textContent =
+  `atlas ${SPEC.atlas_px[0]}x${SPEC.atlas_px[1]}px · cell ${SPEC.cell_px[0]}x${SPEC.cell_px[1]}px · ` +
+  `${SPEC.total_frames} 帧 / ${Object.keys(SPEC.moves).length} 动作 · ${SPEC.file_kb}KB · 建议 ${SPEC.fps_suggest} FPS · ` +
+  `质量档 ${SPEC.quality_profile || "unknown"} · 输出质检 ${META.meta.qc || "UNKNOWN"}`;
+const NAMES = Object.keys(META.moves);
+// default/rest state = first looping move (state-machine home)
+const HOME = NAMES.find(n => META.moves[n].loop !== false) || NAMES[0];
+let cur = HOME, moveStart = performance.now(), playing = true, heldIndex = 0;
+const movesEl = document.getElementById("moves");
+function setMove(name) {
+  cur = name; moveStart = performance.now(); heldIndex = 0;
+  [...movesEl.children].forEach((c, i) =>
+    c.classList.toggle("active", NAMES[i] === name));
+}
+NAMES.forEach((name, i) => {
+  const b = document.createElement("button");
+  const os = META.moves[name].playback === "once" ? "▸" : "⟳";
+  b.textContent = `${i + 1} ${name} ${os} ${META.moves[name].qc || ""}`;
+  b.onclick = () => setMove(name);
+  movesEl.appendChild(b);
+});
+setMove(HOME);
+// state machine: number keys trigger moves, like wiring to input
+document.addEventListener("keydown", (e) => {
+  const i = +e.key - 1;
+  if (i >= 0 && i < NAMES.length) setMove(NAMES[i]);
+});
+const fps = document.getElementById("fps"), fpsv = document.getElementById("fpsv");
+const pingpong = document.getElementById("pingpong");
+const repeatOnce = document.getElementById("repeatOnce");
+const playPause = document.getElementById("playPause");
+const prev = document.getElementById("prev"), next = document.getElementById("next");
+const frameInfo = document.getElementById("frameInfo");
+const stageBg = document.getElementById("stageBg");
+const showPivot = document.getElementById("showPivot");
+// Defeat browser form-state restoration: reverse playback must never turn on
+// just because a previous preview had the checkbox selected.
+pingpong.checked = false;
+repeatOnce.checked = true;
+fps.value = META.meta.fps_suggest || 10;
+fpsv.textContent = fps.value;
+function pauseAt(delta = 0) {
+  const n = META.moves[cur].frames.length;
+  if (playing) playing = false;
+  heldIndex = (heldIndex + delta + n) % n;
+  playPause.textContent = "播放";
+}
+playPause.onclick = () => {
+  playing = !playing;
+  playPause.textContent = playing ? "暂停" : "播放";
+  if (playing) moveStart = performance.now() - heldIndex / +fps.value * 1000;
+};
+prev.onclick = () => pauseAt(-1);
+next.onclick = () => pauseAt(1);
+stageBg.onchange = () => {
+  cv.style.background = stageBg.value === "dark" ? "#181a20" :
+    stageBg.value === "light" ? "#f4f4f4" :
+    "repeating-conic-gradient(#333 0% 25%, #3c3c44 0% 50%) 0 0 / 24px 24px";
+};
+function tick() {
+  const mv = META.moves[cur];
+  const frames = mv.frames;
+  const n = frames.length;
+  // wall-clock frame index — immune to tab throttling and frame drops
+  const raw = Math.floor((performance.now() - moveStart) / 1000 * +fps.value);
+  let idx = heldIndex;
+  if (!playing) {
+    idx = Math.min(heldIndex, n - 1);
+  } else if (mv.loop === false) {
+    // Preview can repeat a one-shot for inspection without changing the
+    // exported playback="once" runtime contract.
+    if (repeatOnce.checked) idx = raw % n;
+    else {
+      if (raw >= n && mv.end_behavior === "hold") idx = n - 1;
+      else if (raw >= n) { setMove(HOME); return requestAnimationFrame(tick); }
+      else idx = raw;
+    }
+  } else if (pingpong.checked && n > 1) {
+    const cycle = 2 * n - 2;
+    const p = raw % cycle;
+    idx = p < n ? p : cycle - p;
+  } else {
+    idx = raw % n;
+  }
+  heldIndex = idx;
+  const f = frames[idx];
+  cx.clearRect(0, 0, cv.width, cv.height);
+  cx.imageSmoothingEnabled = false;
+  cx.drawImage(img, f.x, f.y, f.w, f.h, 0, 0, cv.width, cv.height);
+  if (showPivot.checked && META.meta.pivot) {
+    const px = META.meta.pivot.x * cv.width, py = META.meta.pivot.y * cv.height;
+    cx.strokeStyle = "#ff4057"; cx.lineWidth = Math.max(1, cv.width / 256);
+    cx.beginPath(); cx.moveTo(px - 8, py); cx.lineTo(px + 8, py);
+    cx.moveTo(px, py - 8); cx.lineTo(px, py + 8); cx.stroke();
+  }
+  frameInfo.textContent = `${idx + 1} / ${n}`;
+  requestAnimationFrame(tick);
+}
+fps.oninput = () => fpsv.textContent = fps.value;
+pingpong.onchange = repeatOnce.onchange = () => moveStart = performance.now();
+if (img.complete) requestAnimationFrame(tick); else img.onload = () => requestAnimationFrame(tick);
+</script>
+</body>
+</html>
