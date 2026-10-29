@@ -60,6 +60,13 @@ struct EconomyLedger
     std::uint64_t minted_total = 0;
     std::uint64_t burned_total = 0;
 
+    /// 盗采私铸累计（刀 4）。盗采不入金库、直接进私囊，因此在铸币
+    /// 侧同增：恒等式 Σ账 = 铸 − 烧 的两侧一起动，守恒不动。
+    std::uint64_t poached_total = 0;
+    /// 上年该宗是否克扣（断供）。BirthSystem 读它决定收不收徒——
+    /// 断供年饿死徒弟比断绝嗣更糟。
+    std::array<bool, 8> shorted{};
+
     /// Σ金库（含无主公账）。守恒校验与测试共用这一份求和。
     [[nodiscard]] constexpr std::uint64_t vault_total() const noexcept
     {

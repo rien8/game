@@ -175,6 +175,10 @@ set(LIFE_TEST_SOURCES
     tests/test_life_cultivation.cpp
     tests/test_life_birth.cpp
     tests/test_life_economy.cpp
+    tests/test_life_decisions.cpp
+    tests/test_life_conflict.cpp
+    tests/test_life_politics.cpp
+    tests/test_life_emergence.cpp
 )
 add_executable(life_tests ${LIFE_TEST_SOURCES})
 target_link_libraries(life_tests PRIVATE life)
