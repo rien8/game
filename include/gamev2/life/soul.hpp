@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace gamev2::life {
 
@@ -58,6 +59,9 @@ struct Cultivation
     Realm realm = Realm::yinqi;
     /// 境内年资（刀 1 注释预告的进度轴）。CultivateSystem 逐年写。
     std::uint32_t progress = 0;
+    /// 百年闭关锁：year < 它则本年锁死，不掷突破（设定 §5.1 的元婴
+    /// 百年闭关）。CultivateSystem 写，DecideSystem 读（判据 0）。
+    std::uint32_t seclude_until = 0;
 };
 
 /// 能力四轴（1..9 档）。天生的，出生后不变。
@@ -80,6 +84,8 @@ struct Temper
     std::uint8_t order = 3;  ///< 1 悖逆 … 5 守序
     std::uint8_t mercy = 3;  ///< 1 酷烈 … 5 仁厚
     std::uint8_t vigor = 3;  ///< 1 慵懒 … 5 进取
+    /// 上次大事推移的年份（0 = 从未）。十年缓变纪律的锚（差异 18）。
+    std::uint32_t drift_year = 0;
 };
 
 /// 年岁。寿元上限不存——它由境界决定（kRealmLifespan），存两份会
@@ -90,10 +96,147 @@ struct Mortal
     std::uint32_t age = 0;
 };
 
-/// 职位。在位年数与上位途径随刀 4 / 刀 6 加入。
+/// 职位。在位年数与断供计数随刀 4 加入。
 struct Office
 {
     OfficeKind kind = OfficeKind::none;
+    std::uint32_t years = 0;    ///< 在位年数（政事段写）
+    std::uint32_t starved = 0;  ///< 连续断供年数（EconomySystem 写）
+};
+
+/// 声望。七宗各一维 + 散修圈一维，外加罪名计数（设计 §2.1）。
+struct Standing
+{
+    /// 按 history::Sect 序；第 8 位（unowned）是散修圈。取值钳在
+    /// [-5, 5]。
+    std::int8_t by_sect[8] = {};
+    std::uint8_t crimes = 0;  ///< 罪名计数
+};
+
+/// 站位。格号是 row-major 线性格号，与 world 的 Grid 寻址一致。
+struct Site
+{
+    std::uint32_t cell = 0;
+};
+
+/// 当年意图（设计 §2.1）。决策 system 写、行为 system 读；玩家的
+/// 接管点即此。
+enum class MotiveKind : std::uint8_t
+{
+    none,
+    cultivate,  ///< 修炼（默认）
+    seclude,    ///< 闭关
+    roam,       ///< 历练
+    operate,    ///< 经营（营生）
+    poach,      ///< 盗采
+    social,     ///< 社交
+    grudge,     ///< 记仇
+    avenge,     ///< 寻仇
+    contest,    ///< 夺位
+};
+
+/// 一年的意图。arg 的含义随 kind 变，语义写在各分支上。
+struct Motive
+{
+    MotiveKind kind = MotiveKind::none;
+    std::uint32_t arg = 0;  ///< 格号 / 无主脉号 / 对象 SoulId::index
+};
+
+/// 关系边的种类。边不是组件（差异 2）：它是「两个人之间的账」。
+enum class BondKind : std::uint8_t
+{
+    master,   ///< 师徒
+    kin,      ///< 亲缘
+    partner,  ///< 道侣（本刀只建结构不产生边，刀 6 用）
+    favor,    ///< 恩义
+    feud,     ///< 仇怨
+};
+
+/// 一条关系边。两端以 SoulId::index 标识，恒取较小者在 a。
+struct BondEdge
+{
+    BondKind kind = BondKind::favor;
+    std::uint32_t a = 0;        ///< SoulId::index
+    std::uint32_t b = 0;        ///< SoulId::index
+    std::uint8_t strength = 1;  ///< 1..5
+    std::uint32_t year = 0;     ///< 结缘年
+};
+
+/// 关系边集。不是组件（差异 2）：与 EconomyLedger 同一先例——金库
+/// 也不是组件。由 Life 持有。
+struct BondGraph
+{
+    std::vector<BondEdge> edges;
+
+    /// 加边或加劲：已有同 kind 的边则强度 +1（钳 5），否则新建。
+    /// 已有边的结缘年不改——那是「缘起之年」，不是最近一次来往之年。
+    BondEdge& tie(std::uint32_t a, std::uint32_t b, BondKind kind,
+                  std::uint32_t year)
+    {
+        const auto lo = a < b ? a : b;
+        const auto hi = a < b ? b : a;
+        for (auto& e : edges)
+        {
+            if (e.kind == kind && e.a == lo && e.b == hi)
+            {
+                if (e.strength < 5u)
+                {
+                    ++e.strength;
+                }
+                return e;
+            }
+        }
+        edges.push_back(BondEdge{kind, lo, hi, 1u, year});
+        return edges.back();
+    }
+
+    /// 找边；无则 nullptr。
+    [[nodiscard]] const BondEdge* find(std::uint32_t a, std::uint32_t b,
+                                       BondKind kind) const
+    {
+        const auto lo = a < b ? a : b;
+        const auto hi = a < b ? b : a;
+        for (const auto& e : edges)
+        {
+            if (e.kind == kind && e.a == lo && e.b == hi)
+            {
+                return &e;
+            }
+        }
+        return nullptr;
+    }
+
+    /// 死者清边：抹掉任一端为 index 的全部边，返回抹除数。
+    std::size_t erase_soul(std::uint32_t index)
+    {
+        const auto before = edges.size();
+        std::erase_if(edges, [index](const BondEdge& e)
+                                { return e.a == index || e.b == index; });
+        return before - edges.size();
+    }
+
+    /// 与 index 有 kind 边的活人序号集（不含 index 自身）。
+    [[nodiscard]] std::vector<std::uint32_t> neighbors(
+        std::uint32_t index, BondKind kind) const
+    {
+        std::vector<std::uint32_t> out;
+        for (const auto& e : edges)
+        {
+            if (e.kind != kind)
+            {
+                continue;
+            }
+            if (e.a == index && e.b != index)
+            {
+                out.push_back(e.b);
+            }
+            else if (e.b == index && e.a != index)
+            {
+                out.push_back(e.a);
+            }
+        }
+        return out;
+    }
 };
 
 /// 灵石账（设计 §2.1）。stone 按品级折算成统一记账单位（下品），

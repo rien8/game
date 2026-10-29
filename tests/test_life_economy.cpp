@@ -7,10 +7,12 @@
 #include "gamev2/world/generate.hpp"
 #include "test_framework.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <vector>
 
 namespace {
 
@@ -47,6 +49,34 @@ Stack make_stack(const gamev2::world::WorldParams& p)
     gamev2::faction::FactionDiagnostics fdiag;
     stack.era = gamev2::faction::simulate(*stack.world, ledger, fdiag);
     return stack;
+}
+
+/// 曾经盗采过的身位序号（按 SoulId::index）。
+///
+/// 刀 4 起私囊里多了一块来路：盗采私铸直接进私囊（不进金库）。判据 2
+/// （「灵石不够烧」）在开局人人成立——私囊全是 0——于是悖逆者（order ≤2）
+/// 头一年就集体起盗采心，分配类断言若不摘掉他们，量到的就不是分配
+/// 次序而是私铸。
+///
+/// 摘的依据是事件表：它是「谁在何年做了什么」的唯一权威（设计 §8）。
+/// 逐帧看 Motive 不够——私囊里的石头是历年攒下的，今年没盗采的人身上
+/// 照样有往年盗来的石头。
+std::vector<char> ever_poached(const gamev2::life::Life& life)
+{
+    std::uint32_t max_index = 0;
+    for (const auto& ev : life.events())
+    {
+        max_index = std::max(max_index, ev.actor);
+    }
+    std::vector<char> flags(max_index + 1u, 0);
+    for (const auto& ev : life.events())
+    {
+        if (ev.kind == gamev2::life::LifeEventKind::poach)
+        {
+            flags[ev.actor] = 1;
+        }
+    }
+    return flags;
 }
 
 }  // namespace
@@ -86,14 +116,26 @@ TEST(every_soul_carries_an_empty_purse)
 
     std::uint32_t with_purse = 0;
     std::uint32_t with_name = 0;
+    std::uint32_t newcomers = 0;
     life.ecs_world().view<const gamev2::life::SoulId,
                           const gamev2::life::Purse>().each(
         [&](const gamev2::life::SoulId&,
             const gamev2::life::Purse&)
         { ++with_purse; });
     life.ecs_world().view<const gamev2::life::SoulId>().each(
-        [&](const gamev2::life::SoulId&) { ++with_name; });
-    CHECK(with_name > 970u);   // 新生儿确实在册
+        [&](const gamev2::life::SoulId& id)
+        {
+            ++with_name;
+            if (id.index >= 970u)
+            {
+                ++newcomers;
+            }
+        });
+    // 新生儿确实在册。判据是「新生儿在册」而非「总人口增长」——刀 4
+    // 起众生会横死（历练遇险、盗采被擒、寻仇败北），开局那一年就有人
+    // 死，总人口不增反减（256²/seed13 实测：970 → 957，另有 7 名新生
+    // 儿落地，序号 970–976）。
+    CHECK(newcomers > 0u);
     CHECK_EQ(with_purse, with_name);
 }
 
@@ -163,8 +205,11 @@ TEST(the_identity_holds_every_year)
     }
     CHECK_EQ(diag.stone_conservation_broken, 0u);
     CHECK_EQ(diag.office_without_sect, 0u);
-    // 铸币表逐年入账：420000 × 300，逐年精确。
-    CHECK_EQ(life.economy().minted_total, 126000000u);
+    // 铸币表逐年入账：420000 × 300，逐年精确。盗采的私铸走同一条铸币
+    // 侧（恒等式两侧同增，守恒不动），因此铸造总额 = 宗门铸币 + 私铸。
+    CHECK(life.economy().poached_total > 0u);
+    CHECK_EQ(life.economy().minted_total,
+             126000000u + life.economy().poached_total);
 }
 
 TEST(the_same_seed_gives_the_same_ledger)
@@ -206,7 +251,7 @@ TEST(the_same_seed_gives_the_same_ledger)
 TEST(the_rich_sect_pays_and_accumulates)
 {
     // 设计 §3.3：宗主最高优先、长老高份额。首年太玄铸 260000、需求
-    // 95400——全员足额，金库结余 164600（main 上的活脉分布：1 龙脉
+    // 91750——全员足额，金库结余 168250（main 上的活脉分布：1 龙脉
     // + 4 主脉）。
     // 私囊实得要与「份额 − 当年烧毁」对得上：宗主引气级不可能，
     // 拿外门引气弟子的账做精确断言（份额 150 − 烧毁 37 = 113）。
@@ -221,13 +266,17 @@ TEST(the_rich_sect_pays_and_accumulates)
     life.seed();
     life.run_years(1);
 
-    CHECK_EQ(life.economy().vault[0], 164600u);
+    // 金库结余：260000 − 91750 = 168250。刀 3 读数 164600 已作废——
+    // 刀 4 的政事段改变了分配结构：晋升阶梯改写职级配比（外门 150
+    // → 内门 500），横死者不留职位因而不领份额（活人的份额照发）。
+    CHECK_EQ(life.economy().vault[0], 168250u);
 
     using gamev2::life::Office;
     using gamev2::life::OfficeKind;
     using gamev2::life::Purse;
     using gamev2::life::Realm;
     using gamev2::life::SoulId;
+    const std::vector<char> poached = ever_poached(life);
     std::uint32_t checked = 0;
     life.ecs_world().view<const SoulId, const Office, const Purse,
                           const gamev2::life::Cultivation>().each(
@@ -236,11 +285,16 @@ TEST(the_rich_sect_pays_and_accumulates)
         {
             if (id.index >= 970u)  // 初始队列之外是本年新生儿：组件随
             {                      // 年末 flush 才落地，经济步发不到，
-                return;            // 探针表 164600 也按初始名单算
+                return;            // 探针表 168250 也按初始名单算
             }
             if (id.sect != gamev2::history::Sect::taixuan
                 || office.kind != OfficeKind::outer
                 || cult.realm != Realm::yinqi)
+            {
+                return;
+            }
+            // 盗采者的私囊里另有私铸的一块：量分配次序时摘掉他们。
+            if (id.index < poached.size() && poached[id.index] != 0)
             {
                 return;
             }
@@ -274,6 +328,7 @@ TEST(the_short_sect_cuts_from_the_bottom)
     using gamev2::life::OfficeKind;
     using gamev2::life::Purse;
     using gamev2::life::SoulId;
+    const std::vector<char> poached = ever_poached(life);
     std::uint32_t outer_seen = 0;
     std::uint32_t inner_with_stones = 0;
     std::uint32_t elders_seen = 0;
@@ -287,6 +342,11 @@ TEST(the_short_sect_cuts_from_the_bottom)
                 return;            // 新生儿年末 flush 后才有组件
             }
             if (id.sect != gamev2::history::Sect::daxia)
+            {
+                return;
+            }
+            // 盗采者的私囊里另有私铸的一块：量分配次序时摘掉他们。
+            if (id.index < poached.size() && poached[id.index] != 0)
             {
                 return;
             }
@@ -337,6 +397,7 @@ TEST(the_empty_vault_leaves_everyone_with_nothing)
 
     using gamev2::life::Purse;
     using gamev2::life::SoulId;
+    const std::vector<char> poached = ever_poached(life);
     std::uint32_t members = 0;
     life.ecs_world().view<const SoulId, const Purse>().each(
         [&](const SoulId& id, const Purse& purse)
@@ -346,6 +407,12 @@ TEST(the_empty_vault_leaves_everyone_with_nothing)
                 return;
             }
             ++members;
+            // 盗采是私铸：石头直接进私囊不过公账，断供宗里也有人靠
+            // 它攒下灵石。断供宗「分文不得」指的是份额，私铸不算。
+            if (id.index < poached.size() && poached[id.index] != 0)
+            {
+                return;
+            }
             CHECK_EQ(purse.stone, 0u);
         });
     CHECK(members > 0u);
@@ -376,6 +443,8 @@ TEST(the_free_cultivator_needs_thirty_three_years)
     std::uint32_t people = 0;
     std::uint64_t richest = 0;
     std::uint32_t over_stone = 0;
+    std::uint32_t over_stone_plain = 0;
+    std::vector<char> poached = ever_poached(life);
     life.ecs_world().view<const SoulId, const Purse>().each(
         [&](const SoulId& id, const Purse& p)
         {
@@ -386,17 +455,25 @@ TEST(the_free_cultivator_needs_thirty_three_years)
             ++people;
             richest = richest > p.silver ? richest : p.silver;
             over_stone += p.stone > 0u ? 1u : 0u;
+            const bool ever = id.index < poached.size()
+                              && poached[id.index] != 0;
+            over_stone_plain += (p.stone > 0u && !ever) ? 1u : 0u;
         });
     CHECK(people > 0u);
-    // 营生只发银两：第 33 年没人有过一枚灵石（33×60 = 1980 < 2000），
-    // 且营生不产 stone——铸币是灵石唯一来源（设计 §3.5「没有第二
-    // 个来源」；无主金库为 0，买入永不成交）。
-    CHECK_EQ(over_stone, 0u);
+    // 营生只发银两：没盗采过的散修，第 33 年一枚灵石也没有
+    //（33×60 = 1980 < 2000），且营生不产 stone——铸币是灵石的宗门侧
+    // 唯一来源（设计 §3.5「没有第二个来源」；无主金库为 0，买入永不
+    // 成交）。盗采的私铸是第二个来源，但那只进盗采者的私囊。
+    CHECK_EQ(over_stone_plain, 0u);
+    // 摘人不掏空断言：盗采者手里确实有灵石（实测 165 人）。
+    CHECK(over_stone > 0u);
     CHECK_EQ(richest, 33u * gamev2::life::kFreeCultivatorIncomeLiang);
 
     life.run_years(1);  // 第 34 年
     std::uint64_t richest34 = 0;
     over_stone = 0;
+    over_stone_plain = 0;
+    poached = ever_poached(life);
     life.ecs_world().view<const SoulId, const Purse>().each(
         [&](const SoulId& id, const Purse& p)
         {
@@ -406,11 +483,15 @@ TEST(the_free_cultivator_needs_thirty_three_years)
             }
             richest34 = richest34 > p.silver ? richest34 : p.silver;
             over_stone += p.stone > 0u ? 1u : 0u;
+            const bool ever = id.index < poached.size()
+                              && poached[id.index] != 0;
+            over_stone_plain += (p.stone > 0u && !ever) ? 1u : 0u;
         });
     // 34×60 = 2040 ≥ 2000：够了——但参考世界无主脉全枯、公账为 0，
     // 买不进，银两留着（口径裁定 8：买入从无主金库划转，不铸币）。
     CHECK_EQ(richest34, 34u * gamev2::life::kFreeCultivatorIncomeLiang);
-    CHECK_EQ(over_stone, 0u);
+    CHECK_EQ(over_stone_plain, 0u);
+    CHECK(over_stone > 0u);
     CHECK_EQ(life.economy().vault[7], 0u);
 }
 
@@ -490,6 +571,10 @@ TEST(income_has_exactly_one_source)
     // 来源）」。银两不进灵石守恒：营生发银两，灵石只能从铸币来。
     // 断言：跑 100 年，铸造 == 420000×100，且恒等式（Task 2）仍平——
     // 营生若把银两错记进 stone，恒等式与铸造额至少破一头。
+    //
+    // 刀 4 补了第二条灵石的路：盗采私铸（差异 7——私铸直接进私囊，
+    // 同时在铸币侧同增，恒等式两侧一起动）。它单列在 poached_total，
+    // 因此「铸币额 == 脉产出」仍以差值的形式精确成立。
     const Stack s = make_stack(economy_world(13));
     CHECK(s.world.has_value());
     if (!s.world)
@@ -501,7 +586,9 @@ TEST(income_has_exactly_one_source)
     life.seed();
     life.run_years(100);
 
-    CHECK_EQ(life.economy().minted_total, 42000000u);
+    CHECK(life.economy().poached_total > 0u);
+    CHECK_EQ(life.economy().minted_total,
+             42000000u + life.economy().poached_total);
     CHECK_EQ(diag.stone_conservation_broken, 0u);
     // 烧毁非死代码的显式钉（R2：本针从 T2 移来——全经济下 100 年
     // 必然有人烧过灵石）。

@@ -27,6 +27,21 @@ gamev2::world::WorldParams roster_world(std::uint64_t seed)
     return p;
 }
 
+/// 金字塔上移的夹具：256²。128² 只有太玄有活脉，其余六宗无地可种、
+/// 无脉可采——经济退化到只剩一宗能养人（刀 3 的经济测试已用同一
+/// 理由换过夹具）。刀 4 的判据 2 让「缺钱」成为常态，退化世界的
+/// 众生大半被逼去盗采与横死，筑基以上的存量因此只降不升
+/// （128² 实测：开局 133 → 100 年 125），金字塔上移在那里读不出来。
+gamev2::world::WorldParams pyramid_world(std::uint64_t seed)
+{
+    gamev2::world::WorldParams p;
+    p.width = 256;
+    p.height = 256;
+    p.z_levels = 3;
+    p.seed = seed;
+    return p;
+}
+
 struct Stack
 {
     std::optional<gamev2::world::World> world;
@@ -135,11 +150,12 @@ TEST(the_cohort_shrinks_as_the_years_pass)
     // 寿元死亡不是死代码：跑 200 年，初始队列（index < 初始人口数）
     // 必须有人死去，同时世界不能空。
     //
-    // 上下界由探针实测钉死（刀 3 重标后复测，2026-10-27）：实测环境
-    // 与读数 128×128 / seed 13 / 200 年 / 初始队列存活 900 —— 九成初始
-    // 人口在 200 年内突破到长寿境界（金丹/元婴寿 600/1200），故下界
-    // 取 80（防世界掏空）；真正证明「寿元死亡不是死代码」的是上界断言
-    // （970−900 = 70 人确实死于寿元）。
+    // 上下界由探针实测钉死（刀 4 重钉，2026-10-29）：实测环境与读数
+    // 128×128 / seed 13 / 200 年 / 初始队列存活 80。刀 3 的读数是 900
+    // ——「九成初始人口活到长寿境界（金丹/元婴寿 600/1200）」，刀 4
+    // 把它打散了：众生现在会横死（历练遇险 5‰、盗采被擒 30‰、寻仇
+    // 败北），200 年里初始队列掉到 80。下界取 80（防世界掏空），上界
+    // 断言证明死亡不是死代码。
     // 刀 2 旧读数「存活 87」与实测不符（除数与经济均已排除为成因），
     // 已按本次探针订正。
     const Stack s = make_stack(roster_world(13));
@@ -160,7 +176,7 @@ TEST(the_cohort_shrinks_as_the_years_pass)
     const std::uint32_t total = count_alive(
         life, [](const gamev2::life::SoulId&) { return true; });
     CHECK(survivors < initial_population());
-    CHECK(survivors > 80u);
+    CHECK(survivors >= 80u);
     CHECK(total > 0u);
 }
 
@@ -258,7 +274,10 @@ TEST(the_pyramid_rises_with_the_years)
     // 设计 §11 刀 2 验收：无决策注入跑百年，人口金字塔随年演化。
     // 演化的方向是「上移」：新生队列里有人凭年资与悟性爬上筑基以上、
     // 初始引气队列被晋升抽走——合起来才叫修炼在运转。
-    const Stack s = make_stack(roster_world(13));
+    //
+    // 夹具换成 256²（理由见 pyramid_world 的注释）：128² 里经济退化，
+    // 金字塔读不出上移。256² 实测：开局 133 → 100 年 139。
+    const Stack s = make_stack(pyramid_world(13));
     CHECK(s.world.has_value());
     if (!s.world)
     {

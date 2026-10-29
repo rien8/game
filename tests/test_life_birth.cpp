@@ -69,7 +69,12 @@ TEST(the_dead_are_not_counted_when_recruiting)
     }
 
     std::uint32_t next_index = 406;
-    gamev2::life::BirthSystem birth(13, clock, souls, next_index);
+    // 刀 4 起 BirthSystem 多了两个参数：断供账（读它决定收不收徒）与
+    // 世界总格数（落格掷运的取值域）。这里用一份空账与一个够大的
+    // 图幅——本测试只关心收徒人数。
+    gamev2::life::EconomyLedger ledger;
+    gamev2::life::BirthSystem birth(13, clock, souls, next_index, ledger,
+                                    65536u);
     gamev2::ecs::CommandBuffer cmd;
     birth.execute(world, cmd);
 
