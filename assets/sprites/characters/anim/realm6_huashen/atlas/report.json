@@ -1,0 +1,144 @@
+{
+  "idle": {
+    "source_frames": 76,
+    "picked": [
+      34,
+      37,
+      41,
+      43
+    ],
+    "picked_source_frames": [
+      34,
+      37,
+      41,
+      43
+    ],
+    "loop": {
+      "i": 34,
+      "j": 46,
+      "diff": 6.482,
+      "phase_window_diff": 5.987,
+      "cycle_frames": 12,
+      "motion_coverage": 0.084,
+      "sampling": "motion-spaced",
+      "boundary_source": "internal-repeat"
+    },
+    "playback": "forward-loop",
+    "micro_events": [],
+    "baseline_drift_px": 0,
+    "centroid_drift_px": 0.2,
+    "height_var_px": 0,
+    "loop_qc": {
+      "verdict": "PASS",
+      "chronological": true,
+      "selected_outside_cycle": [],
+      "boundary_diff": 6.482,
+      "selected_seam_diff": 5.839,
+      "median_internal_step_diff": 4.08,
+      "seam_ratio": 1.431
+    },
+    "playback_qc": {
+      "verdict": "PASS",
+      "issues": [],
+      "frame_count": 4,
+      "expected_frames": 4,
+      "minimum_frames": 2,
+      "step_diffs": [
+        3.071,
+        5.457,
+        4.08
+      ],
+      "median_step_diff": 4.08,
+      "transition_cv": 0.233,
+      "near_freeze_steps": [],
+      "jump_steps": [],
+      "seam_diff": 5.839,
+      "seam_ratio": 1.431
+    },
+    "worst_bg_purity": 0.9887,
+    "key_drift": null,
+    "spatial_qc": {
+      "verdict": "PASS",
+      "issues": [],
+      "empty_cells": [],
+      "padding_intrusions": [],
+      "baseline_drift_px": 0,
+      "centroid_drift_px": 0.2
+    },
+    "output_scale": 0.83871
+  },
+  "walk": {
+    "source_frames": 102,
+    "picked": [
+      45,
+      47,
+      48,
+      51,
+      53,
+      54
+    ],
+    "picked_source_frames": [
+      45,
+      47,
+      48,
+      51,
+      53,
+      54
+    ],
+    "loop": {
+      "i": 45,
+      "j": 57,
+      "diff": 2.254,
+      "phase_window_diff": 2.341,
+      "cycle_frames": 12,
+      "motion_coverage": 0.121,
+      "sampling": "motion-spaced",
+      "boundary_source": "internal-repeat"
+    },
+    "playback": "forward-loop",
+    "micro_events": [],
+    "baseline_drift_px": 1,
+    "centroid_drift_px": 0.5,
+    "height_var_px": 1,
+    "loop_qc": {
+      "verdict": "PASS",
+      "chronological": true,
+      "selected_outside_cycle": [],
+      "boundary_diff": 2.254,
+      "selected_seam_diff": 28.263,
+      "median_internal_step_diff": 20.17,
+      "seam_ratio": 1.401
+    },
+    "playback_qc": {
+      "verdict": "PASS",
+      "issues": [],
+      "frame_count": 6,
+      "expected_frames": 6,
+      "minimum_frames": 2,
+      "step_diffs": [
+        20.17,
+        22.715,
+        11.657,
+        23.498,
+        6.431
+      ],
+      "median_step_diff": 20.17,
+      "transition_cv": 0.397,
+      "near_freeze_steps": [],
+      "jump_steps": [],
+      "seam_diff": 28.263,
+      "seam_ratio": 1.401
+    },
+    "worst_bg_purity": 0.987,
+    "key_drift": null,
+    "spatial_qc": {
+      "verdict": "PASS",
+      "issues": [],
+      "empty_cells": [],
+      "padding_intrusions": [],
+      "baseline_drift_px": 1,
+      "centroid_drift_px": 0.3
+    },
+    "output_scale": 0.83871
+  }
+}

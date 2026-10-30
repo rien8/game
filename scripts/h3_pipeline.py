@@ -111,11 +111,14 @@ MOTION = {
         "softly, while the feet and lower body stay planted and the figure never leaves "
         "its position on screen.",
     "walk":
-        "The cultivator repeats an in-place treadmill walk cycle at a steady cadence: the "
+        "The cultivator repeats an in-place treadmill "
+        "walk cycle at a steady cadence: the "
         "feet alternate forward and back in place without travelling across the frame, "
-        "the body bobs slightly with each step, the wide sleeves swing gently opposite the "
+        "the body bobs slightly with each step, the "
+        "wide sleeves swing gently opposite the "
         "legs, and the hair sways with the motion. The figure stays at exactly the same "
-        "screen position, keeps the same front-facing orientation, and the clip completes "
+        "screen position, keeps the same front-facing "
+        "orientation, and the clip completes "
         "only whole left-right gait cycles so that the final frame lands on the same "
         "foot-contact phase as the opening frame.",
 }
@@ -124,13 +127,17 @@ MOTION = {
 def build_prompt(desc: str, move: str) -> str:
     """H3 官方三字段格式。FL2VA 必须写首尾帧对齐行，两个音频字段都写 N/A。"""
     return (
-        "How the reference pictures align with the target video — Picture 1 (from Shot 1) "
+        "How the reference pictures align with the "
+        "target video — Picture 1 (from Shot 1) "
         f"aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 1) "
         f"aligns with the {DURATION:.2f}-second mark of the target video.\n\n"
-        "integrated_multimodal_description: [Shot 1] Chibi pixel-art game sprite animation, "
+        "integrated_multimodal_description: [Shot "
+        "1] Chibi pixel-art game sprite animation, "
         "two-head-tall proportions, crisp blocky pixels with hard pixel edges, "
-        "no anti-aliasing, flat limited-palette colors, clean dark outlines, a front-facing "
-        "static shot reproduces the chibi Chinese immortal cultivator of Picture 1 exactly — "
+        "no anti-aliasing, flat limited-palette "
+        "colors, clean dark outlines, a front-facing "
+        "static shot reproduces the chibi Chinese "
+        "immortal cultivator of Picture 1 exactly — "
         f"{desc}. Picture 1 is the only authority on appearance: the face, hairstyle, "
         "headwear, every garment, every colour, every prop and the whole silhouette are "
         "copied unchanged from Picture 1 and must never be redesigned, recoloured, "
@@ -138,15 +145,20 @@ def build_prompt(desc: str, move: str) -> str:
         "in Picture 1. Both feet on the ground, his entire body inside the frame. "
         "The flat solid magenta #FF00FF background established by Picture 1, a single "
         "unchanging colour that never shifts, fades or changes hue at any point. "
-        "The character's face, hairstyle, headwear, clothing, colours, body proportions and "
+        "The character's face, hairstyle, headwear, "
+        "clothing, colours, body proportions and "
         "the background colour never change at any point; the only change is the body "
         "motion described below. "
         f"{MOTION[move]} The overall framing and scale remain unchanged throughout. "
-        "The camera holds a completely static shot. The motion progressively returns to the "
+        "The camera holds a completely static shot. "
+        "The motion progressively returns to the "
         "same action phase, pose, layer positions, and exact composition established by "
-        "Picture 2 at the end of the shot. No blinking, no hand gestures, no head turning, "
-        "no camera movement, no additional characters, no effects and no new props appear, "
-        "no aura, no glow, no halo and no shadow on the ground. Any prop already held stays "
+        "Picture 2 at the end of the shot. No "
+        "blinking, no hand gestures, no head turning, "
+        "no camera movement, no additional characters, "
+        "no effects and no new props appear, "
+        "no aura, no glow, no halo and no shadow on "
+        "the ground. Any prop already held stays "
         "in the same hand and keeps its shape. The clip is completely silent.\n\n"
         "overall_soundscape: N/A\n\n"
         "non_diegetic_music: N/A"
@@ -204,6 +216,9 @@ def submit(ref_url: str, prompt: str, tag: Path) -> str:
         if "task_id" in out:
             return out["task_id"]
         last = raw.strip()
+        # 额度不足是硬失败，重试只会白等五分钟；限流和服务端抖动才值得重试。
+        if '"code":402' in last:
+            raise SystemExit(f"提交失败（额度不足）：{last}")
         print(f"提交未返回 task_id（第 {attempt + 1} 次）：{last}", flush=True)
         time.sleep(20 * (attempt + 1))
     raise SystemExit(f"提交失败：{last}")

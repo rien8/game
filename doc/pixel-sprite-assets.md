@@ -54,6 +54,9 @@ py -3 scripts/make_sprites.py
 九境那组的九个境界按格子顺序排（左到右、上到下），境界名是按提示词
 指定的顺序给的；光效强弱是生成模型自己的发挥，与境界高低只大致对应。
 
+**全部 22 个角色都已生成 idle + walk 动画精灵图**，逐个目录在
+`assets/sprites/characters/anim/<角色名>/`，见下文「动画精灵图」。
+
 ## 规格
 
 - 32×32 像素，PNG，RGBA 带透明通道，量化到 32 色。
@@ -142,8 +145,16 @@ the remaining M Plan weekly limit and account credits cannot cover this
 MiniMax-H3 video generation; this task costs 277 credits
 ```
 
-脚本会重试 5 次后停下，**不会**把剩余任务空转。补充额度后直接重跑同一条命令
-即可：
+**费用在取回结果时才结算。** 提交成功的任务先挂在服务端，报错文案里会带出
+`earlier generations have N credits in pending charges`。这些 pending 费用会占住
+额度，导致后续提交一律 402——哪怕账户余额其实还够。所以一批任务提交后要尽快
+把结果下载回来，额度才会释放。2026-10-30 跑第 2 波时撞上过：5 个 walk 里 4 个
+已提交成功，第 5 个提交时正好有 1111 credits 挂在 pending 上，直接被 402 挡下；
+把前 4 个结果取回、pending 结清后额度才放出来。
+
+**402 是提交前的额度校验，不会扣费**，重试没有意义，脚本遇到 402 直接失败。
+真正需要退避重试的是限流（429 `video generation limit reached`）。补充额度后
+直接重跑同一条命令即可：
 
 ```powershell
 py -3 scripts/h3_batch.py <角色名> [...]
@@ -205,6 +216,18 @@ authority on appearance」。改 `DESC` 之前必须先对一遍精灵图。
 
 `spatial_qc` 的 baseline_drift 为 0、centroid_drift ≤ 0.2 像素，脚底不飘。
 
+**三道门有盲区：特效被画进角色包围盒内部时全部失效。** `spatial_qc` 只查角色
+bbox **之外**的污染，`worst_bg_purity` 也是同一个口径。炼气（`realm2_lianqi`）
+有一段 walk 被 H3 画了一个巨大的白色光盘把角色整个包住，光盘整个落在 bbox 内部，
+于是被当成角色本体——`loop_qc` / `playback_qc` / `spatial_qc` 三道门全 PASS，
+`worst_bg_purity` 还是 0.9903，比 `office1_sect_master` 的 0.9459 还"干净"。
+肉眼一看就露馅。
+
+所以 QC 全 PASS **不等于**画面合格，成品必须逐个用对照表看
+（`agent-temp/identity_sheet.py <角色名>`，静态精灵与动画帧并排）。这条不补进
+自动门禁，是因为光盘和角色连成一体，靠连通域很难在不伤到角色的前提下分开。
+根治要落在上游：参考图里不能有特效。
+
 ### 踩过的坑
 
 - **H3 会把键色底漂掉。** walk 段生成出来背景从品红变成绿底（150/158 帧
@@ -225,6 +248,11 @@ authority on appearance」。改 `DESC` 之前必须先对一遍精灵图。
   trimmed with gold」，而精灵是暗红袖 + 棕袍 + 白靴、根本没有金色，H3 就按
   文字重画了角色。描述只能复述图里看得到的东西，并且 prompt 里要写明
   「Picture 1 是造型的唯一权威」。
+- **参考图里的特效会被 H3 放大成主角。** 炼气的静态精灵背后有一圈白色光晕，
+  拿没剔过光环的定妆图当参考图，H3 就把它当成角色的组成部分，画成一大片白盘
+  把人包住。`make_key_image.py` 现在会在定妆图层剔掉光环（炼气 / 筑基 / 化神
+  三个有光环的角色），walk 的参考图则从 idle 的首帧取——前提是那段 idle 也是
+  用剔过光环的定妆图生成的。顺序反了就会复现这个问题。
 
 ### 在 Qt 里用
 

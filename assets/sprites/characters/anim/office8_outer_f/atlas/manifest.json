@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "asset_type": "sprite-sequence",
+  "atlas": "atlas.png",
+  "metadata": "atlas.json",
+  "preview": "preview.html",
+  "frames_root": "frames",
+  "background_mode": "transparent",
+  "color_space": "sRGB",
+  "alpha_mode": "straight",
+  "cell_size": [
+    32,
+    32
+  ],
+  "pivot": {
+    "x": 0.5,
+    "y": 0.9375,
+    "origin": "top-left"
+  },
+  "pivot_mode": "bottom-center",
+  "asset_kind": "character",
+  "facing": "front",
+  "actions": {
+    "idle": {
+      "frames": 4,
+      "playback": "forward",
+      "end_behavior": "loop",
+      "fps": 12
+    },
+    "walk": {
+      "frames": 6,
+      "playback": "forward",
+      "end_behavior": "loop",
+      "fps": 12
+    }
+  }
+}

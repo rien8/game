@@ -66,8 +66,12 @@ def start_move(name: str, move: str, ref: Path) -> str:
     return task_id
 
 
-def wait_all(jobs: list[tuple[str, str, str]]) -> dict[str, dict]:
-    """并发轮询所有任务，返回 task_id -> 结果。"""
+def wait_all(jobs: list[tuple[str, str, str]]) -> tuple[dict[str, dict], dict]:
+    """并发轮询所有任务，返回 (已完成结果, 仍未结束的任务)。
+
+    超时的任务不抛异常：同批里已经生成好的视频必须先取回，
+    否则它们挂着的额度会被一直占着。
+    """
     pending = {tid: (name, move) for name, move, tid in jobs}
     deadline = time.time() + POLL_TIMEOUT
     done: dict[str, dict] = {}
@@ -85,9 +89,13 @@ def wait_all(jobs: list[tuple[str, str, str]]) -> dict[str, dict]:
                 done[tid] = out
         if pending:
             time.sleep(POLL_INTERVAL)
-    for tid, (name, move) in pending.items():
-        raise SystemExit(f"[{name}/{move}] 轮询超时：{tid}")
-    return done
+    return done, pending
+
+
+def report_stuck(stuck: dict) -> None:
+    """轮询超时的任务要单独提示：结果还挂在服务端，额度也没释放。"""
+    for tid, (name, move) in stuck.items():
+        print(f"[{name}/{move}] 轮询超时，结果未取回：{tid}", flush=True)
 
 
 def fetch(tid: str, result: dict, name: str, move: str) -> None:
@@ -128,11 +136,20 @@ def run_wave(wave: list[str]) -> None:
         else:
             move = "idle"
             fresh.append(name)
-        jobs.append((name, move, start_move(name, move, ref_for(name, move))))
+        try:
+            tid = start_move(name, move, ref_for(name, move))
+        except SystemExit as exc:
+            # 提交失败不能拖垮同波其它任务：已提交的还挂在服务端，
+            # 额度要等结果取回才释放，必须让它们走到 fetch。
+            print(f"[{name}/{move}] 提交失败，跳过：{exc}", flush=True)
+            continue
+        jobs.append((name, move, tid))
         time.sleep(SUBMIT_GAP)
-    results = wait_all(jobs)
+    results, stuck = wait_all(jobs)
     for name, move, tid in jobs:
-        fetch(tid, results[tid], name, move)
+        if tid in results:
+            fetch(tid, results[tid], name, move)
+    report_stuck(stuck)
 
     # 阶段二：刚生成的 idle 接着跑 walk
     jobs = []
@@ -140,14 +157,20 @@ def run_wave(wave: list[str]) -> None:
         if not (ANIM / name / "videos" / "idle.mp4").exists():
             print(f"[{name}] idle 未产出，跳过 walk", flush=True)
             continue
-        jobs.append((name, "walk",
-                     start_move(name, "walk", ref_for(name, "walk"))))
+        try:
+            tid = start_move(name, "walk", ref_for(name, "walk"))
+        except SystemExit as exc:
+            print(f"[{name}/walk] 提交失败，跳过：{exc}", flush=True)
+            continue
+        jobs.append((name, "walk", tid))
         time.sleep(SUBMIT_GAP)
     if not jobs:
         return
-    results = wait_all(jobs)
+    results, stuck = wait_all(jobs)
     for name, move, tid in jobs:
-        fetch(tid, results[tid], name, move)
+        if tid in results:
+            fetch(tid, results[tid], name, move)
+    report_stuck(stuck)
 
 
 def pack(names: list[str]) -> None:
