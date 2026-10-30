@@ -1,6 +1,8 @@
 #include "views.hpp"
 
+#include "gamev2/ecs/adapt/genetics_systems.hpp"
 #include "gamev2/environment/climate.hpp"
+#include "gamev2/genetics/phenotype.hpp"
 #include "gamev2/world/enums.hpp"
 #include "gamev2/world/grid.hpp"
 #include "gamev2/world/tables.hpp"
@@ -15,13 +17,29 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 
 namespace gamev2::gui {
 
 namespace {
 
 using gamev2::ecs::EntityId;
+using gamev2::ecs::adapt::CreaturePhenotype;
 using gamev2::ecs::adapt::Position;
+using gamev2::ecs::adapt::Vitality;
+using gamev2::genetics::TraitKind;
+using gamev2::genetics::trait_index;
+
+/// 人群缩略精灵的边长。静态精灵 32×32 缩到一半。
+constexpr double kCrowdSprite = 16.0;
+
+/// 玩家精灵的边长。用原尺寸，动画才看得出差别。
+constexpr double kPlayerSprite = 32.0;
+
+/// 精灵锚点：底部居中。图集 pivot 是 (0.5, 0.9375)，静态精灵的脚底基线
+/// 在第 30 行，两者一致——脚落在个体坐标上，身体朝上。
+constexpr double kPivotX = 0.5;
+constexpr double kPivotY = 0.9375;
 
 /// 群系配色。与 worldgen_demo 导出的 biome.ppm 同一张表——两张图放在一起
 /// 看才认得出是同一个世界。
@@ -156,9 +174,18 @@ QString land_type_name(const gamev2::world::LandType type)
 }
 
 EcologyView::EcologyView(Simulation& sim, QWidget* parent)
-    : QWidget(parent), sim_{sim}
+    : QCanvasPainterWidget(parent), sim_{sim}
 {
     setMinimumSize(360, 360);
+    setFillColor(QColor(18, 18, 22));
+
+    // 12fps：与图集 manifest 的 fps 一致。只有玩家一个精灵在动，代价可以
+    // 忽略——静态场景已经缓存在离屏画布里，每帧只是把它合成上去。
+    anim_timer_.setInterval(83);
+    connect(&anim_timer_, &QTimer::timeout, this,
+            [this] { advance_animation(); });
+    anim_timer_.start();
+
     refresh();
 }
 
@@ -166,6 +193,9 @@ void EcologyView::refresh()
 {
     creatures_.clear();
     auto& entities = sim_.entities();
+    const auto player = sim_.player();
+    std::size_t player_slot = std::numeric_limits<std::size_t>::max();
+
     entities.for_each_entity(
         [&](const EntityId e)
         {
@@ -174,12 +204,46 @@ void EcologyView::refresh()
             {
                 return;
             }
-            creatures_.emplace_back(position->x, position->y);
+            const auto* vitality = entities.get_if<Vitality>(e);
+            const auto* phenotype = entities.get_if<CreaturePhenotype>(e);
+
+            CreatureSprite creature;
+            creature.pos = QPointF(position->x, position->y);
+            creature.fitness = vitality == nullptr ? 0.0f : vitality->fitness;
+            if (phenotype != nullptr)
+            {
+                const auto& traits = phenotype->phenotype.traits;
+                creature.body_size = traits[trait_index(TraitKind::BodySize)];
+                creature.speed = traits[trait_index(TraitKind::Speed)];
+                creature.fecundity = traits[trait_index(TraitKind::Fecundity)];
+                creature.sense_range =
+                    traits[trait_index(TraitKind::SenseRange)];
+            }
+            if (e == player)
+            {
+                player_slot = creatures_.size();
+            }
+            creatures_.push_back(creature);
         });
 
+    const auto ranks = assign_characters(creatures_);
+
     const auto view = sim_.player_view();
+    const bool was_alive = has_player_;
     has_player_ = view.id != EntityId{};
-    player_pos_ = QPointF(view.x, view.y);
+    const QPointF position(view.x, view.y);
+    // 位置变了说明上一季的移动意图结算了，播一段行走动画。
+    if (has_player_ && was_alive && position != player_pos_)
+    {
+        walk_left_ = kWalkFrames;
+    }
+    player_pos_ = position;
+    if (has_player_ && player_slot < ranks.size())
+    {
+        player_character_ = office_of(ranks[player_slot]);
+    }
+    // 种群动了，静态场景要重画。
+    scene_dirty_ = true;
     update();
 }
 
@@ -190,62 +254,202 @@ void EcologyView::set_intent(const int dx, const int dy)
     update();
 }
 
-void EcologyView::paintEvent(QPaintEvent*)
+void EcologyView::initializeResources(QCanvasPainter* painter)
 {
-    QPainter p(this);
-    const auto side = static_cast<double>(std::min(width(), height()));
-    const double cell = side / static_cast<double>(gamev2::environment::kGridSide);
-    const double ox = (width() - side) / 2.0;
-    const double oy = (height() - side) / 2.0;
+    for (std::size_t i = 0; i < kCharacterCount; ++i)
+    {
+        // 最近邻采样：像素画放大后必须是硬边，插值一下就糊了。
+        crowd_images_[i] = painter->addImage(
+            sprites_.crowd(static_cast<Character>(i)),
+            QCanvasPainter::ImageFlag::Nearest);
+    }
+}
+
+void EcologyView::graphicsResourcesInvalidated()
+{
+    crowd_images_ = {};
+    player_image_ = {};
+    scene_ = {};
+    scene_image_ = {};
+    scene_size_ = {};
+    scene_dirty_ = true;
+}
+
+void EcologyView::prePaint(QCanvasPainter* painter)
+{
+    // 玩家帧。addImage() 按 QImage 的 cacheKey 命中纹理缓存，同一帧不会
+    // 重复上传。放在这里而不是 paint() 里，是因为 paint() 执行时渲染通道
+    // 已经开着，那会儿建纹理容易踩到驱动的限制。
+    const bool walking = walk_left_ > 0;
+    const int frame = walking ? walk_frame_ : idle_frame_;
+    player_image_ = painter->addImage(
+        sprites_.frame(player_character_, walking, frame),
+        QCanvasPainter::ImageFlag::Nearest);
+
+    // 控件尺寸变了，离屏画布得跟着重建。先 removeImage 再 destroyCanvas：
+    // 画布的纹理是 addImage() 登记进来的，销毁画布不会清掉渲染器那边的
+    // 采样器绑定，残留的绑定会指向已经不存在的纹理。
+    const QSize canvas_size = size() * devicePixelRatio();
+    if (scene_.isNull() || scene_size_ != canvas_size)
+    {
+        if (!scene_.isNull())
+        {
+            painter->removeImage(scene_image_);
+            scene_image_ = {};
+            painter->destroyCanvas(scene_);
+        }
+        scene_ = painter->createCanvas(canvas_size);
+        scene_size_ = canvas_size;
+        scene_image_ = painter->addImage(scene_,
+                                         QCanvasPainter::ImageFlag::Nearest);
+        scene_dirty_ = true;
+    }
+    if (scene_.isNull())
+    {
+        return;
+    }
+
+    // 场景没动就别重画。一万多个精灵重画一遍要几十毫秒，而种群一季才换一次。
+    if (!scene_dirty_)
+    {
+        return;
+    }
+    scene_dirty_ = false;
+
+    beginCanvasPainting(scene_);
+    // 离屏画布的坐标是设备像素（它的缩放比恒为 1），控件这边是逻辑像素。
+    // 差一个缩放比，整体放大一次即可，不必逐处换算。
+    painter->save();
+    painter->scale(devicePixelRatio(), devicePixelRatio());
+    rebuild_scene(painter);
+    painter->restore();
+    endCanvasPainting();
+}
+
+void EcologyView::paint(QCanvasPainter* painter)
+{
+    // 静态场景：承载力底色与人群，已经烘进离屏画布了。每帧只贴一张纹理。
+    if (!scene_image_.isNull())
+    {
+        painter->drawImage(scene_image_, QRectF(0, 0, width(), height()));
+    }
+    if (!has_player_)
+    {
+        return;
+    }
+
+    const auto area = grid_rect();
+    const double cell =
+        area.width() / static_cast<double>(gamev2::environment::kGridSide);
+    const double px = area.left() + player_pos_.x() * cell;
+    const double py = area.top() + player_pos_.y() * cell;
+
+    // 脚下压一圈暗影：人群密的时候，光靠精灵本身分不出谁是被接管的。
+    painter->beginPath();
+    painter->ellipse(px, py, kPlayerSprite * 0.42, kPlayerSprite * 0.16);
+    painter->setFillStyle(QColor(0, 0, 0, 120));
+    painter->fill();
+
+    // 玩家：原尺寸的动画精灵，盖在同格的其他个体上面。
+    if (!player_image_.isNull())
+    {
+        painter->drawImage(
+            player_image_,
+            QRectF(px - kPlayerSprite * kPivotX, py - kPlayerSprite * kPivotY,
+                   kPlayerSprite, kPlayerSprite));
+    }
+
+    // 黄圈：贴着脚下的椭圆，标出接管的是哪一只。
+    painter->beginPath();
+    painter->ellipse(px, py, kPlayerSprite * 0.55, kPlayerSprite * 0.28);
+    painter->setStrokeStyle(QColor(255, 208, 64));
+    painter->setLineWidth(2.0);
+    painter->stroke();
+
+    // 意图箭头。移动要到季末才结算，没有它按键像是没反应。
+    if (intent_dx_ != 0 || intent_dy_ != 0)
+    {
+        // 从精灵边缘往外指：横向从身侧出发，纵向从头顶出发，别把箭头
+        // 插进角色身体里。
+        const double reach = intent_dx_ != 0 ? kPlayerSprite * kPivotX
+                                             : kPlayerSprite * kPivotY;
+        const QPointF from(px + intent_dx_ * reach,
+                           py + intent_dy_ * reach);
+        const QPointF to(px + intent_dx_ * (reach + cell * 1.2),
+                         py + intent_dy_ * (reach + cell * 1.2));
+        painter->beginPath();
+        painter->moveTo(from);
+        painter->lineTo(to);
+        painter->setStrokeStyle(QColor(255, 238, 150));
+        painter->setLineWidth(2.0);
+        painter->stroke();
+
+        painter->beginPath();
+        painter->ellipse(to, cell * 0.22, cell * 0.22);
+        painter->setFillStyle(QColor(255, 238, 150));
+        painter->fill();
+    }
+}
+
+void EcologyView::rebuild_scene(QCanvasPainter* painter)
+{
+    const auto area = grid_rect();
+    const double cell =
+        area.width() / static_cast<double>(gamev2::environment::kGridSide);
 
     // 底色：承载力。承载力是这局的地形——哪里肥沃，哪里是死地。
     const auto& resources = sim_.environment().resources();
-    p.setPen(Qt::NoPen);
     for (std::size_t c = 0; c < gamev2::environment::kCellCount; ++c)
     {
         const auto index =
             gamev2::environment::CellIndex{static_cast<std::uint16_t>(c)};
         const double t = std::clamp(
             static_cast<double>(resources.capacity(index)) / 3.9, 0.0, 1.0);
-        const auto x = static_cast<int>(
-            ox + static_cast<double>(c % gamev2::environment::kGridSide) * cell);
-        const auto y = static_cast<int>(
-            oy + static_cast<double>(c / gamev2::environment::kGridSide) * cell);
-        p.setBrush(capacity_color(t));
-        p.drawRect(x, y, static_cast<int>(cell) + 1, static_cast<int>(cell) + 1);
+        const double x = area.left() +
+            static_cast<double>(c % gamev2::environment::kGridSide) * cell;
+        const double y = area.top() +
+            static_cast<double>(c / gamev2::environment::kGridSide) * cell;
+        painter->setFillStyle(capacity_color(t));
+        // 多画一像素压掉格与格之间的缝。
+        painter->fillRect(x, y, cell + 1.0, cell + 1.0);
     }
 
-    // 个体：一次 drawPoints 画完。逐个 drawEllipse 在一万个个体上会卡住。
-    // drawPoints 走的是笔而不是刷——笔要是 NoPen，一个点都画不出来。
-    p.setPen(QPen(QColor(235, 235, 235, 210), 1.0));
-    p.setBrush(Qt::NoBrush);
-    QPolygonF dots;
+    // 个体：角色精灵，一人一张。
     for (const auto& creature : creatures_)
     {
-        dots << QPointF(ox + creature.x() * cell, oy + creature.y() * cell);
+        const double x = area.left() + creature.pos.x() * cell;
+        const double y = area.top() + creature.pos.y() * cell;
+        painter->drawImage(
+            crowd_images_[static_cast<std::size_t>(creature.character)],
+            QRectF(x - kCrowdSprite * kPivotX, y - kCrowdSprite * kPivotY,
+                   kCrowdSprite, kCrowdSprite));
     }
-    p.drawPoints(dots);
+}
 
-    // 玩家：带白环的亮点，盖在同格的其他个体上面。
-    if (has_player_)
+QRectF EcologyView::grid_rect() const
+{
+    const auto side = static_cast<double>(std::min(width(), height()));
+    return QRectF((width() - side) / 2.0, (height() - side) / 2.0, side, side);
+}
+
+void EcologyView::advance_animation()
+{
+    if (!has_player_ || !isVisible())
     {
-        const double px = ox + player_pos_.x() * cell;
-        const double py = oy + player_pos_.y() * cell;
-        p.setPen(QPen(QColor(255, 255, 255), 1.5));
-        p.setBrush(QColor(255, 208, 64));
-        p.drawEllipse(QPointF(px, py), cell * 0.6, cell * 0.6);
-
-        // 意图箭头。移动要到季末才结算，没有它按键像是没反应。
-        if (intent_dx_ != 0 || intent_dy_ != 0)
-        {
-            const QPointF tip(px + intent_dx_ * cell * 1.4,
-                             py + intent_dy_ * cell * 1.4);
-            p.setPen(QPen(QColor(255, 238, 150), 2.0));
-            p.setBrush(QColor(255, 238, 150));
-            p.drawLine(QPointF(px, py), tip);
-            p.drawEllipse(tip, cell * 0.22, cell * 0.22);
-        }
+        return;
     }
+    if (walk_left_ > 0)
+    {
+        walk_frame_ = (walk_frame_ + 1) % kWalkFrames;
+        --walk_left_;
+    }
+    else
+    {
+        idle_frame_ = (idle_frame_ + 1) % kIdleFrames;
+    }
+    // 整幅重画：Canvas Painter 没有 QPainter 那种脏矩形缓存，只合成一张
+    // 离屏画布加几笔玩家，代价比算脏区还小。
+    update();
 }
 
 WorldView::WorldView(gamev2::world::World world, QWidget* parent)

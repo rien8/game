@@ -283,15 +283,27 @@ target_link_libraries(sim PRIVATE demo_scenario)
 # 打开开关时用 -DCMAKE_PREFIX_PATH=<Qt 6.12 的 msvc2022_64 目录> 指路。
 option(GAMEV2_BUILD_GUI "构建 Qt 演示程序 demo_gui" OFF)
 if(GAMEV2_BUILD_GUI)
-    find_package(Qt6 REQUIRED COMPONENTS Widgets)
+    # CanvasPainter：生态活体图用它画到 GPU 上（QCanvasPainterWidget）。
+    find_package(Qt6 REQUIRED COMPONENTS Widgets CanvasPainter)
     # AUTOMOC 必须在目标创建之前打开：views.hpp 里的 Q_OBJECT 类靠它生成 moc。
     set(CMAKE_AUTOMOC ON)
     add_executable(demo_gui
         src/gui/main.cpp
         src/gui/simulation.cpp
+        src/gui/sprites.cpp
         src/gui/views.cpp
     )
-    target_link_libraries(demo_gui PRIVATE demo_scenario worldgen Qt6::Widgets)
+    target_link_libraries(demo_gui PRIVATE demo_scenario worldgen
+                          Qt6::Widgets Qt6::CanvasPainter)
+    # 角色精灵打进可执行文件：界面从 :/assets/... 读，不依赖运行目录，
+    # 免得换个地方启动 exe 就找不到素材。
+    file(GLOB_RECURSE GAMEV2_CHARACTER_SPRITES CONFIGURE_DEPENDS
+         "${CMAKE_CURRENT_SOURCE_DIR}/assets/sprites/characters/individual/*.png"
+         "${CMAKE_CURRENT_SOURCE_DIR}/assets/sprites/characters/anim/*/atlas/atlas.png")
+    qt_add_resources(demo_gui "character_sprites"
+        PREFIX "/assets/sprites/characters"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/assets/sprites/characters"
+        FILES ${GAMEV2_CHARACTER_SPRITES})
     # WIN32_EXECUTABLE：GUI 程序不该带一个黑控制台窗口。
     set_target_properties(demo_gui PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()

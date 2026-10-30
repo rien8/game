@@ -66,6 +66,19 @@ py -3 scripts/make_sprites.py
 
 ## 在 Qt 里用
 
+素材用 `qt_add_resources` 打进可执行文件，路径是 `:/assets/...`，不依赖运行
+目录：
+
+```cmake
+file(GLOB_RECURSE GAMEV2_CHARACTER_SPRITES CONFIGURE_DEPENDS
+     "${CMAKE_CURRENT_SOURCE_DIR}/assets/sprites/characters/individual/*.png"
+     "${CMAKE_CURRENT_SOURCE_DIR}/assets/sprites/characters/anim/*/atlas/atlas.png")
+qt_add_resources(demo_gui "character_sprites"
+    PREFIX "/assets/sprites/characters"
+    BASE "${CMAKE_CURRENT_SOURCE_DIR}/assets/sprites/characters"
+    FILES ${GAMEV2_CHARACTER_SPRITES})
+```
+
 ```cpp
 QPixmap sprite(QStringLiteral(":/assets/sprites/characters/individual/realm5_yuanying.png"));
 // 像素画必须关掉平滑插值，否则放大后是糊的
@@ -73,8 +86,53 @@ sprite.setDevicePixelRatio(1.0);
 painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
 ```
 
-GUI 那边个体现在是按白点画的（`src/gui/views.cpp`），要换成这批精灵得
-先定尺寸与锚点：64×64 格网里放 32×32 精灵是 1:1 还是 1:2 缩放。
+界面侧现在走 Qt Canvas Painter（`QCanvasPainterWidget`），「关平滑插值」改由
+`QCanvasPainter::ImageFlag::Nearest` 表达，素材也用 `QImage` 而不是 `QPixmap`
+（QPixmap 绑在 GUI 线程的绘制表面上，纹理上传那条路上用不了）：
+
+```cpp
+painter->addImage(image, QCanvasPainter::ImageFlag::Nearest);
+```
+
+### 尺寸与锚点：定了 1:2 与 bottom-center
+
+先前这里留着一句「要换成这批精灵得先定尺寸与锚点」，现在定了：
+
+| 对象 | 素材 | 尺寸 | 锚点 |
+| --- | --- | --- | --- |
+| 人群个体 | `individual/<角色>.png` | 16×16（32 的 1/2） | 底部居中 |
+| 玩家 | `anim/<角色>/atlas/atlas.png` | 32×32（原尺寸） | 底部居中 |
+
+- **1:2 而不是 1:1。** 64×64 的格网在 780px 的视图里每格只有 12px，原尺寸的
+  精灵一个占两格多，六千个个体足以把地图糊成一团。半尺寸下人物还有 15px 高，
+  看得出是个穿袍子的修士。缩放只走整数倍：32 → 16 正好一半，最近邻取样每个
+  源像素变成 2×2 的方块，像素画才不糊。
+- **bottom-center 而不是左上角。** 图集 manifest 的 pivot 就是
+  (0.5, 0.9375)，静态精灵的脚底基线在第 30 行（0.9375 × 32），两者一致：
+  脚落在个体坐标上，身体朝上，地图上的位置就是角色站的地方。
+
+实现见 `src/gui/sprites.hpp` 与 `src/gui/sprites.cpp`，界面侧的用法见
+`doc/2026-10-29-qt-demo.md` 的「角色精灵」一节。
+
+### 动画图集的帧位置
+
+22 个角色的图集布局完全一致（`atlas.json` 的 `spec.grid` 是 6×2，192×64），
+可以照抄，不必解析 JSON：
+
+- 待机 4 帧：格子 0–3，即 (0,0) (32,0) (64,0) (96,0)。
+- 行走 6 帧：格子 4–9，跨到第二行——(128,0) (160,0) (0,32) (32,32)
+  (64,32) (96,32)。
+
+```cpp
+// 按 manifest.json 的 x/y/w/h 从 atlas.png 里切帧，用 frames/ 下的单帧更简单
+QPixmap sheet(QStringLiteral(":/assets/sprites/characters/anim/atlas/atlas.png"));
+// 像素画必须关掉平滑插值
+sheet.setDevicePixelRatio(1.0);
+painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
+```
+
+`atlas.json` 里每帧都带 `x/y/w/h`、`source_frame`、`frame_file` 和 `pivot`，
+直接照抄进引擎的精灵表即可。
 
 ## 动画精灵图（idle / walk）
 
@@ -256,16 +314,8 @@ bbox **之外**的污染，`worst_bg_purity` 也是同一个口径。炼气（`r
 
 ### 在 Qt 里用
 
-```cpp
-// 按 manifest.json 的 x/y/w/h 从 atlas.png 里切帧，用 frames/ 下的单帧更简单
-QPixmap sheet(QStringLiteral(":/assets/sprites/characters/anim/atlas/atlas.png"));
-// 像素画必须关掉平滑插值
-sheet.setDevicePixelRatio(1.0);
-painter->setRenderHint(QPainter::SmoothPixmapTransform, false);
-```
-
-`atlas.json` 里每帧都带 `x/y/w/h`、`source_frame`、`frame_file` 和 `pivot`，
-直接照抄进引擎的精灵表即可。
+帧的格子序号与切法见上文「动画图集的帧位置」——22 个角色的布局一致，照抄格子
+序号即可，不必解析 JSON。
 
 ## 已知限制
 

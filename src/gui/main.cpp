@@ -466,10 +466,11 @@ private:
         }
         const auto view = sim_.player_view();
         player_label_->setText(
-            QStringLiteral("个体 %1　年龄 %2 季\n坐标 (%3, %4)\n"
-                           "适应力 %5　本季存活率 %6\n体型 %7　速度 %8　"
-                           "寿命 %9　韧性 %10")
+            QStringLiteral("个体 %1　%2　年龄 %3 季\n坐标 (%4, %5)\n"
+                           "适应力 %6　本季存活率 %7\n体型 %8　速度 %9　"
+                           "寿命 %10　韧性 %11")
                 .arg(view.id.index())
+                .arg(gamev2::gui::character_name(eco_view_->player_character()))
                 .arg(view.age)
                 .arg(view.x, 0, 'f', 1)
                 .arg(view.y, 0, 'f', 1)

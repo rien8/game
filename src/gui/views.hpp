@@ -3,13 +3,20 @@
 #pragma once
 
 #include "simulation.hpp"
+#include "sprites.hpp"
 #include "gamev2/world/world.hpp"
 
+#include <QCanvasOffscreenCanvas>
+#include <QCanvasPainter>
+#include <QCanvasPainterWidget>
 #include <QImage>
 #include <QPointF>
+#include <QSize>
 #include <QString>
+#include <QTimer>
 #include <QWidget>
 
+#include <array>
 #include <cstdint>
 #include <utility>
 #include <vector>
@@ -45,9 +52,13 @@ inline constexpr int kMapLayerCount = 10;
 
 /// 生态活体图：64×64 的格网。
 ///
-/// 底色是承载力，越绿越肥；个体画成小点，玩家画成带环的亮点。绘制只读
-/// refresh() 取好的快照，不在 paintEvent 里遍历实体。
-class EcologyView : public QWidget
+/// 底色是承载力，越绿越肥；个体画成角色精灵，玩家画成原尺寸的动画精灵并
+/// 套上黄圈。整幅图交给 Qt Canvas Painter 画到 GPU 上。
+///
+/// 静态场景（承载力底色与人群）缓存在一张离屏画布里，只在种群变动时重画；
+/// 每帧只把这张画布合成上去，再补画玩家那几笔。Canvas Painter 没有
+/// QPainter 那种脏矩形缓存——一万多个精灵按 12fps 重画会把渲染线程压垮。
+class EcologyView : public QCanvasPainterWidget
 {
     Q_OBJECT
 
@@ -61,16 +72,68 @@ public:
     /// 没有这个箭头，按键会像是没反应。
     void set_intent(int dx, int dy);
 
+    /// 玩家当前的宗门职位。
+    [[nodiscard]] Character player_character() const noexcept
+    {
+        return player_character_;
+    }
+
 protected:
-    void paintEvent(QPaintEvent* event) override;
+    /// 纹理在这里上传。只在首次渲染以及图形资源失效之后调用。
+    void initializeResources(QCanvasPainter* painter) override;
+
+    /// 场景变了才重画离屏画布；玩家帧变了就补一次纹理上传。
+    void prePaint(QCanvasPainter* painter) override;
+
+    /// 每帧的合成：静态场景 + 玩家。
+    void paint(QCanvasPainter* painter) override;
+
+    /// 换了顶层窗口后纹理全没了，把句柄清空，下次 initializeResources 重传。
+    void graphicsResourcesInvalidated() override;
 
 private:
+    /// 推进一帧玩家动画。
+    void advance_animation();
+
+    /// 把承载力底色与人群画进离屏画布。
+    void rebuild_scene(QCanvasPainter* painter);
+
+    /// 格网在控件里的落位。
+    [[nodiscard]] QRectF grid_rect() const;
+
     Simulation& sim_;
-    std::vector<QPointF> creatures_;
+    std::vector<CreatureSprite> creatures_;
     QPointF player_pos_;
     bool has_player_ = false;
+    Character player_character_ = Character::SectMaster;
     int intent_dx_ = 0;
     int intent_dy_ = 0;
+
+    SpriteBook sprites_;
+
+    /// 人群用的静态精灵纹理。22 张 16×16，上传一次长期复用。
+    std::array<QCanvasImage, kCharacterCount> crowd_images_;
+
+    /// 玩家当前的动画帧纹理。
+    QCanvasImage player_image_;
+
+    /// 静态场景的离屏画布与它的纹理句柄。
+    QCanvasOffscreenCanvas scene_;
+    QCanvasImage scene_image_;
+
+    /// 离屏画布建时的大小。控件改了尺寸，画布要跟着重建。
+    QSize scene_size_;
+
+    /// 场景需要重画：种群变了、控件改了尺寸，或者纹理刚重新上传。
+    bool scene_dirty_ = true;
+
+    /// 12fps 驱动玩家精灵的待机与行走动画。图集 manifest 的 fps 也是 12。
+    QTimer anim_timer_;
+    int idle_frame_ = 0;
+    int walk_frame_ = 0;
+
+    /// 还要播多少帧行走。移动到季末才结算，因此由位置变化触发。
+    int walk_left_ = 0;
 };
 
 /// 世界地图：世界生成器的产物，可切图层、点格检视。
